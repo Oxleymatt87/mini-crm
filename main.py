@@ -133,3 +133,6 @@ class ContactOut(BaseModel):
     created_at:dt.datetime; updated_at:dt.datetime
 class InteractionCreate(BaseModel): kind:str; summary:str; occurred_at:Optional[dt.datetime]=None
 class InteractionOut(BaseModel): id:int; contact_id:int; kind:str
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT)

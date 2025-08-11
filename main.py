@@ -487,5 +487,9 @@ def google_geocode(address: str) -> Tuple[float, float]:
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     resp = requests.get(url, params={"address": address, "key": GOOGLE_MAPS_API_KEY}, timeout=10)
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Geocoding upstream error: {resp.status_code
-"main:app", host="0.0.0.0", port=PORT)
+        raise HTTPException(status_code=502, detail=f"Geocoding upstream error: {resp.status_code}")
+    data = resp.json()
+    if data.get("status") != "OK" or not data.get("results"):
+        raise HTTPException(status_code=404, detail=f"Geocoding failed: {data.get('status')}")
+    loc = data["results"][0]["geometry"]["location"]
+    return float(loc["lat"]), float(loc["lng"])

@@ -1,14 +1,16 @@
+"""Mini CRM Backend - Full Featured API"""
 from __future__ import annotations
-import os, csv, io, datetime as dt
+import os
+import csv
+import io
+import datetime as dt
 from typing import Optional, List
-from pathlib import Path
 
 import requests
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.staticfiles import StaticFiles
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from pydantic import BaseModel, field_validator, EmailStr
@@ -18,10 +20,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+
 def _load_env_file() -> None:
+    """Load environment variables from .env file if it exists."""
     if os.path.exists('.env'):
         with open('.env', 'r', encoding='utf-8') as f:
             for line in f:
@@ -31,8 +32,10 @@ def _load_env_file() -> None:
                 k, v = line.split('=', 1)
                 os.environ.setdefault(k.strip(), v.strip())
 
+
 _load_env_file()
 
+# Configuration
 JWT_SECRET = os.getenv('JWT_SECRET', 'change-this-in-production')
 JWT_ALG = 'HS256'
 JWT_EXPIRE_MIN = int(os.getenv('JWT_EXPIRE_MIN', '1440'))
@@ -40,11 +43,10 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./crm.db')
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 PORT = int(os.getenv('PORT', '10000'))
 
-# ---------------------------------------------------------------------------
-# Database
-# ---------------------------------------------------------------------------
+# Database setup
 class Base(DeclarativeBase):
     pass
+
 
 engine = create_engine(
     DATABASE_URL,
@@ -52,33 +54,32 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-# ---------------------------------------------------------------------------
-# Auth helpers
-# ---------------------------------------------------------------------------
+# Auth setup
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth/login')
 
 
-def hash_password(p: str) -> str:
-    return pwd_context.hash(p)
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
 
 
-def verify_password(p: str, h: str) -> bool:
-    return pwd_context.verify(p, h)
+def verify_password(password: str, hashed: str) -> bool:
+    return pwd_context.verify(password, hashed)
 
 
-def create_access_token(subj: str, minutes: int = JWT_EXPIRE_MIN) -> str:
+def create_access_token(subject: str, minutes: int = JWT_EXPIRE_MIN) -> str:
     now = dt.datetime.utcnow()
     exp = now + dt.timedelta(minutes=minutes)
     return jwt.encode(
-        {'sub': subj, 'iat': int(now.timestamp()), 'exp': int(exp.timestamp())},
-        JWT_SECRET, algorithm=JWT_ALG,
+        {'sub': subject, 'iat': int(now.timestamp()), 'exp': int(exp.timestamp())},
+        JWT_SECRET,
+        algorithm=JWT_ALG
     )
 
 
-def decode_token(t: str) -> str:
+def decode_token(token: str) -> str:
     try:
-        payload = jwt.decode(t, JWT_SECRET, algorithms=[JWT_ALG])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         sub = payload.get('sub')
         if not sub:
             raise JWTError('Missing sub')
@@ -86,9 +87,8 @@ def decode_token(t: str) -> str:
     except JWTError as e:
         raise HTTPException(401, 'Invalid or expired token') from e
 
-# ---------------------------------------------------------------------------
-# ORM Models
-# ---------------------------------------------------------------------------
+
+# Models
 class User(Base):
     __tablename__ = 'users'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -125,6 +125,7 @@ class Contact(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     owner: Mapped[User] = relationship(back_populates='contacts')
+    interactions: Mapped[List['Interaction']] = relationship(back_populates='contact', cascade='all, delete-orphan')
 
 
 Index('ix_contacts_name', Contact.first_name, Contact.last_name)
@@ -142,10 +143,10 @@ class Interaction(Base):
     summary: Mapped[str] = mapped_column(Text)
     occurred_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    contact: Mapped[Contact] = relationship(back_populates='interactions')
 
-# ---------------------------------------------------------------------------
-# Pydantic Schemas
-# ---------------------------------------------------------------------------
+
+# Schemas
 class Token(BaseModel):
     access_token: str
     token_type: str = 'bearer'
@@ -158,9 +159,9 @@ class UserCreate(BaseModel):
 
     @field_validator('password')
     @classmethod
-    def strong(cls, v):
+    def strong_password(cls, v):
         if len(v) < 6:
-            raise ValueError('password too short')
+            raise ValueError('password must be at least 6 characters')
         return v
 
 
@@ -245,22 +246,16 @@ class InteractionOut(BaseModel):
     occurred_at: dt.datetime
     created_at: dt.datetime
 
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-app = FastAPI(title='Mini CRM Backend', version='1.0')
+
+# App setup
+app = FastAPI(title="Mini CRM Backend", version="1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# Mount static files
-STATIC_DIR = Path(__file__).resolve().parent / 'static'
-STATIC_DIR.mkdir(exist_ok=True)
-app.mount('/static', StaticFiles(directory=str(STATIC_DIR), html=True), name='static')
 
 
 def get_db():
@@ -275,196 +270,401 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     email = decode_token(token)
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        raise HTTPException(status_code=401, detail='User not found')
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
-# ---------------------------------------------------------------------------
+
+def geocode_address(contact: Contact) -> tuple[Optional[float], Optional[float]]:
+    """Geocode a contact's address using Google Maps API."""
+    if not GOOGLE_MAPS_API_KEY:
+        return None, None
+
+    address_parts = [
+        contact.address_line1,
+        contact.address_line2,
+        contact.city,
+        contact.state,
+        contact.postal_code,
+        contact.country
+    ]
+    address = ', '.join(p for p in address_parts if p)
+    if not address:
+        return None, None
+
+    try:
+        resp = requests.get(
+            'https://maps.googleapis.com/maps/api/geocode/json',
+            params={'address': address, 'key': GOOGLE_MAPS_API_KEY},
+            timeout=5
+        )
+        data = resp.json()
+        if data.get('status') == 'OK' and data.get('results'):
+            loc = data['results'][0]['geometry']['location']
+            return loc.get('lat'), loc.get('lng')
+    except Exception:
+        pass
+    return None, None
+
+
 # Startup
-# ---------------------------------------------------------------------------
-@app.on_event('startup')
+@app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
 
-# ---------------------------------------------------------------------------
-# Routes – Health
-# ---------------------------------------------------------------------------
-@app.get('/')
-def root():
-    return {'ok': True, 'msg': 'Mini CRM backend running.'}
 
-# ---------------------------------------------------------------------------
-# Routes – Auth
-# ---------------------------------------------------------------------------
-@app.post('/auth/register', response_model=UserOut)
-def register(body: UserCreate, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == body.email).first():
-        raise HTTPException(400, 'Email already registered')
-    user = User(email=body.email, full_name=body.full_name, hashed_password=hash_password(body.password))
+# Routes - Health
+@app.get("/")
+def root():
+    return {"ok": True, "msg": "Mini CRM backend running."}
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+
+# Routes - Auth
+@app.post("/auth/register", response_model=UserOut)
+def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == user_data.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        hashed_password=hash_password(user_data.password),
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
 
 
-@app.post('/auth/login', response_model=Token)
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form.username).first()
-    if not user or not verify_password(form.password, user.hashed_password):
-        raise HTTPException(400, 'Invalid credentials')
-    return Token(access_token=create_access_token(user.email))
+@app.post("/auth/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+    token = create_access_token(user.email)
+    return Token(access_token=token)
 
 
-@app.get('/auth/me', response_model=UserOut)
+@app.get("/auth/me", response_model=UserOut)
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
-# ---------------------------------------------------------------------------
-# Routes – Contacts
-# ---------------------------------------------------------------------------
-@app.post('/contacts', response_model=ContactOut)
-def create_contact(body: ContactCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    data = body.model_dump(exclude_unset=True)
-    # Geocode address if Google Maps key is available
-    if GOOGLE_MAPS_API_KEY and any(data.get(f) for f in ('address_line1', 'city', 'state', 'postal_code', 'country')):
-        parts = [data.get(f, '') for f in ('address_line1', 'city', 'state', 'postal_code', 'country')]
-        addr = ', '.join(p for p in parts if p)
-        try:
-            resp = requests.get(
-                'https://maps.googleapis.com/maps/api/geocode/json',
-                params={'address': addr, 'key': GOOGLE_MAPS_API_KEY}, timeout=5,
-            )
-            results = resp.json().get('results', [])
-            if results:
-                loc = results[0]['geometry']['location']
-                data['latitude'] = loc['lat']
-                data['longitude'] = loc['lng']
-        except Exception:
-            pass
-    contact = Contact(owner_id=user.id, **data)
-    db.add(contact)
-    db.commit()
-    db.refresh(contact)
-    return contact
 
-
-@app.get('/contacts', response_model=List[ContactOut])
-def list_contacts(
-    q: Optional[str] = Query(None, description='Search across name, email, phone, company'),
-    sort: str = Query('created_at', description='Sort field'),
-    order: str = Query('desc', description='asc or desc'),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+# Routes - Contacts
+@app.post("/contacts", response_model=ContactOut)
+def create_contact(
+    contact_data: ContactCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Contact).filter(Contact.owner_id == user.id)
-    if q:
-        like = f'%{q}%'
-        query = query.filter(or_(
-            Contact.first_name.ilike(like), Contact.last_name.ilike(like),
-            Contact.email.ilike(like), Contact.phone.ilike(like),
-            Contact.company.ilike(like),
-        ))
-    col = getattr(Contact, sort, Contact.created_at)
-    query = query.order_by(col.desc() if order == 'desc' else col.asc())
-    return query.offset(offset).limit(limit).all()
+    contact = Contact(owner_id=current_user.id, **contact_data.model_dump())
+    db.add(contact)
+    db.flush()
 
+    # Geocode address if available
+    lat, lng = geocode_address(contact)
+    if lat is not None:
+        contact.latitude = lat
+        contact.longitude = lng
 
-@app.get('/contacts/{contact_id}', response_model=ContactOut)
-def get_contact(contact_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    contact = db.query(Contact).filter(Contact.id == contact_id, Contact.owner_id == user.id).first()
-    if not contact:
-        raise HTTPException(404, 'Contact not found')
-    return contact
-
-
-@app.patch('/contacts/{contact_id}', response_model=ContactOut)
-def update_contact(contact_id: int, body: ContactUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    contact = db.query(Contact).filter(Contact.id == contact_id, Contact.owner_id == user.id).first()
-    if not contact:
-        raise HTTPException(404, 'Contact not found')
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(contact, k, v)
     db.commit()
     db.refresh(contact)
     return contact
 
 
-@app.delete('/contacts/{contact_id}')
-def delete_contact(contact_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    contact = db.query(Contact).filter(Contact.id == contact_id, Contact.owner_id == user.id).first()
+@app.get("/contacts", response_model=List[ContactOut])
+def list_contacts(
+    search: Optional[str] = Query(None, description="Search in name, email, company, phone"),
+    city: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    company: Optional[str] = Query(None),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: str = Query("desc", description="Sort order: asc or desc"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Contact).filter(Contact.owner_id == current_user.id)
+
+    # Apply filters
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Contact.first_name.ilike(search_term),
+                Contact.last_name.ilike(search_term),
+                Contact.email.ilike(search_term),
+                Contact.company.ilike(search_term),
+                Contact.phone.ilike(search_term),
+            )
+        )
+    if city:
+        query = query.filter(Contact.city.ilike(f"%{city}%"))
+    if state:
+        query = query.filter(Contact.state.ilike(f"%{state}%"))
+    if company:
+        query = query.filter(Contact.company.ilike(f"%{company}%"))
+
+    # Apply sorting
+    sort_column = getattr(Contact, sort_by, Contact.created_at)
+    if sort_order.lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    return query.offset(skip).limit(limit).all()
+
+
+@app.get("/contacts/{contact_id}", response_model=ContactOut)
+def get_contact(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id,
+        Contact.owner_id == current_user.id
+    ).first()
     if not contact:
-        raise HTTPException(404, 'Contact not found')
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return contact
+
+
+@app.patch("/contacts/{contact_id}", response_model=ContactOut)
+def update_contact(
+    contact_id: int,
+    contact_data: ContactUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id,
+        Contact.owner_id == current_user.id
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    update_data = contact_data.model_dump(exclude_unset=True)
+    address_changed = any(k in update_data for k in ['address_line1', 'address_line2', 'city', 'state', 'postal_code', 'country'])
+
+    for key, value in update_data.items():
+        setattr(contact, key, value)
+
+    # Re-geocode if address changed
+    if address_changed:
+        lat, lng = geocode_address(contact)
+        if lat is not None:
+            contact.latitude = lat
+            contact.longitude = lng
+
+    db.commit()
+    db.refresh(contact)
+    return contact
+
+
+@app.delete("/contacts/{contact_id}")
+def delete_contact(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id,
+        Contact.owner_id == current_user.id
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
     db.delete(contact)
     db.commit()
-    return {'ok': True}
+    return {"ok": True}
 
 
-@app.get('/contacts/export/csv')
-def export_csv(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    contacts = db.query(Contact).filter(Contact.owner_id == user.id).all()
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(['first_name', 'last_name', 'email', 'phone', 'company', 'position', 'city', 'state', 'country'])
-    for c in contacts:
-        writer.writerow([c.first_name, c.last_name, c.email, c.phone, c.company, c.position, c.city, c.state, c.country])
-    buf.seek(0)
-    return StreamingResponse(buf, media_type='text/csv', headers={'Content-Disposition': 'attachment; filename=contacts.csv'})
-
-
-@app.post('/contacts/import/csv')
-def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    content = file.file.read().decode('utf-8')
-    reader = csv.DictReader(io.StringIO(content))
-    count = 0
-    for row in reader:
-        contact = Contact(
-            owner_id=user.id,
-            first_name=row.get('first_name', ''),
-            last_name=row.get('last_name', ''),
-            email=row.get('email') or None,
-            phone=row.get('phone') or None,
-            company=row.get('company') or None,
-            position=row.get('position') or None,
-            city=row.get('city') or None,
-            state=row.get('state') or None,
-            country=row.get('country') or None,
-        )
-        db.add(contact)
-        count += 1
-    db.commit()
-    return {'ok': True, 'imported': count}
-
-# ---------------------------------------------------------------------------
-# Routes – Interactions
-# ---------------------------------------------------------------------------
-@app.post('/contacts/{contact_id}/interactions', response_model=InteractionOut)
-def create_interaction(contact_id: int, body: InteractionCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    contact = db.query(Contact).filter(Contact.id == contact_id, Contact.owner_id == user.id).first()
+# Routes - Interactions
+@app.post("/contacts/{contact_id}/interactions", response_model=InteractionOut)
+def create_interaction(
+    contact_id: int,
+    interaction_data: InteractionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id,
+        Contact.owner_id == current_user.id
+    ).first()
     if not contact:
-        raise HTTPException(404, 'Contact not found')
+        raise HTTPException(status_code=404, detail="Contact not found")
+
     interaction = Interaction(
-        contact_id=contact_id, owner_id=user.id,
-        kind=body.kind, summary=body.summary,
-        occurred_at=body.occurred_at or dt.datetime.utcnow(),
+        contact_id=contact_id,
+        owner_id=current_user.id,
+        kind=interaction_data.kind,
+        summary=interaction_data.summary,
+        occurred_at=interaction_data.occurred_at or dt.datetime.utcnow()
     )
     db.add(interaction)
+
+    # Update last_contacted_at on the contact
     contact.last_contacted_at = interaction.occurred_at
+
     db.commit()
     db.refresh(interaction)
     return interaction
 
 
-@app.get('/contacts/{contact_id}/interactions', response_model=List[InteractionOut])
-def list_interactions(contact_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    contact = db.query(Contact).filter(Contact.id == contact_id, Contact.owner_id == user.id).first()
+@app.get("/contacts/{contact_id}/interactions", response_model=List[InteractionOut])
+def list_interactions(
+    contact_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id,
+        Contact.owner_id == current_user.id
+    ).first()
     if not contact:
-        raise HTTPException(404, 'Contact not found')
-    return db.query(Interaction).filter(Interaction.contact_id == contact_id).order_by(Interaction.occurred_at.desc()).all()
+        raise HTTPException(status_code=404, detail="Contact not found")
 
-# ---------------------------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------------------------
-if __name__ == '__main__':
+    return db.query(Interaction).filter(
+        Interaction.contact_id == contact_id
+    ).order_by(Interaction.occurred_at.desc()).offset(skip).limit(limit).all()
+
+
+@app.delete("/interactions/{interaction_id}")
+def delete_interaction(
+    interaction_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    interaction = db.query(Interaction).filter(
+        Interaction.id == interaction_id,
+        Interaction.owner_id == current_user.id
+    ).first()
+    if not interaction:
+        raise HTTPException(status_code=404, detail="Interaction not found")
+    db.delete(interaction)
+    db.commit()
+    return {"ok": True}
+
+
+# Routes - CSV Import/Export
+@app.get("/contacts/export/csv")
+def export_contacts_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    contacts = db.query(Contact).filter(Contact.owner_id == current_user.id).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    writer.writerow([
+        'first_name', 'last_name', 'email', 'phone', 'company', 'position',
+        'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'country', 'notes'
+    ])
+
+    # Data
+    for c in contacts:
+        writer.writerow([
+            c.first_name, c.last_name, c.email or '', c.phone or '', c.company or '', c.position or '',
+            c.address_line1 or '', c.address_line2 or '', c.city or '', c.state or '',
+            c.postal_code or '', c.country or '', c.notes or ''
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=contacts.csv"}
+    )
+
+
+@app.post("/contacts/import/csv")
+def import_contacts_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+
+    content = file.file.read().decode('utf-8')
+    reader = csv.DictReader(io.StringIO(content))
+
+    imported = 0
+    errors = []
+
+    for i, row in enumerate(reader, start=2):
+        try:
+            first_name = row.get('first_name', '').strip()
+            last_name = row.get('last_name', '').strip()
+
+            if not first_name or not last_name:
+                errors.append(f"Row {i}: first_name and last_name are required")
+                continue
+
+            contact = Contact(
+                owner_id=current_user.id,
+                first_name=first_name,
+                last_name=last_name,
+                email=row.get('email', '').strip() or None,
+                phone=row.get('phone', '').strip() or None,
+                company=row.get('company', '').strip() or None,
+                position=row.get('position', '').strip() or None,
+                address_line1=row.get('address_line1', '').strip() or None,
+                address_line2=row.get('address_line2', '').strip() or None,
+                city=row.get('city', '').strip() or None,
+                state=row.get('state', '').strip() or None,
+                postal_code=row.get('postal_code', '').strip() or None,
+                country=row.get('country', '').strip() or None,
+                notes=row.get('notes', '').strip() or None,
+            )
+            db.add(contact)
+            imported += 1
+        except Exception as e:
+            errors.append(f"Row {i}: {str(e)}")
+
+    db.commit()
+    return {"imported": imported, "errors": errors}
+
+
+# Routes - Dashboard/Stats
+@app.get("/stats")
+def get_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    total_contacts = db.query(Contact).filter(Contact.owner_id == current_user.id).count()
+    total_interactions = db.query(Interaction).filter(Interaction.owner_id == current_user.id).count()
+
+    # Contacts needing follow-up (next_follow_up_at in past or today)
+    now = dt.datetime.utcnow()
+    follow_ups_due = db.query(Contact).filter(
+        Contact.owner_id == current_user.id,
+        Contact.next_follow_up_at <= now
+    ).count()
+
+    # Recent interactions (last 7 days)
+    week_ago = now - dt.timedelta(days=7)
+    recent_interactions = db.query(Interaction).filter(
+        Interaction.owner_id == current_user.id,
+        Interaction.occurred_at >= week_ago
+    ).count()
+
+    return {
+        "total_contacts": total_contacts,
+        "total_interactions": total_interactions,
+        "follow_ups_due": follow_ups_due,
+        "recent_interactions": recent_interactions
+    }
+
+
+if __name__ == "__main__":
     import uvicorn
-    uvicorn.run('main:app', host='0.0.0.0', port=PORT, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

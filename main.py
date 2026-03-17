@@ -5,6 +5,8 @@ import csv
 import io
 import datetime as dt
 import secrets
+import threading
+import time
 from typing import Optional, List
 from urllib.parse import urlencode
 
@@ -977,6 +979,114 @@ def import_quickbooks_customers(
 
     db.commit()
     return {"imported": imported, "total_customers": len(customers)}
+
+
+class InitTokensRequest(BaseModel):
+    access_token: str
+    refresh_token: str
+    realm_id: str
+
+
+@app.post("/quickbooks/init-tokens")
+def init_quickbooks_tokens(
+    token_data: InitTokensRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Initialize QuickBooks connection with existing tokens."""
+    now = dt.datetime.utcnow()
+
+    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
+    if qb_token:
+        qb_token.realm_id = token_data.realm_id
+        qb_token.access_token = token_data.access_token
+        qb_token.refresh_token = token_data.refresh_token
+        qb_token.access_token_expires_at = now + dt.timedelta(hours=1)
+        qb_token.refresh_token_expires_at = now + dt.timedelta(days=100)
+    else:
+        qb_token = QuickBooksToken(
+            user_id=current_user.id,
+            realm_id=token_data.realm_id,
+            access_token=token_data.access_token,
+            refresh_token=token_data.refresh_token,
+            access_token_expires_at=now + dt.timedelta(hours=1),
+            refresh_token_expires_at=now + dt.timedelta(days=100),
+        )
+        db.add(qb_token)
+
+    db.commit()
+    return {"ok": True, "message": "QuickBooks tokens initialized"}
+
+
+# Background sync worker
+_sync_stop_event = threading.Event()
+_sync_thread: Optional[threading.Thread] = None
+_sync_interval_minutes = int(os.getenv('QB_SYNC_INTERVAL_MINUTES', '30'))
+
+
+def _background_sync_worker():
+    """Background worker that syncs QuickBooks data periodically."""
+    while not _sync_stop_event.is_set():
+        try:
+            db = SessionLocal()
+            # Get all users with QuickBooks tokens
+            tokens = db.query(QuickBooksToken).all()
+            for qb_token in tokens:
+                try:
+                    # Refresh token if needed
+                    now = dt.datetime.utcnow()
+                    if qb_token.access_token_expires_at < now:
+                        resp = requests.post(
+                            QB_TOKEN_URL,
+                            auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+                            headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+                            data={'grant_type': 'refresh_token', 'refresh_token': qb_token.refresh_token},
+                            timeout=30
+                        )
+                        if resp.status_code == 200:
+                            new_tokens = resp.json()
+                            qb_token.access_token = new_tokens['access_token']
+                            qb_token.refresh_token = new_tokens['refresh_token']
+                            qb_token.access_token_expires_at = now + dt.timedelta(seconds=new_tokens['expires_in'])
+                            qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=new_tokens['x_refresh_token_expires_in'])
+                            db.commit()
+                except Exception as e:
+                    print(f"Sync error for user {qb_token.user_id}: {e}")
+            db.close()
+        except Exception as e:
+            print(f"Background sync error: {e}")
+
+        # Wait for interval or stop signal
+        _sync_stop_event.wait(timeout=_sync_interval_minutes * 60)
+
+
+@app.post("/quickbooks/sync/start")
+def start_background_sync(current_user: User = Depends(get_current_user)):
+    """Start background QuickBooks sync worker."""
+    global _sync_thread
+    if _sync_thread and _sync_thread.is_alive():
+        return {"ok": True, "message": "Sync already running"}
+
+    _sync_stop_event.clear()
+    _sync_thread = threading.Thread(target=_background_sync_worker, daemon=True)
+    _sync_thread.start()
+    return {"ok": True, "message": f"Background sync started (interval: {_sync_interval_minutes} minutes)"}
+
+
+@app.post("/quickbooks/sync/stop")
+def stop_background_sync(current_user: User = Depends(get_current_user)):
+    """Stop background QuickBooks sync worker."""
+    _sync_stop_event.set()
+    return {"ok": True, "message": "Background sync stopping"}
+
+
+@app.get("/quickbooks/sync/status")
+def get_sync_status(current_user: User = Depends(get_current_user)):
+    """Get background sync status."""
+    return {
+        "running": _sync_thread is not None and _sync_thread.is_alive(),
+        "interval_minutes": _sync_interval_minutes
+    }
 
 
 if __name__ == "__main__":

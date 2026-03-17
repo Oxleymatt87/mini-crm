@@ -4,10 +4,13 @@ import os
 import csv
 import io
 import datetime as dt
+import secrets
 from typing import Optional, List
+from urllib.parse import urlencode
 
 import requests
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -42,6 +45,15 @@ JWT_EXPIRE_MIN = int(os.getenv('JWT_EXPIRE_MIN', '1440'))
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./crm.db')
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 PORT = int(os.getenv('PORT', '10000'))
+
+# QuickBooks OAuth Configuration
+QB_CLIENT_ID = os.getenv('QB_CLIENT_ID', '')
+QB_CLIENT_SECRET = os.getenv('QB_CLIENT_SECRET', '')
+QB_REDIRECT_URI = os.getenv('QB_REDIRECT_URI', 'http://localhost:10000/quickbooks/callback')
+QB_ENVIRONMENT = os.getenv('QB_ENVIRONMENT', 'sandbox')  # 'sandbox' or 'production'
+QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
+QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+QB_API_BASE = 'https://sandbox-quickbooks.api.intuit.com' if QB_ENVIRONMENT == 'sandbox' else 'https://quickbooks.api.intuit.com'
 
 # Database setup
 class Base(DeclarativeBase):
@@ -130,6 +142,24 @@ class Contact(Base):
 
 Index('ix_contacts_name', Contact.first_name, Contact.last_name)
 Index('ix_contacts_company_email', Contact.company, Contact.email)
+
+
+class QuickBooksToken(Base):
+    """Store QuickBooks OAuth tokens per user."""
+    __tablename__ = 'quickbooks_tokens'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), unique=True, index=True)
+    realm_id: Mapped[str] = mapped_column(String(50))  # QuickBooks company ID
+    access_token: Mapped[str] = mapped_column(Text)
+    refresh_token: Mapped[str] = mapped_column(Text)
+    access_token_expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    refresh_token_expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# Store OAuth state tokens temporarily (in production, use Redis or similar)
+_oauth_states: dict[str, int] = {}
 
 InteractionKind = Enum('call', 'email', 'meeting', 'note', name='interaction_kind')
 
@@ -663,6 +693,290 @@ def get_stats(
         "follow_ups_due": follow_ups_due,
         "recent_interactions": recent_interactions
     }
+
+
+# Routes - QuickBooks Integration
+@app.get("/quickbooks/connect")
+def quickbooks_connect(current_user: User = Depends(get_current_user)):
+    """Initiate QuickBooks OAuth flow."""
+    if not QB_CLIENT_ID or not QB_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="QuickBooks not configured. Set QB_CLIENT_ID and QB_CLIENT_SECRET.")
+
+    state = secrets.token_urlsafe(32)
+    _oauth_states[state] = current_user.id
+
+    params = {
+        'client_id': QB_CLIENT_ID,
+        'response_type': 'code',
+        'scope': 'com.intuit.quickbooks.accounting',
+        'redirect_uri': QB_REDIRECT_URI,
+        'state': state,
+    }
+    auth_url = f"{QB_AUTH_URL}?{urlencode(params)}"
+    return {"auth_url": auth_url}
+
+
+@app.get("/quickbooks/callback")
+def quickbooks_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    realmId: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Handle QuickBooks OAuth callback."""
+    user_id = _oauth_states.pop(state, None)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired state token")
+
+    # Exchange code for tokens
+    auth = (QB_CLIENT_ID, QB_CLIENT_SECRET)
+    resp = requests.post(
+        QB_TOKEN_URL,
+        auth=auth,
+        headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+        data={
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': QB_REDIRECT_URI,
+        },
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
+
+    tokens = resp.json()
+    now = dt.datetime.utcnow()
+
+    # Save or update tokens
+    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+    if qb_token:
+        qb_token.realm_id = realmId
+        qb_token.access_token = tokens['access_token']
+        qb_token.refresh_token = tokens['refresh_token']
+        qb_token.access_token_expires_at = now + dt.timedelta(seconds=tokens['expires_in'])
+        qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in'])
+    else:
+        qb_token = QuickBooksToken(
+            user_id=user_id,
+            realm_id=realmId,
+            access_token=tokens['access_token'],
+            refresh_token=tokens['refresh_token'],
+            access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
+            refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
+        )
+        db.add(qb_token)
+
+    db.commit()
+    return RedirectResponse(url="/?quickbooks=connected")
+
+
+def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:
+    """Get valid QuickBooks access token, refreshing if needed."""
+    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+    if not qb_token:
+        raise HTTPException(status_code=400, detail="QuickBooks not connected. Visit /quickbooks/connect first.")
+
+    now = dt.datetime.utcnow()
+
+    # Check if refresh token expired
+    if qb_token.refresh_token_expires_at < now:
+        db.delete(qb_token)
+        db.commit()
+        raise HTTPException(status_code=400, detail="QuickBooks authorization expired. Please reconnect.")
+
+    # Refresh access token if expired
+    if qb_token.access_token_expires_at < now:
+        resp = requests.post(
+            QB_TOKEN_URL,
+            auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+            headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+            data={'grant_type': 'refresh_token', 'refresh_token': qb_token.refresh_token},
+            timeout=30
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to refresh QuickBooks token")
+
+        tokens = resp.json()
+        qb_token.access_token = tokens['access_token']
+        qb_token.refresh_token = tokens['refresh_token']
+        qb_token.access_token_expires_at = now + dt.timedelta(seconds=tokens['expires_in'])
+        qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in'])
+        db.commit()
+
+    return qb_token.access_token, qb_token.realm_id
+
+
+@app.get("/quickbooks/status")
+def quickbooks_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check QuickBooks connection status."""
+    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
+    if not qb_token:
+        return {"connected": False}
+
+    now = dt.datetime.utcnow()
+    return {
+        "connected": True,
+        "realm_id": qb_token.realm_id,
+        "access_token_valid": qb_token.access_token_expires_at > now,
+        "refresh_token_valid": qb_token.refresh_token_expires_at > now,
+    }
+
+
+@app.delete("/quickbooks/disconnect")
+def quickbooks_disconnect(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Disconnect QuickBooks integration."""
+    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
+    if qb_token:
+        db.delete(qb_token)
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/quickbooks/customers")
+def list_quickbooks_customers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List customers from QuickBooks."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    resp = requests.get(
+        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+        },
+        params={'query': 'SELECT * FROM Customer MAXRESULTS 100'},
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text}")
+
+    data = resp.json()
+    customers = data.get('QueryResponse', {}).get('Customer', [])
+    return {"customers": customers}
+
+
+@app.post("/quickbooks/sync-contact/{contact_id}")
+def sync_contact_to_quickbooks(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sync a CRM contact to QuickBooks as a customer."""
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id,
+        Contact.owner_id == current_user.id
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    customer_data = {
+        "DisplayName": f"{contact.first_name} {contact.last_name}",
+        "GivenName": contact.first_name,
+        "FamilyName": contact.last_name,
+        "CompanyName": contact.company,
+    }
+
+    if contact.email:
+        customer_data["PrimaryEmailAddr"] = {"Address": contact.email}
+    if contact.phone:
+        customer_data["PrimaryPhone"] = {"FreeFormNumber": contact.phone}
+    if contact.address_line1:
+        customer_data["BillAddr"] = {
+            "Line1": contact.address_line1,
+            "Line2": contact.address_line2,
+            "City": contact.city,
+            "CountrySubDivisionCode": contact.state,
+            "PostalCode": contact.postal_code,
+            "Country": contact.country,
+        }
+
+    resp = requests.post(
+        f"{QB_API_BASE}/v3/company/{realm_id}/customer",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        },
+        json=customer_data,
+        timeout=30
+    )
+
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text}")
+
+    return {"ok": True, "quickbooks_customer": resp.json().get('Customer')}
+
+
+@app.post("/quickbooks/import-customers")
+def import_quickbooks_customers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Import QuickBooks customers as CRM contacts."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    resp = requests.get(
+        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+        },
+        params={'query': 'SELECT * FROM Customer MAXRESULTS 500'},
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text}")
+
+    data = resp.json()
+    customers = data.get('QueryResponse', {}).get('Customer', [])
+
+    imported = 0
+    for cust in customers:
+        first_name = cust.get('GivenName', cust.get('DisplayName', 'Unknown'))
+        last_name = cust.get('FamilyName', '')
+
+        # Skip if contact with same name already exists
+        existing = db.query(Contact).filter(
+            Contact.owner_id == current_user.id,
+            Contact.first_name == first_name,
+            Contact.last_name == last_name
+        ).first()
+        if existing:
+            continue
+
+        bill_addr = cust.get('BillAddr', {})
+        contact = Contact(
+            owner_id=current_user.id,
+            first_name=first_name,
+            last_name=last_name or first_name,
+            email=cust.get('PrimaryEmailAddr', {}).get('Address'),
+            phone=cust.get('PrimaryPhone', {}).get('FreeFormNumber'),
+            company=cust.get('CompanyName'),
+            address_line1=bill_addr.get('Line1'),
+            address_line2=bill_addr.get('Line2'),
+            city=bill_addr.get('City'),
+            state=bill_addr.get('CountrySubDivisionCode'),
+            postal_code=bill_addr.get('PostalCode'),
+            country=bill_addr.get('Country'),
+        )
+        db.add(contact)
+        imported += 1
+
+    db.commit()
+    return {"imported": imported, "total_customers": len(customers)}
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ services:
       - key: QB_ENVIRONMENT
         value: "production"
       - key: PYTHON_VERSION
-        value: "3.11"
+        value: "3.11.0"
     healthCheckPath: /health
     autoDeploy: true
 

@@ -5,33 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#2563eb">
-    <title>Mini CRM</title>
+    <meta name="theme-color" content="#000000">
+    <title>Oxley Tire CRM</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f3f4f6;
-            color: #1f2937;
+            background: #111;
+            color: #f5f5f5;
             min-height: 100vh;
         }
         .header {
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            color: white;
+            background: linear-gradient(135deg, #1a1a1a, #000);
+            color: #d4a12a;
             padding: 16px 20px;
             position: sticky;
             top: 0;
             z-index: 100;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            box-shadow: 0 2px 8px rgba(212,161,42,0.2);
+            border-bottom: 2px solid #d4a12a;
         }
-        .header h1 { font-size: 20px; font-weight: 600; }
+        .header h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
         .header-actions { display: flex; gap: 12px; margin-top: 8px; }
         .header-btn {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
+            background: rgba(212,161,42,0.2);
+            border: 1px solid #d4a12a;
+            color: #d4a12a;
             padding: 8px 16px;
             border-radius: 8px;
             font-size: 14px;
@@ -39,57 +40,62 @@
         }
         .container { padding: 16px; max-width: 600px; margin: 0 auto; }
         .card {
-            background: white;
+            background: #1a1a1a;
             border-radius: 12px;
             padding: 16px;
             margin-bottom: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #333;
         }
-        .contact-name { font-weight: 600; font-size: 16px; color: #1f2937; }
-        .contact-company { font-size: 14px; color: #6b7280; margin-top: 2px; }
-        .contact-details { font-size: 13px; color: #9ca3af; margin-top: 8px; }
-        .contact-details a { color: #2563eb; text-decoration: none; }
+        .contact-name { font-weight: 600; font-size: 16px; color: #d4a12a; }
+        .contact-company { font-size: 14px; color: #888; margin-top: 2px; }
+        .contact-details { font-size: 13px; color: #666; margin-top: 8px; }
+        .contact-details a { color: #d4a12a; text-decoration: none; }
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
         .stat-card {
-            background: white;
+            background: #1a1a1a;
             border-radius: 12px;
             padding: 16px;
             text-align: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #333;
         }
-        .stat-number { font-size: 28px; font-weight: 700; color: #2563eb; }
-        .stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+        .stat-number { font-size: 28px; font-weight: 700; color: #d4a12a; }
+        .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
         .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #374151; }
+        .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #d4a12a; }
         .form-group input {
             width: 100%;
             padding: 12px;
-            border: 1px solid #d1d5db;
+            border: 1px solid #333;
             border-radius: 8px;
             font-size: 16px;
+            background: #222;
+            color: #f5f5f5;
         }
-        .form-group input:focus { outline: none; border-color: #2563eb; }
+        .form-group input:focus { outline: none; border-color: #d4a12a; }
         .btn {
             width: 100%;
             padding: 14px;
-            background: #2563eb;
-            color: white;
+            background: linear-gradient(135deg, #d4a12a, #b8860b);
+            color: #000;
             border: none;
             border-radius: 8px;
             font-size: 16px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
         }
-        .btn:disabled { background: #9ca3af; }
-        .btn-secondary { background: #6b7280; }
-        .btn-danger { background: #dc2626; }
+        .btn:disabled { background: #444; color: #888; }
+        .btn-secondary { background: #333; color: #d4a12a; border: 1px solid #d4a12a; }
+        .btn-danger { background: #8b0000; color: #fff; }
         .nav-tabs {
             display: flex;
-            background: white;
+            background: #1a1a1a;
             border-radius: 12px;
             padding: 4px;
             margin-bottom: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #333;
         }
         .nav-tab {
             flex: 1;
@@ -99,20 +105,22 @@
             background: none;
             font-size: 14px;
             font-weight: 500;
-            color: #6b7280;
+            color: #888;
             border-radius: 8px;
             cursor: pointer;
         }
-        .nav-tab.active { background: #2563eb; color: white; }
+        .nav-tab.active { background: #d4a12a; color: #000; }
         .search-box {
             width: 100%;
             padding: 12px 16px;
-            border: none;
+            border: 1px solid #333;
             border-radius: 12px;
             font-size: 16px;
             margin-bottom: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            background: #1a1a1a;
+            color: #f5f5f5;
         }
+        .search-box:focus { outline: none; border-color: #d4a12a; }
         .hidden { display: none !important; }
         .fab {
             position: fixed;
@@ -121,28 +129,30 @@
             width: 56px;
             height: 56px;
             border-radius: 50%;
-            background: #2563eb;
-            color: white;
+            background: linear-gradient(135deg, #d4a12a, #b8860b);
+            color: #000;
             border: none;
             font-size: 28px;
-            box-shadow: 0 4px 12px rgba(37,99,235,0.4);
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(212,161,42,0.4);
             cursor: pointer;
         }
         .modal {
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.8);
             display: flex;
             align-items: flex-end;
             z-index: 200;
         }
         .modal-content {
-            background: white;
+            background: #1a1a1a;
             width: 100%;
             max-height: 90vh;
             overflow-y: auto;
             border-radius: 20px 20px 0 0;
             padding: 24px;
+            border-top: 2px solid #d4a12a;
         }
         .modal-header {
             display: flex;
@@ -150,28 +160,48 @@
             align-items: center;
             margin-bottom: 20px;
         }
-        .modal-header h2 { font-size: 18px; }
+        .modal-header h2 { font-size: 18px; color: #d4a12a; }
         .modal-close {
             background: none;
             border: none;
             font-size: 24px;
-            color: #6b7280;
+            color: #888;
             cursor: pointer;
         }
-        .error { color: #dc2626; font-size: 14px; margin-top: 8px; }
+        .error { color: #ff6b6b; font-size: 14px; margin-top: 8px; }
         .empty-state {
             text-align: center;
             padding: 40px 20px;
-            color: #6b7280;
+            color: #888;
         }
         .empty-state-icon { font-size: 48px; margin-bottom: 16px; }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #d4a12a;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #000;
+            font-size: 18px;
+        }
     </style>
 </head>
 <body>
     <!-- Login Screen -->
     <div id="login-screen">
         <div class="header">
-            <h1>Mini CRM</h1>
+            <div class="logo">
+                <div class="logo-icon">O</div>
+                <h1>OXLEY TIRE CRM</h1>
+            </div>
         </div>
         <div class="container" style="padding-top: 40px;">
             <div class="card">
@@ -193,7 +223,10 @@
     <!-- Register Screen -->
     <div id="register-screen" class="hidden">
         <div class="header">
-            <h1>Create Account</h1>
+            <div class="logo">
+                <div class="logo-icon">O</div>
+                <h1>Create Account</h1>
+            </div>
         </div>
         <div class="container" style="padding-top: 40px;">
             <div class="card">
@@ -219,7 +252,10 @@
     <!-- Main App -->
     <div id="app-screen" class="hidden">
         <div class="header">
-            <h1>Mini CRM</h1>
+            <div class="logo">
+                <div class="logo-icon">O</div>
+                <h1>OXLEY TIRE CRM</h1>
+            </div>
             <div class="header-actions">
                 <button class="header-btn" onclick="logout()">Logout</button>
             </div>

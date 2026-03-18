@@ -1,11 +1,11 @@
 {
-  "name": "Mini CRM",
-  "short_name": "Mini CRM",
-  "description": "Simple contact management",
+  "name": "Oxley Tire CRM",
+  "short_name": "Oxley CRM",
+  "description": "Contact management for Oxley Tire Inc.",
   "start_url": "/static/index.html",
   "display": "standalone",
-  "background_color": "#f3f4f6",
-  "theme_color": "#2563eb",
+  "background_color": "#000000",
+  "theme_color": "#d4a12a",
   "icons": [
     {
       "src": "/static/icon-192.png",

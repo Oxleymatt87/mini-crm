@@ -62,6 +62,14 @@ QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 QB_API_BASE = 'https://sandbox-quickbooks.api.intuit.com' if QB_ENVIRONMENT == 'sandbox' else 'https://quickbooks.api.intuit.com'
 
+# Google OAuth Configuration (for Drive access)
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:10000/google/callback')
+GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
+GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+GOOGLE_DRIVE_API = 'https://www.googleapis.com/drive/v3'
+
 # Database setup
 class Base(DeclarativeBase):
     pass
@@ -173,8 +181,21 @@ class QuickBooksToken(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class GoogleDriveToken(Base):
+    """Store Google OAuth tokens per user for Drive access."""
+    __tablename__ = 'google_drive_tokens'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), unique=True, index=True)
+    access_token: Mapped[str] = mapped_column(Text)
+    refresh_token: Mapped[str] = mapped_column(Text)
+    access_token_expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 # Store OAuth state tokens temporarily (in production, use Redis or similar)
 _oauth_states: dict[str, int] = {}
+_google_oauth_states: dict[str, int] = {}
 
 InteractionKind = Enum('call', 'email', 'meeting', 'note', name='interaction_kind')
 
@@ -1232,6 +1253,383 @@ def get_sync_status(current_user: User = Depends(get_current_user)):
         "running": _sync_thread is not None and _sync_thread.is_alive(),
         "interval_minutes": _sync_interval_minutes
     }
+
+
+# Routes - Google Drive Integration
+@app.get("/google/connect")
+def google_connect(current_user: User = Depends(get_current_user)):
+    """Initiate Google OAuth flow for Drive access."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="Google not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
+
+    state = secrets.token_urlsafe(32)
+    _google_oauth_states[state] = current_user.id
+
+    params = {
+        'client_id': GOOGLE_CLIENT_ID,
+        'response_type': 'code',
+        'scope': 'https://www.googleapis.com/auth/drive.readonly',
+        'redirect_uri': GOOGLE_REDIRECT_URI,
+        'state': state,
+        'access_type': 'offline',
+        'prompt': 'consent',
+    }
+    auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+    return {"auth_url": auth_url}
+
+
+@app.get("/google/callback")
+def google_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Handle Google OAuth callback."""
+    user_id = _google_oauth_states.pop(state, None)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired state token")
+
+    # Exchange code for tokens
+    resp = requests.post(
+        GOOGLE_TOKEN_URL,
+        data={
+            'client_id': GOOGLE_CLIENT_ID,
+            'client_secret': GOOGLE_CLIENT_SECRET,
+            'code': code,
+            'grant_type': 'authorization_code',
+            'redirect_uri': GOOGLE_REDIRECT_URI,
+        },
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
+
+    tokens = resp.json()
+    now = dt.datetime.utcnow()
+
+    # Save or update tokens
+    g_token = db.query(GoogleDriveToken).filter(GoogleDriveToken.user_id == user_id).first()
+    if g_token:
+        g_token.access_token = tokens['access_token']
+        g_token.refresh_token = tokens.get('refresh_token', g_token.refresh_token)
+        g_token.access_token_expires_at = now + dt.timedelta(seconds=tokens.get('expires_in', 3600))
+    else:
+        g_token = GoogleDriveToken(
+            user_id=user_id,
+            access_token=tokens['access_token'],
+            refresh_token=tokens.get('refresh_token', ''),
+            access_token_expires_at=now + dt.timedelta(seconds=tokens.get('expires_in', 3600)),
+        )
+        db.add(g_token)
+
+    db.commit()
+    return RedirectResponse(url="/?google=connected")
+
+
+def get_google_access_token(user_id: int, db: Session) -> str:
+    """Get valid Google access token, refreshing if needed."""
+    g_token = db.query(GoogleDriveToken).filter(GoogleDriveToken.user_id == user_id).first()
+    if not g_token:
+        raise HTTPException(status_code=400, detail="Google Drive not connected. Visit /google/connect first.")
+
+    now = dt.datetime.utcnow()
+
+    # Refresh access token if expired
+    if g_token.access_token_expires_at < now:
+        if not g_token.refresh_token:
+            db.delete(g_token)
+            db.commit()
+            raise HTTPException(status_code=400, detail="Google authorization expired. Please reconnect.")
+
+        resp = requests.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                'client_id': GOOGLE_CLIENT_ID,
+                'client_secret': GOOGLE_CLIENT_SECRET,
+                'refresh_token': g_token.refresh_token,
+                'grant_type': 'refresh_token',
+            },
+            timeout=30
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to refresh Google token")
+
+        tokens = resp.json()
+        g_token.access_token = tokens['access_token']
+        g_token.access_token_expires_at = now + dt.timedelta(seconds=tokens.get('expires_in', 3600))
+        db.commit()
+
+    return g_token.access_token
+
+
+@app.get("/google/status")
+def google_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check Google Drive connection status."""
+    g_token = db.query(GoogleDriveToken).filter(GoogleDriveToken.user_id == current_user.id).first()
+    if not g_token:
+        return {"connected": False}
+
+    now = dt.datetime.utcnow()
+    return {
+        "connected": True,
+        "access_token_valid": g_token.access_token_expires_at > now,
+    }
+
+
+@app.delete("/google/disconnect")
+def google_disconnect(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Disconnect Google Drive integration."""
+    g_token = db.query(GoogleDriveToken).filter(GoogleDriveToken.user_id == current_user.id).first()
+    if g_token:
+        db.delete(g_token)
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/google/drive/files")
+def list_drive_files(
+    folder_id: Optional[str] = Query(None, description="Folder ID (root if not specified)"),
+    query: Optional[str] = Query(None, description="Search query"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List files from Google Drive (CSV, VCF, or spreadsheets in Downloads or specified folder)."""
+    access_token = get_google_access_token(current_user.id, db)
+
+    # Build query for contact-importable files
+    q_parts = ["trashed = false"]
+    if folder_id:
+        q_parts.append(f"'{folder_id}' in parents")
+    if query:
+        q_parts.append(f"name contains '{query}'")
+
+    # Look for CSV, VCF, or Google Sheets
+    q_parts.append("(mimeType = 'text/csv' or mimeType = 'text/x-vcard' or mimeType = 'application/vnd.google-apps.spreadsheet' or name contains '.csv' or name contains '.vcf')")
+
+    resp = requests.get(
+        f"{GOOGLE_DRIVE_API}/files",
+        headers={'Authorization': f'Bearer {access_token}'},
+        params={
+            'q': ' and '.join(q_parts),
+            'fields': 'files(id,name,mimeType,modifiedTime,size)',
+            'orderBy': 'modifiedTime desc',
+            'pageSize': 50,
+        },
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"Google Drive API error: {resp.text}")
+
+    return resp.json()
+
+
+@app.get("/google/drive/folders")
+def list_drive_folders(
+    parent_id: Optional[str] = Query(None, description="Parent folder ID (root if not specified)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List folders from Google Drive to help navigate."""
+    access_token = get_google_access_token(current_user.id, db)
+
+    q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
+    if parent_id:
+        q_parts.append(f"'{parent_id}' in parents")
+    else:
+        q_parts.append("'root' in parents")
+
+    resp = requests.get(
+        f"{GOOGLE_DRIVE_API}/files",
+        headers={'Authorization': f'Bearer {access_token}'},
+        params={
+            'q': ' and '.join(q_parts),
+            'fields': 'files(id,name)',
+            'orderBy': 'name',
+            'pageSize': 100,
+        },
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"Google Drive API error: {resp.text}")
+
+    return resp.json()
+
+
+@app.post("/google/drive/import/{file_id}")
+def import_contacts_from_drive(
+    file_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Import contacts from a Google Drive CSV or VCF file."""
+    access_token = get_google_access_token(current_user.id, db)
+
+    # Get file metadata
+    meta_resp = requests.get(
+        f"{GOOGLE_DRIVE_API}/files/{file_id}",
+        headers={'Authorization': f'Bearer {access_token}'},
+        params={'fields': 'id,name,mimeType'},
+        timeout=30
+    )
+
+    if meta_resp.status_code != 200:
+        raise HTTPException(status_code=404, detail="File not found in Drive")
+
+    file_meta = meta_resp.json()
+    mime_type = file_meta.get('mimeType', '')
+    file_name = file_meta.get('name', '')
+
+    # Download file content
+    if mime_type == 'application/vnd.google-apps.spreadsheet':
+        # Export Google Sheet as CSV
+        download_resp = requests.get(
+            f"{GOOGLE_DRIVE_API}/files/{file_id}/export",
+            headers={'Authorization': f'Bearer {access_token}'},
+            params={'mimeType': 'text/csv'},
+            timeout=60
+        )
+    else:
+        # Download regular file
+        download_resp = requests.get(
+            f"{GOOGLE_DRIVE_API}/files/{file_id}",
+            headers={'Authorization': f'Bearer {access_token}'},
+            params={'alt': 'media'},
+            timeout=60
+        )
+
+    if download_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Failed to download file: {download_resp.text}")
+
+    content = download_resp.text
+
+    # Parse based on file type
+    imported = 0
+    errors = []
+
+    if file_name.endswith('.vcf') or 'vcard' in mime_type.lower():
+        # Parse VCF (vCard) format
+        contacts_data = _parse_vcard(content)
+        for i, c in enumerate(contacts_data, start=1):
+            try:
+                if not c.get('first_name') and not c.get('last_name'):
+                    errors.append(f"vCard {i}: No name found")
+                    continue
+                contact = Contact(
+                    owner_id=current_user.id,
+                    first_name=c.get('first_name', 'Unknown'),
+                    last_name=c.get('last_name', ''),
+                    email=c.get('email'),
+                    phone=c.get('phone'),
+                    company=c.get('company'),
+                    address_line1=c.get('address'),
+                )
+                db.add(contact)
+                imported += 1
+            except Exception as e:
+                errors.append(f"vCard {i}: {str(e)}")
+    else:
+        # Parse CSV
+        reader = csv.DictReader(io.StringIO(content))
+        for i, row in enumerate(reader, start=2):
+            try:
+                # Try common column name variations
+                first_name = (row.get('first_name') or row.get('First Name') or
+                              row.get('Given Name') or row.get('firstname') or '').strip()
+                last_name = (row.get('last_name') or row.get('Last Name') or
+                             row.get('Family Name') or row.get('lastname') or '').strip()
+
+                # Handle "Name" as single field
+                if not first_name and not last_name:
+                    full_name = (row.get('Name') or row.get('name') or row.get('Full Name') or '').strip()
+                    if full_name:
+                        parts = full_name.split(' ', 1)
+                        first_name = parts[0]
+                        last_name = parts[1] if len(parts) > 1 else ''
+
+                if not first_name:
+                    errors.append(f"Row {i}: No name found")
+                    continue
+
+                email = (row.get('email') or row.get('Email') or row.get('E-mail 1 - Value') or
+                         row.get('Email Address') or '').strip() or None
+                phone = (row.get('phone') or row.get('Phone') or row.get('Phone 1 - Value') or
+                         row.get('Mobile') or row.get('Phone Number') or '').strip() or None
+                company = (row.get('company') or row.get('Company') or row.get('Organization 1 - Name') or
+                           row.get('Organization') or '').strip() or None
+
+                contact = Contact(
+                    owner_id=current_user.id,
+                    first_name=first_name,
+                    last_name=last_name or first_name,
+                    email=email,
+                    phone=phone,
+                    company=company,
+                    address_line1=(row.get('address_line1') or row.get('Address') or
+                                   row.get('Address 1 - Street') or '').strip() or None,
+                    city=(row.get('city') or row.get('City') or row.get('Address 1 - City') or '').strip() or None,
+                    state=(row.get('state') or row.get('State') or row.get('Address 1 - Region') or '').strip() or None,
+                    postal_code=(row.get('postal_code') or row.get('Zip') or row.get('Address 1 - Postal Code') or '').strip() or None,
+                    country=(row.get('country') or row.get('Country') or row.get('Address 1 - Country') or '').strip() or None,
+                    notes=(row.get('notes') or row.get('Notes') or '').strip() or None,
+                )
+                db.add(contact)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {i}: {str(e)}")
+
+    db.commit()
+    return {"imported": imported, "errors": errors, "file_name": file_name}
+
+
+def _parse_vcard(content: str) -> list:
+    """Parse vCard format and return list of contact dicts."""
+    contacts = []
+    current = {}
+
+    for line in content.split('\n'):
+        line = line.strip()
+        if line == 'BEGIN:VCARD':
+            current = {}
+        elif line == 'END:VCARD':
+            if current:
+                contacts.append(current)
+            current = {}
+        elif ':' in line:
+            key, value = line.split(':', 1)
+            key = key.split(';')[0].upper()  # Handle parameters like TEL;TYPE=CELL
+            if key == 'FN':
+                # Full name
+                parts = value.split(' ', 1)
+                current['first_name'] = parts[0]
+                current['last_name'] = parts[1] if len(parts) > 1 else ''
+            elif key == 'N':
+                # Structured name: last;first;middle;prefix;suffix
+                parts = value.split(';')
+                if len(parts) >= 2:
+                    current['last_name'] = parts[0]
+                    current['first_name'] = parts[1]
+            elif key == 'EMAIL':
+                current['email'] = value
+            elif key == 'TEL':
+                current['phone'] = value
+            elif key == 'ORG':
+                current['company'] = value.replace(';', ' ').strip()
+            elif key == 'ADR':
+                # Structured address: PO;ext;street;city;region;postal;country
+                parts = value.split(';')
+                if len(parts) >= 3:
+                    current['address'] = parts[2]
+
+    return contacts
 
 
 # Routes - Inventory

@@ -47,6 +47,8 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
             border: 1px solid #333;
         }
+        .card-clickable { cursor: pointer; }
+        .card-clickable:active { background: #252525; }
         .contact-name { font-weight: 600; font-size: 16px; color: #d4a12a; }
         .contact-company { font-size: 14px; color: #888; margin-top: 2px; }
         .contact-details { font-size: 13px; color: #666; margin-top: 8px; }
@@ -64,7 +66,7 @@
         .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
         .form-group { margin-bottom: 16px; }
         .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #d4a12a; }
-        .form-group input {
+        .form-group input, .form-group select {
             width: 100%;
             padding: 12px;
             border: 1px solid #333;
@@ -73,7 +75,7 @@
             background: #222;
             color: #f5f5f5;
         }
-        .form-group input:focus { outline: none; border-color: #d4a12a; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #d4a12a; }
         .btn {
             width: 100%;
             padding: 14px;
@@ -88,6 +90,7 @@
         .btn:disabled { background: #444; color: #888; }
         .btn-secondary { background: #333; color: #d4a12a; border: 1px solid #d4a12a; }
         .btn-danger { background: #8b0000; color: #fff; }
+        .btn-small { padding: 10px 16px; font-size: 14px; width: auto; }
         .nav-tabs {
             display: flex;
             background: #1a1a1a;
@@ -103,7 +106,7 @@
             text-align: center;
             border: none;
             background: none;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             color: #888;
             border-radius: 8px;
@@ -169,6 +172,7 @@
             cursor: pointer;
         }
         .error { color: #ff6b6b; font-size: 14px; margin-top: 8px; }
+        .success { color: #4ade80; font-size: 14px; margin-top: 8px; }
         .empty-state {
             text-align: center;
             padding: 40px 20px;
@@ -192,6 +196,66 @@
             color: #000;
             font-size: 18px;
         }
+        /* Inventory specific styles */
+        .inv-item { display: flex; justify-content: space-between; align-items: flex-start; }
+        .inv-name { font-weight: 600; font-size: 16px; color: #d4a12a; }
+        .inv-sku { font-size: 12px; color: #666; margin-top: 2px; }
+        .inv-details { font-size: 13px; color: #888; margin-top: 6px; }
+        .inv-qty { text-align: right; }
+        .inv-qty-num { font-size: 24px; font-weight: 700; color: #f5f5f5; }
+        .inv-qty-label { font-size: 11px; color: #666; }
+        .inv-low { color: #ff6b6b; }
+        .inv-price { font-size: 14px; color: #4ade80; margin-top: 4px; }
+        .qb-banner {
+            background: #1a2a1a;
+            border: 1px solid #2d4a2d;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .qb-banner.disconnected {
+            background: #2a1a1a;
+            border-color: #4a2d2d;
+        }
+        .qb-status { font-size: 14px; }
+        .qb-status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .qb-status-dot.connected { background: #4ade80; }
+        .qb-status-dot.disconnected { background: #ff6b6b; }
+        .filter-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .filter-chip {
+            padding: 6px 12px;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 16px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+        }
+        .filter-chip.active {
+            background: #d4a12a;
+            color: #000;
+            border-color: #d4a12a;
+        }
+        .action-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .action-row .btn { flex: 1; }
     </style>
 </head>
 <body>
@@ -263,6 +327,7 @@
         <div class="container">
             <div class="nav-tabs">
                 <button class="nav-tab active" onclick="showTab('dashboard')">Dashboard</button>
+                <button class="nav-tab" onclick="showTab('inventory')">Inventory</button>
                 <button class="nav-tab" onclick="showTab('contacts')">Contacts</button>
             </div>
 
@@ -278,14 +343,27 @@
                         <div class="stat-label">Interactions</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number" id="stat-followups">0</div>
-                        <div class="stat-label">Follow-ups Due</div>
+                        <div class="stat-number" id="stat-inv-items">0</div>
+                        <div class="stat-label">Inventory Items</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number" id="stat-recent">0</div>
-                        <div class="stat-label">This Week</div>
+                        <div class="stat-number" id="stat-inv-low">0</div>
+                        <div class="stat-label">Low Stock</div>
                     </div>
                 </div>
+                <div id="qb-dashboard-status"></div>
+            </div>
+
+            <!-- Inventory Tab -->
+            <div id="tab-inventory" class="hidden">
+                <div id="qb-banner"></div>
+                <input type="text" class="search-box" id="inv-search" placeholder="Search inventory..." oninput="searchInventory(this.value)">
+                <div class="filter-row">
+                    <button class="filter-chip active" onclick="filterInventory('all')">All</button>
+                    <button class="filter-chip" onclick="filterInventory('low')">Low Stock</button>
+                    <button class="filter-chip" onclick="filterInventory('out')">Out of Stock</button>
+                </div>
+                <div id="inventory-list"></div>
             </div>
 
             <!-- Contacts Tab -->
@@ -295,15 +373,15 @@
             </div>
         </div>
 
-        <button class="fab" onclick="showAddContact()">+</button>
+        <button class="fab" id="fab-btn" onclick="showAddModal()">+</button>
     </div>
 
     <!-- Add Contact Modal -->
-    <div id="add-modal" class="modal hidden" onclick="if(event.target===this)closeModal()">
+    <div id="add-contact-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Add Contact</h2>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
             </div>
             <div class="form-group">
                 <label>First Name *</label>
@@ -325,8 +403,79 @@
                 <label>Company</label>
                 <input type="text" id="add-company">
             </div>
-            <div id="add-error" class="error hidden"></div>
+            <div id="add-contact-error" class="error hidden"></div>
             <button class="btn" onclick="addContact()">Save Contact</button>
+        </div>
+    </div>
+
+    <!-- Add Inventory Modal -->
+    <div id="add-inv-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="inv-modal-title">Add Inventory Item</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>SKU *</label>
+                <input type="text" id="inv-sku" placeholder="e.g., TIRE-001">
+            </div>
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="inv-name" placeholder="Item name">
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <input type="text" id="inv-category" placeholder="e.g., Tires, Parts">
+            </div>
+            <div class="form-group">
+                <label>Brand</label>
+                <input type="text" id="inv-brand" placeholder="e.g., Michelin">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="inv-desc">
+            </div>
+            <div class="form-group">
+                <label>Quantity</label>
+                <input type="number" id="inv-qty" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label>Reorder Level</label>
+                <input type="number" id="inv-reorder" value="5" min="0">
+            </div>
+            <div class="form-group">
+                <label>Cost</label>
+                <input type="number" id="inv-cost" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label>Price</label>
+                <input type="number" id="inv-price" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <div id="add-inv-error" class="error hidden"></div>
+            <button class="btn" id="inv-save-btn" onclick="saveInventoryItem()">Save Item</button>
+            <button class="btn btn-danger hidden" id="inv-delete-btn" onclick="deleteInventoryItem()" style="margin-top: 12px;">Delete Item</button>
+        </div>
+    </div>
+
+    <!-- QuickBooks Modal -->
+    <div id="qb-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>QuickBooks Settings</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div id="qb-modal-content"></div>
+        </div>
+    </div>
+
+    <!-- Item Detail Modal -->
+    <div id="item-detail-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="detail-title">Item Details</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div id="item-detail-content"></div>
         </div>
     </div>
 
@@ -334,6 +483,11 @@
         const API = '';
         let token = localStorage.getItem('token');
         let contacts = [];
+        let inventory = [];
+        let qbConnected = false;
+        let currentTab = 'dashboard';
+        let editingItemId = null;
+        let currentFilter = 'all';
 
         async function api(path, opts = {}) {
             const headers = { 'Content-Type': 'application/json', ...opts.headers };
@@ -424,7 +578,7 @@
 
         async function loadApp() {
             showScreen('app-screen');
-            await Promise.all([loadStats(), loadContacts()]);
+            await Promise.all([loadStats(), loadContacts(), loadInventory(), checkQBStatus()]);
         }
 
         async function loadStats() {
@@ -432,8 +586,12 @@
                 const stats = await api('/stats');
                 document.getElementById('stat-contacts').textContent = stats.total_contacts;
                 document.getElementById('stat-interactions').textContent = stats.total_interactions;
-                document.getElementById('stat-followups').textContent = stats.follow_ups_due;
-                document.getElementById('stat-recent').textContent = stats.recent_interactions;
+            } catch (e) { console.error(e); }
+
+            try {
+                const invStats = await api('/inventory/stats/summary');
+                document.getElementById('stat-inv-items').textContent = invStats.total_items;
+                document.getElementById('stat-inv-low').textContent = invStats.low_stock_count;
             } catch (e) { console.error(e); }
         }
 
@@ -444,6 +602,70 @@
             } catch (e) { console.error(e); }
         }
 
+        async function loadInventory() {
+            try {
+                inventory = await api('/inventory?active_only=true');
+                renderInventory(inventory);
+            } catch (e) { console.error(e); }
+        }
+
+        async function checkQBStatus() {
+            try {
+                const status = await api('/quickbooks/status');
+                qbConnected = status.connected;
+                renderQBBanner();
+                renderQBDashboard();
+            } catch (e) {
+                qbConnected = false;
+                renderQBBanner();
+                renderQBDashboard();
+            }
+        }
+
+        function renderQBBanner() {
+            const el = document.getElementById('qb-banner');
+            if (qbConnected) {
+                el.innerHTML = `
+                    <div class="qb-banner">
+                        <div class="qb-status">
+                            <span class="qb-status-dot connected"></span>
+                            QuickBooks Connected
+                        </div>
+                        <button class="btn btn-small btn-secondary" onclick="showQBModal()">Sync</button>
+                    </div>
+                `;
+            } else {
+                el.innerHTML = `
+                    <div class="qb-banner disconnected">
+                        <div class="qb-status">
+                            <span class="qb-status-dot disconnected"></span>
+                            QuickBooks Not Connected
+                        </div>
+                        <button class="btn btn-small" onclick="connectQB()">Connect</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderQBDashboard() {
+            const el = document.getElementById('qb-dashboard-status');
+            if (qbConnected) {
+                el.innerHTML = `
+                    <div class="card" style="text-align: center;">
+                        <div style="color: #4ade80; margin-bottom: 8px;">QuickBooks Connected</div>
+                        <button class="btn btn-small btn-secondary" onclick="showTab('inventory'); showQBModal();">Manage Sync</button>
+                    </div>
+                `;
+            } else {
+                el.innerHTML = `
+                    <div class="card" style="text-align: center;">
+                        <div style="color: #888; margin-bottom: 8px;">Connect QuickBooks to sync inventory</div>
+                        <button class="btn btn-small" onclick="connectQB()">Connect QuickBooks</button>
+                    </div>
+                `;
+            }
+        }
+
         function renderContacts(list) {
             const el = document.getElementById('contacts-list');
             if (!list.length) {
@@ -452,15 +674,47 @@
             }
             el.innerHTML = list.map(c => `
                 <div class="card">
-                    <div class="contact-name">${c.first_name} ${c.last_name}</div>
-                    ${c.company ? `<div class="contact-company">${c.company}</div>` : ''}
+                    <div class="contact-name">${escapeHtml(c.first_name)} ${escapeHtml(c.last_name)}</div>
+                    ${c.company ? `<div class="contact-company">${escapeHtml(c.company)}</div>` : ''}
                     <div class="contact-details">
-                        ${c.email ? `<a href="mailto:${c.email}">${c.email}</a>` : ''}
+                        ${c.email ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : ''}
                         ${c.email && c.phone ? ' &bull; ' : ''}
-                        ${c.phone ? `<a href="tel:${c.phone}">${c.phone}</a>` : ''}
+                        ${c.phone ? `<a href="tel:${escapeHtml(c.phone)}">${escapeHtml(c.phone)}</a>` : ''}
                     </div>
                 </div>
             `).join('');
+        }
+
+        function renderInventory(list) {
+            const el = document.getElementById('inventory-list');
+            if (!list.length) {
+                el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128230;</div><div>No inventory items</div></div>';
+                return;
+            }
+            el.innerHTML = list.map(item => {
+                const isLow = item.quantity <= item.reorder_level;
+                const isOut = item.quantity <= 0;
+                return `
+                    <div class="card card-clickable" onclick="showItemDetail(${item.id})">
+                        <div class="inv-item">
+                            <div>
+                                <div class="inv-name">${escapeHtml(item.name)}</div>
+                                <div class="inv-sku">SKU: ${escapeHtml(item.sku)}</div>
+                                <div class="inv-details">
+                                    ${item.brand ? escapeHtml(item.brand) : ''}
+                                    ${item.brand && item.category ? ' &bull; ' : ''}
+                                    ${item.category ? escapeHtml(item.category) : ''}
+                                </div>
+                                ${item.price ? `<div class="inv-price">$${item.price.toFixed(2)}</div>` : ''}
+                            </div>
+                            <div class="inv-qty">
+                                <div class="inv-qty-num ${isLow ? 'inv-low' : ''}">${item.quantity}</div>
+                                <div class="inv-qty-label">${isOut ? 'OUT' : isLow ? 'LOW' : 'in stock'}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function searchContacts(q) {
@@ -474,26 +728,85 @@
             renderContacts(filtered);
         }
 
+        function searchInventory(q) {
+            applyInventoryFilters();
+        }
+
+        function filterInventory(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-chip').forEach(el => el.classList.remove('active'));
+            document.querySelector(`[onclick="filterInventory('${filter}')"]`).classList.add('active');
+            applyInventoryFilters();
+        }
+
+        function applyInventoryFilters() {
+            const q = (document.getElementById('inv-search').value || '').toLowerCase();
+            let filtered = inventory;
+
+            if (q) {
+                filtered = filtered.filter(item =>
+                    item.name.toLowerCase().includes(q) ||
+                    item.sku.toLowerCase().includes(q) ||
+                    (item.brand || '').toLowerCase().includes(q) ||
+                    (item.category || '').toLowerCase().includes(q)
+                );
+            }
+
+            if (currentFilter === 'low') {
+                filtered = filtered.filter(item => item.quantity <= item.reorder_level && item.quantity > 0);
+            } else if (currentFilter === 'out') {
+                filtered = filtered.filter(item => item.quantity <= 0);
+            }
+
+            renderInventory(filtered);
+        }
+
         function showTab(tab) {
+            currentTab = tab;
             document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
             document.querySelector(`[onclick="showTab('${tab}')"]`).classList.add('active');
             document.getElementById('tab-dashboard').classList.toggle('hidden', tab !== 'dashboard');
+            document.getElementById('tab-inventory').classList.toggle('hidden', tab !== 'inventory');
             document.getElementById('tab-contacts').classList.toggle('hidden', tab !== 'contacts');
         }
 
-        function showAddContact() {
-            document.getElementById('add-modal').classList.remove('hidden');
+        function showAddModal() {
+            if (currentTab === 'contacts') {
+                showAddContactModal();
+            } else if (currentTab === 'inventory') {
+                showAddInvModal();
+            } else {
+                showAddContactModal();
+            }
         }
 
-        function closeModal() {
-            document.getElementById('add-modal').classList.add('hidden');
-            ['add-firstname', 'add-lastname', 'add-email', 'add-phone', 'add-company'].forEach(id => {
+        function showAddContactModal() {
+            document.getElementById('add-contact-modal').classList.remove('hidden');
+        }
+
+        function showAddInvModal() {
+            editingItemId = null;
+            document.getElementById('inv-modal-title').textContent = 'Add Inventory Item';
+            document.getElementById('inv-save-btn').textContent = 'Save Item';
+            document.getElementById('inv-delete-btn').classList.add('hidden');
+            ['inv-sku', 'inv-name', 'inv-category', 'inv-brand', 'inv-desc'].forEach(id => {
                 document.getElementById(id).value = '';
             });
+            document.getElementById('inv-qty').value = '0';
+            document.getElementById('inv-reorder').value = '5';
+            document.getElementById('inv-cost').value = '';
+            document.getElementById('inv-price').value = '';
+            document.getElementById('add-inv-modal').classList.remove('hidden');
+        }
+
+        function closeAllModals() {
+            document.querySelectorAll('.modal').forEach(el => el.classList.add('hidden'));
+            document.getElementById('add-contact-error').classList.add('hidden');
+            document.getElementById('add-inv-error').classList.add('hidden');
         }
 
         async function addContact() {
-            const errEl = document.getElementById('add-error');
+            const errEl = document.getElementById('add-contact-error');
             errEl.classList.add('hidden');
             try {
                 await api('/contacts', {
@@ -506,7 +819,10 @@
                         company: document.getElementById('add-company').value || null
                     })
                 });
-                closeModal();
+                closeAllModals();
+                ['add-firstname', 'add-lastname', 'add-email', 'add-phone', 'add-company'].forEach(id => {
+                    document.getElementById(id).value = '';
+                });
                 await Promise.all([loadStats(), loadContacts()]);
             } catch (e) {
                 errEl.textContent = e.message;
@@ -514,11 +830,263 @@
             }
         }
 
+        async function saveInventoryItem() {
+            const errEl = document.getElementById('add-inv-error');
+            errEl.classList.add('hidden');
+
+            const data = {
+                sku: document.getElementById('inv-sku').value,
+                name: document.getElementById('inv-name').value,
+                category: document.getElementById('inv-category').value || null,
+                brand: document.getElementById('inv-brand').value || null,
+                description: document.getElementById('inv-desc').value || null,
+                quantity: parseInt(document.getElementById('inv-qty').value) || 0,
+                reorder_level: parseInt(document.getElementById('inv-reorder').value) || 5,
+                cost: parseFloat(document.getElementById('inv-cost').value) || null,
+                price: parseFloat(document.getElementById('inv-price').value) || null
+            };
+
+            try {
+                if (editingItemId) {
+                    await api(`/inventory/${editingItemId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    await api('/inventory', {
+                        method: 'POST',
+                        body: JSON.stringify(data)
+                    });
+                }
+                closeAllModals();
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        async function deleteInventoryItem() {
+            if (!editingItemId) return;
+            if (!confirm('Delete this item?')) return;
+
+            try {
+                await api(`/inventory/${editingItemId}`, { method: 'DELETE' });
+                closeAllModals();
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        async function showItemDetail(id) {
+            const item = inventory.find(i => i.id === id);
+            if (!item) return;
+
+            const isLow = item.quantity <= item.reorder_level;
+            const el = document.getElementById('item-detail-content');
+            document.getElementById('detail-title').textContent = item.name;
+
+            el.innerHTML = `
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div>
+                            <div class="inv-sku">SKU: ${escapeHtml(item.sku)}</div>
+                            ${item.qb_item_id ? `<div class="inv-sku" style="color: #4ade80;">QB Item: ${item.qb_item_id}</div>` : ''}
+                        </div>
+                        <div class="inv-qty">
+                            <div class="inv-qty-num ${isLow ? 'inv-low' : ''}">${item.quantity}</div>
+                            <div class="inv-qty-label">in stock</div>
+                        </div>
+                    </div>
+                    ${item.brand ? `<div class="inv-details"><strong>Brand:</strong> ${escapeHtml(item.brand)}</div>` : ''}
+                    ${item.category ? `<div class="inv-details"><strong>Category:</strong> ${escapeHtml(item.category)}</div>` : ''}
+                    ${item.description ? `<div class="inv-details" style="margin-top: 8px;">${escapeHtml(item.description)}</div>` : ''}
+                    <div style="display: flex; gap: 16px; margin-top: 16px;">
+                        ${item.cost ? `<div><strong style="color: #888;">Cost:</strong> $${item.cost.toFixed(2)}</div>` : ''}
+                        ${item.price ? `<div><strong style="color: #888;">Price:</strong> <span style="color: #4ade80;">$${item.price.toFixed(2)}</span></div>` : ''}
+                    </div>
+                    <div class="inv-details" style="margin-top: 8px;">Reorder at: ${item.reorder_level} units</div>
+                </div>
+                <div class="action-row">
+                    <button class="btn btn-secondary" onclick="editItem(${item.id})">Edit</button>
+                    <button class="btn" onclick="showAdjustQty(${item.id})">Adjust Qty</button>
+                </div>
+                ${qbConnected && !item.qb_item_id ? `
+                    <button class="btn btn-secondary" onclick="syncItemToQB(${item.id})" style="margin-top: 12px;">Sync to QuickBooks</button>
+                ` : ''}
+            `;
+
+            document.getElementById('item-detail-modal').classList.remove('hidden');
+        }
+
+        function editItem(id) {
+            const item = inventory.find(i => i.id === id);
+            if (!item) return;
+
+            closeAllModals();
+            editingItemId = id;
+            document.getElementById('inv-modal-title').textContent = 'Edit Item';
+            document.getElementById('inv-save-btn').textContent = 'Update Item';
+            document.getElementById('inv-delete-btn').classList.remove('hidden');
+
+            document.getElementById('inv-sku').value = item.sku;
+            document.getElementById('inv-name').value = item.name;
+            document.getElementById('inv-category').value = item.category || '';
+            document.getElementById('inv-brand').value = item.brand || '';
+            document.getElementById('inv-desc').value = item.description || '';
+            document.getElementById('inv-qty').value = item.quantity;
+            document.getElementById('inv-reorder').value = item.reorder_level;
+            document.getElementById('inv-cost').value = item.cost || '';
+            document.getElementById('inv-price').value = item.price || '';
+
+            document.getElementById('add-inv-modal').classList.remove('hidden');
+        }
+
+        function showAdjustQty(id) {
+            const item = inventory.find(i => i.id === id);
+            if (!item) return;
+
+            const el = document.getElementById('item-detail-content');
+            el.innerHTML = `
+                <div class="card">
+                    <div class="form-group">
+                        <label>Transaction Type</label>
+                        <select id="txn-type">
+                            <option value="adjustment">Adjustment</option>
+                            <option value="sale">Sale</option>
+                            <option value="purchase">Purchase/Restock</option>
+                            <option value="return">Return</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity Change</label>
+                        <input type="number" id="txn-qty" value="0" placeholder="Use negative for removals">
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <input type="text" id="txn-notes" placeholder="Optional notes">
+                    </div>
+                    <div id="txn-error" class="error hidden"></div>
+                    <div class="action-row">
+                        <button class="btn btn-secondary" onclick="showItemDetail(${id})">Cancel</button>
+                        <button class="btn" onclick="submitTransaction(${id})">Submit</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function submitTransaction(id) {
+            const errEl = document.getElementById('txn-error');
+            errEl.classList.add('hidden');
+
+            try {
+                await api(`/inventory/${id}/transactions`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        transaction_type: document.getElementById('txn-type').value,
+                        quantity: parseInt(document.getElementById('txn-qty').value),
+                        notes: document.getElementById('txn-notes').value || null
+                    })
+                });
+                closeAllModals();
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        function connectQB() {
+            window.location.href = '/quickbooks/connect';
+        }
+
+        function showQBModal() {
+            const el = document.getElementById('qb-modal-content');
+            if (qbConnected) {
+                el.innerHTML = `
+                    <div class="card" style="text-align: center; margin-bottom: 16px;">
+                        <div style="color: #4ade80; font-size: 16px; margin-bottom: 4px;">Connected</div>
+                        <div style="color: #888; font-size: 13px;">Your inventory syncs with QuickBooks</div>
+                    </div>
+                    <button class="btn" onclick="importFromQB()" id="qb-import-btn">Import Items from QuickBooks</button>
+                    <div id="qb-import-status" class="success hidden" style="text-align: center;"></div>
+                    <button class="btn btn-secondary" onclick="disconnectQB()" style="margin-top: 12px;">Disconnect QuickBooks</button>
+                `;
+            } else {
+                el.innerHTML = `
+                    <div class="empty-state">
+                        <div>Connect to QuickBooks to sync your inventory</div>
+                    </div>
+                    <button class="btn" onclick="connectQB()">Connect QuickBooks</button>
+                `;
+            }
+            document.getElementById('qb-modal').classList.remove('hidden');
+        }
+
+        async function importFromQB() {
+            const btn = document.getElementById('qb-import-btn');
+            const status = document.getElementById('qb-import-status');
+            btn.disabled = true;
+            btn.textContent = 'Importing...';
+            status.classList.add('hidden');
+
+            try {
+                const result = await api('/quickbooks/import-items', { method: 'POST' });
+                status.textContent = `Imported ${result.imported} new items, updated ${result.updated} existing`;
+                status.classList.remove('hidden');
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                status.textContent = e.message;
+                status.classList.remove('hidden');
+                status.style.color = '#ff6b6b';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Import Items from QuickBooks';
+            }
+        }
+
+        async function syncItemToQB(id) {
+            try {
+                await api(`/inventory/${id}/sync-to-qb`, { method: 'POST' });
+                alert('Item synced to QuickBooks!');
+                await loadInventory();
+                closeAllModals();
+            } catch (e) {
+                alert('Sync failed: ' + e.message);
+            }
+        }
+
+        async function disconnectQB() {
+            if (!confirm('Disconnect from QuickBooks?')) return;
+            try {
+                await api('/quickbooks/disconnect', { method: 'DELETE' });
+                qbConnected = false;
+                renderQBBanner();
+                renderQBDashboard();
+                closeAllModals();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         // Init
         if (token) {
             loadApp();
         } else {
             showLogin();
+        }
+
+        // Check if returning from QB OAuth
+        if (window.location.search.includes('quickbooks=connected')) {
+            history.replaceState({}, '', '/');
         }
 
         // Register service worker

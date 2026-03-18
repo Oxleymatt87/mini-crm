@@ -74,7 +74,11 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 # Auth setup
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+pwd_context = CryptContext(
+    schemes=['bcrypt'],
+    deprecated='auto',
+    bcrypt__truncate_error=False  # Silently truncate passwords > 72 bytes
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth/login')
 
 

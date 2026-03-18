@@ -8,3 +8,4 @@ pydantic==2.11.7
 requests==2.32.4
 python-multipart==0.0.20
 email-validator
+psycopg2-binary==2.9.9

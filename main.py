@@ -46,6 +46,9 @@ JWT_SECRET = os.getenv('JWT_SECRET', 'change-this-in-production')
 JWT_ALG = 'HS256'
 JWT_EXPIRE_MIN = int(os.getenv('JWT_EXPIRE_MIN', '1440'))
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./crm.db')
+# Fix Render's postgres:// URL for SQLAlchemy 2.x compatibility
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 PORT = int(os.getenv('PORT', '10000'))
 

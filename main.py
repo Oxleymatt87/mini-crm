@@ -295,7 +295,9 @@ app.add_middleware(
 )
 
 # Serve static files (PWA frontend)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+_static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 def get_db():
@@ -355,7 +357,9 @@ def startup():
 # Routes - Health
 @app.get("/")
 def root():
-    return RedirectResponse(url="/static/index.html")
+    if os.path.isdir(_static_dir):
+        return RedirectResponse(url="/static/index.html")
+    return {"ok": True, "msg": "Mini CRM backend running."}
 
 
 @app.get("/health")

@@ -12,8 +12,7 @@ from urllib.parse import urlencode
 
 import requests
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
-from fastapi.responses import RedirectResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -294,10 +293,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files (PWA frontend)
-_static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-if os.path.isdir(_static_dir):
-    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 def get_db():
@@ -357,8 +352,6 @@ def startup():
 # Routes - Health
 @app.get("/")
 def root():
-    if os.path.isdir(_static_dir):
-        return RedirectResponse(url="/static/index.html")
     return {"ok": True, "msg": "Mini CRM backend running."}
 
 

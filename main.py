@@ -351,7 +351,11 @@ def geocode_address(contact: Contact) -> tuple[Optional[float], Optional[float]]
 # Startup
 @app.on_event("startup")
 def startup():
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Database tables created successfully")
+    except Exception as e:
+        print(f"Database initialization error: {e}")
 
 
 # Routes - Health
@@ -370,17 +374,23 @@ def health():
 # Routes - Auth
 @app.post("/auth/register", response_model=UserOut)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == user_data.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(
-        email=user_data.email,
-        full_name=user_data.full_name,
-        hashed_password=hash_password(user_data.password),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    try:
+        if db.query(User).filter(User.email == user_data.email).first():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user = User(
+            email=user_data.email,
+            full_name=user_data.full_name,
+            hashed_password=hash_password(user_data.password),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 
 @app.post("/auth/login", response_model=Token)

@@ -191,6 +191,52 @@ class Interaction(Base):
     contact: Mapped[Contact] = relationship(back_populates='interactions')
 
 
+# Inventory Models
+class InventoryItem(Base):
+    """Inventory item (tire, part, etc.)"""
+    __tablename__ = 'inventory_items'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    sku: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    category: Mapped[Optional[str]] = mapped_column(String(100), index=True)  # tire, wheel, part, service
+    brand: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    size: Mapped[Optional[str]] = mapped_column(String(50))  # e.g., 225/65R17
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    reorder_level: Mapped[int] = mapped_column(Integer, default=5)
+    cost: Mapped[Optional[float]] = mapped_column(Float)  # what you pay
+    price: Mapped[Optional[float]] = mapped_column(Float)  # what you charge
+    location: Mapped[Optional[str]] = mapped_column(String(100))  # warehouse/shelf
+    qb_item_id: Mapped[Optional[str]] = mapped_column(String(50))  # QuickBooks Item ID
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    transactions: Mapped[List['InventoryTransaction']] = relationship(back_populates='item', cascade='all, delete-orphan')
+
+
+Index('ix_inventory_owner_sku', InventoryItem.owner_id, InventoryItem.sku, unique=True)
+
+
+TransactionType = Enum('receive', 'sell', 'adjust', 'transfer', 'return', name='transaction_type')
+
+
+class InventoryTransaction(Base):
+    """Track stock movements."""
+    __tablename__ = 'inventory_transactions'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey('inventory_items.id', ondelete='CASCADE'), index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    transaction_type: Mapped[str] = mapped_column(TransactionType)
+    quantity: Mapped[int] = mapped_column(Integer)  # positive for in, negative for out
+    unit_cost: Mapped[Optional[float]] = mapped_column(Float)
+    reference: Mapped[Optional[str]] = mapped_column(String(255))  # PO#, invoice#, etc.
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    contact_id: Mapped[Optional[int]] = mapped_column(ForeignKey('contacts.id', ondelete='SET NULL'), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    item: Mapped[InventoryItem] = relationship(back_populates='transactions')
+
+
 # Schemas
 class Token(BaseModel):
     access_token: str
@@ -289,6 +335,75 @@ class InteractionOut(BaseModel):
     kind: str
     summary: str
     occurred_at: dt.datetime
+    created_at: dt.datetime
+
+
+# Inventory Schemas
+class InventoryItemCreate(BaseModel):
+    sku: str
+    name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    brand: Optional[str] = None
+    size: Optional[str] = None
+    quantity: int = 0
+    reorder_level: int = 5
+    cost: Optional[float] = None
+    price: Optional[float] = None
+    location: Optional[str] = None
+
+
+class InventoryItemUpdate(BaseModel):
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    brand: Optional[str] = None
+    size: Optional[str] = None
+    reorder_level: Optional[int] = None
+    cost: Optional[float] = None
+    price: Optional[float] = None
+    location: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class InventoryItemOut(BaseModel):
+    id: int
+    sku: str
+    name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    brand: Optional[str] = None
+    size: Optional[str] = None
+    quantity: int
+    reorder_level: int
+    cost: Optional[float] = None
+    price: Optional[float] = None
+    location: Optional[str] = None
+    qb_item_id: Optional[str] = None
+    is_active: bool
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class InventoryTransactionCreate(BaseModel):
+    transaction_type: str  # receive, sell, adjust, transfer, return
+    quantity: int
+    unit_cost: Optional[float] = None
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    contact_id: Optional[int] = None
+
+
+class InventoryTransactionOut(BaseModel):
+    id: int
+    item_id: int
+    transaction_type: str
+    quantity: int
+    unit_cost: Optional[float] = None
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    contact_id: Optional[int] = None
     created_at: dt.datetime
 
 
@@ -1117,6 +1232,391 @@ def get_sync_status(current_user: User = Depends(get_current_user)):
         "running": _sync_thread is not None and _sync_thread.is_alive(),
         "interval_minutes": _sync_interval_minutes
     }
+
+
+# Routes - Inventory
+@app.post("/inventory", response_model=InventoryItemOut)
+def create_inventory_item(
+    item_data: InventoryItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new inventory item."""
+    # Check for duplicate SKU
+    existing = db.query(InventoryItem).filter(
+        InventoryItem.owner_id == current_user.id,
+        InventoryItem.sku == item_data.sku
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"SKU '{item_data.sku}' already exists")
+
+    item = InventoryItem(owner_id=current_user.id, **item_data.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.get("/inventory", response_model=List[InventoryItemOut])
+def list_inventory(
+    search: Optional[str] = Query(None, description="Search in name, SKU, brand"),
+    category: Optional[str] = Query(None),
+    brand: Optional[str] = Query(None),
+    low_stock: bool = Query(False, description="Only show items at or below reorder level"),
+    active_only: bool = Query(True, description="Only show active items"),
+    sort_by: str = Query("name", description="Sort field"),
+    sort_order: str = Query("asc", description="Sort order: asc or desc"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List inventory items with filters."""
+    query = db.query(InventoryItem).filter(InventoryItem.owner_id == current_user.id)
+
+    if active_only:
+        query = query.filter(InventoryItem.is_active == True)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                InventoryItem.name.ilike(search_term),
+                InventoryItem.sku.ilike(search_term),
+                InventoryItem.brand.ilike(search_term),
+                InventoryItem.description.ilike(search_term),
+            )
+        )
+    if category:
+        query = query.filter(InventoryItem.category.ilike(f"%{category}%"))
+    if brand:
+        query = query.filter(InventoryItem.brand.ilike(f"%{brand}%"))
+    if low_stock:
+        query = query.filter(InventoryItem.quantity <= InventoryItem.reorder_level)
+
+    sort_column = getattr(InventoryItem, sort_by, InventoryItem.name)
+    if sort_order.lower() == "desc":
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+
+    return query.offset(skip).limit(limit).all()
+
+
+@app.get("/inventory/{item_id}", response_model=InventoryItemOut)
+def get_inventory_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a single inventory item."""
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.owner_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    return item
+
+
+@app.patch("/inventory/{item_id}", response_model=InventoryItemOut)
+def update_inventory_item(
+    item_id: int,
+    item_data: InventoryItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update an inventory item."""
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.owner_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    update_data = item_data.model_dump(exclude_unset=True)
+
+    # Check SKU uniqueness if changing
+    if 'sku' in update_data and update_data['sku'] != item.sku:
+        existing = db.query(InventoryItem).filter(
+            InventoryItem.owner_id == current_user.id,
+            InventoryItem.sku == update_data['sku']
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"SKU '{update_data['sku']}' already exists")
+
+    for key, value in update_data.items():
+        setattr(item, key, value)
+
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.delete("/inventory/{item_id}")
+def delete_inventory_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete an inventory item."""
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.owner_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    db.delete(item)
+    db.commit()
+    return {"ok": True}
+
+
+# Inventory Transactions
+@app.post("/inventory/{item_id}/transactions", response_model=InventoryTransactionOut)
+def create_inventory_transaction(
+    item_id: int,
+    txn_data: InventoryTransactionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Record a stock transaction (receive, sell, adjust, etc.)."""
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.owner_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    # Validate transaction type
+    valid_types = ['receive', 'sell', 'adjust', 'transfer', 'return']
+    if txn_data.transaction_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid transaction type. Use: {valid_types}")
+
+    # Determine quantity change
+    qty_change = txn_data.quantity
+    if txn_data.transaction_type == 'sell':
+        qty_change = -abs(txn_data.quantity)
+    elif txn_data.transaction_type in ['receive', 'return']:
+        qty_change = abs(txn_data.quantity)
+
+    # Check for negative stock on sell
+    if qty_change < 0 and (item.quantity + qty_change) < 0:
+        raise HTTPException(status_code=400, detail=f"Insufficient stock. Available: {item.quantity}")
+
+    txn = InventoryTransaction(
+        item_id=item_id,
+        owner_id=current_user.id,
+        transaction_type=txn_data.transaction_type,
+        quantity=qty_change,
+        unit_cost=txn_data.unit_cost,
+        reference=txn_data.reference,
+        notes=txn_data.notes,
+        contact_id=txn_data.contact_id,
+    )
+    db.add(txn)
+
+    # Update item quantity
+    item.quantity += qty_change
+
+    db.commit()
+    db.refresh(txn)
+    return txn
+
+
+@app.get("/inventory/{item_id}/transactions", response_model=List[InventoryTransactionOut])
+def list_inventory_transactions(
+    item_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List transactions for an inventory item."""
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.owner_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    return db.query(InventoryTransaction).filter(
+        InventoryTransaction.item_id == item_id
+    ).order_by(InventoryTransaction.created_at.desc()).offset(skip).limit(limit).all()
+
+
+@app.get("/inventory/stats/summary")
+def get_inventory_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get inventory summary stats."""
+    items = db.query(InventoryItem).filter(
+        InventoryItem.owner_id == current_user.id,
+        InventoryItem.is_active == True
+    ).all()
+
+    total_items = len(items)
+    total_quantity = sum(i.quantity for i in items)
+    total_value = sum((i.quantity * (i.cost or 0)) for i in items)
+    low_stock_count = sum(1 for i in items if i.quantity <= i.reorder_level)
+    out_of_stock = sum(1 for i in items if i.quantity <= 0)
+
+    return {
+        "total_items": total_items,
+        "total_quantity": total_quantity,
+        "total_value": round(total_value, 2),
+        "low_stock_count": low_stock_count,
+        "out_of_stock": out_of_stock
+    }
+
+
+# QuickBooks Inventory Sync
+@app.get("/quickbooks/items")
+def list_quickbooks_items(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List items from QuickBooks."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    resp = requests.get(
+        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+        },
+        params={'query': 'SELECT * FROM Item WHERE Type = \'Inventory\' MAXRESULTS 500'},
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text}")
+
+    data = resp.json()
+    items = data.get('QueryResponse', {}).get('Item', [])
+    return {"items": items}
+
+
+@app.post("/quickbooks/import-items")
+def import_quickbooks_items(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Import QuickBooks inventory items."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    resp = requests.get(
+        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+        },
+        params={'query': 'SELECT * FROM Item WHERE Type = \'Inventory\' MAXRESULTS 500'},
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text}")
+
+    data = resp.json()
+    qb_items = data.get('QueryResponse', {}).get('Item', [])
+
+    imported = 0
+    updated = 0
+    for qb_item in qb_items:
+        qb_id = qb_item.get('Id')
+        sku = qb_item.get('Sku') or qb_item.get('Name', f'QB-{qb_id}')
+        name = qb_item.get('Name', 'Unknown')
+
+        # Check if already imported
+        existing = db.query(InventoryItem).filter(
+            InventoryItem.owner_id == current_user.id,
+            InventoryItem.qb_item_id == qb_id
+        ).first()
+
+        if existing:
+            # Update existing
+            existing.name = name
+            existing.quantity = int(qb_item.get('QtyOnHand', 0))
+            existing.cost = qb_item.get('PurchaseCost')
+            existing.price = qb_item.get('UnitPrice')
+            updated += 1
+        else:
+            # Check SKU collision
+            sku_exists = db.query(InventoryItem).filter(
+                InventoryItem.owner_id == current_user.id,
+                InventoryItem.sku == sku
+            ).first()
+            if sku_exists:
+                sku = f"{sku}-QB{qb_id}"
+
+            item = InventoryItem(
+                owner_id=current_user.id,
+                sku=sku,
+                name=name,
+                description=qb_item.get('Description'),
+                quantity=int(qb_item.get('QtyOnHand', 0)),
+                cost=qb_item.get('PurchaseCost'),
+                price=qb_item.get('UnitPrice'),
+                qb_item_id=qb_id,
+            )
+            db.add(item)
+            imported += 1
+
+    db.commit()
+    return {"imported": imported, "updated": updated, "total_qb_items": len(qb_items)}
+
+
+@app.post("/inventory/{item_id}/sync-to-qb")
+def sync_inventory_to_quickbooks(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sync an inventory item to QuickBooks."""
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.owner_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    qb_item_data = {
+        "Name": item.name[:100],  # QB limit
+        "Type": "Inventory",
+        "Sku": item.sku,
+        "Description": item.description,
+        "QtyOnHand": item.quantity,
+        "TrackQtyOnHand": True,
+        "InvStartDate": dt.date.today().isoformat(),
+    }
+    if item.cost:
+        qb_item_data["PurchaseCost"] = item.cost
+    if item.price:
+        qb_item_data["UnitPrice"] = item.price
+
+    # Need income and expense accounts for inventory items
+    # This is a simplified version - real implementation needs account refs
+    resp = requests.post(
+        f"{QB_API_BASE}/v3/company/{realm_id}/item",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        },
+        json=qb_item_data,
+        timeout=30
+    )
+
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text}")
+
+    qb_result = resp.json().get('Item', {})
+    item.qb_item_id = qb_result.get('Id')
+    db.commit()
+
+    return {"ok": True, "qb_item_id": item.qb_item_id}
 
 
 if __name__ == "__main__":

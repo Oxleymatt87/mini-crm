@@ -3,92 +3,138 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mini CRM</title>
+<title>Oxley Tire CRM</title>
 <style>
   :root {
-    --primary: #4f46e5;
-    --primary-hover: #4338ca;
+    --gold: #c8a84e;
+    --gold-hover: #b8952e;
+    --bg: #181a1b;
+    --bg-card: #232526;
+    --bg-input: #2a2d2e;
+    --border: #3a3d3e;
+    --text: #e8e6e3;
+    --text-secondary: #a8a5a0;
     --danger: #dc2626;
-    --danger-hover: #b91c1c;
-    --bg: #f9fafb;
-    --card: #ffffff;
-    --border: #e5e7eb;
-    --text: #111827;
-    --text-secondary: #6b7280;
     --radius: 8px;
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
 
-  /* Layout */
-  .container { max-width: 960px; margin: 0 auto; padding: 20px; }
-  header { background: var(--primary); color: white; padding: 16px 0; margin-bottom: 24px; }
-  header .container { display: flex; justify-content: space-between; align-items: center; }
-  header h1 { font-size: 1.4rem; }
-  .user-info { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
-  .user-info button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; }
-  .user-info button:hover { background: rgba(255,255,255,0.3); }
+  /* Header */
+  .header { background:var(--bg-card); border-bottom:2px solid var(--gold); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; }
+  .header-left { display:flex; align-items:center; gap:12px; }
+  .logo { width:36px; height:36px; background:var(--gold); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#000; font-size:1.1rem; }
+  .header h1 { font-size:1.2rem; color:var(--gold); letter-spacing:1px; }
+  .btn-logout { background:transparent; border:1px solid var(--gold); color:var(--gold); padding:6px 16px; border-radius:var(--radius); cursor:pointer; font-size:0.85rem; }
+  .btn-logout:hover { background:var(--gold); color:#000; }
 
   /* Auth */
-  .auth-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: var(--bg); }
-  .auth-card { background: var(--card); padding: 40px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); width: 100%; max-width: 400px; }
-  .auth-card h2 { margin-bottom: 24px; text-align: center; color: var(--primary); }
-  .auth-card .toggle { text-align: center; margin-top: 16px; font-size: 0.9rem; color: var(--text-secondary); }
-  .auth-card .toggle a { color: var(--primary); cursor: pointer; text-decoration: none; }
+  .auth-page { display:flex; justify-content:center; align-items:center; min-height:100vh; }
+  .auth-card { background:var(--bg-card); padding:40px; border-radius:12px; border:1px solid var(--border); width:100%; max-width:400px; }
+  .auth-card h2 { margin-bottom:24px; text-align:center; color:var(--gold); }
+  .auth-card .toggle { text-align:center; margin-top:16px; font-size:0.9rem; color:var(--text-secondary); }
+  .auth-card .toggle a { color:var(--gold); cursor:pointer; text-decoration:none; }
+
+  /* Tabs */
+  .tab-bar { display:flex; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); margin:16px 20px; overflow:hidden; }
+  .tab-btn { flex:1; padding:10px; text-align:center; cursor:pointer; font-size:0.9rem; font-weight:500; color:var(--text-secondary); background:transparent; border:none; transition:all 0.2s; }
+  .tab-btn.active { background:var(--gold); color:#000; font-weight:600; }
+
+  /* Container */
+  .container { padding:0 20px 20px; max-width:960px; margin:0 auto; }
 
   /* Forms */
-  .form-group { margin-bottom: 16px; }
-  .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary); }
+  .form-group { margin-bottom:14px; }
+  .form-group label { display:block; font-size:0.8rem; font-weight:600; color:var(--text-secondary); margin-bottom:4px; }
   .form-group input, .form-group textarea, .form-group select {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
-    font-size: 0.95rem; outline: none; transition: border 0.2s;
+    width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius);
+    color:var(--text); font-size:0.9rem; outline:none;
   }
-  .form-group input:focus, .form-group textarea:focus { border-color: var(--primary); }
-  .form-group textarea { resize: vertical; min-height: 60px; }
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-group input:focus, .form-group textarea:focus { border-color:var(--gold); }
+  .form-group textarea { resize:vertical; min-height:60px; }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 
   /* Buttons */
-  .btn { padding: 10px 20px; border: none; border-radius: var(--radius); font-size: 0.95rem; cursor: pointer; font-weight: 500; transition: background 0.2s; }
-  .btn-primary { background: var(--primary); color: white; }
-  .btn-primary:hover { background: var(--primary-hover); }
-  .btn-danger { background: var(--danger); color: white; }
-  .btn-danger:hover { background: var(--danger-hover); }
-  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-  .btn-outline:hover { background: var(--bg); }
-  .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
-  .btn-block { width: 100%; }
+  .btn { padding:10px 20px; border:none; border-radius:var(--radius); font-size:0.9rem; cursor:pointer; font-weight:500; }
+  .btn-primary { background:var(--gold); color:#000; }
+  .btn-primary:hover { background:var(--gold-hover); }
+  .btn-danger { background:var(--danger); color:white; }
+  .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+  .btn-outline:hover { background:var(--bg-input); }
+  .btn-sm { padding:6px 12px; font-size:0.8rem; }
+  .btn-block { width:100%; }
 
-  /* Contacts list */
-  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
-  .search-box { flex: 1; min-width: 200px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.95rem; outline: none; }
-  .search-box:focus { border-color: var(--primary); }
+  /* Search */
+  .search-box { width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:0.9rem; outline:none; margin-bottom:12px; }
+  .search-box:focus { border-color:var(--gold); }
+  .search-box::placeholder { color:var(--text-secondary); }
 
-  .contact-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 8px; cursor: pointer; transition: box-shadow 0.2s; }
-  .contact-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-  .contact-card h3 { font-size: 1rem; margin-bottom: 4px; }
-  .contact-card .meta { font-size: 0.85rem; color: var(--text-secondary); }
-  .contact-card .meta span { margin-right: 16px; }
+  /* Filter chips */
+  .filter-chips { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .chip { padding:6px 16px; border-radius:20px; font-size:0.8rem; cursor:pointer; border:1px solid var(--border); background:var(--bg-input); color:var(--text-secondary); }
+  .chip.active { background:var(--gold); color:#000; border-color:var(--gold); font-weight:600; }
 
-  /* Detail / Modal */
-  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: flex-start; padding-top: 60px; z-index: 100; }
-  .modal { background: var(--card); border-radius: 12px; padding: 32px; width: 100%; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
-  .modal h2 { margin-bottom: 20px; }
-  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+  /* Cards */
+  .card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:8px; cursor:pointer; transition:border-color 0.2s; }
+  .card:hover { border-color:var(--gold); }
+  .card h3 { font-size:0.95rem; margin-bottom:4px; }
+  .card .meta { font-size:0.8rem; color:var(--text-secondary); }
+  .card .meta span { margin-right:14px; }
+
+  /* Inventory table */
+  .inv-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+  .inv-table th { text-align:left; padding:8px 10px; color:var(--text-secondary); font-size:0.75rem; text-transform:uppercase; border-bottom:1px solid var(--border); }
+  .inv-table td { padding:8px 10px; border-bottom:1px solid var(--border); }
+  .inv-table tr:hover { background:var(--bg-input); cursor:pointer; }
+  .inv-table .qty { font-weight:600; }
+  .inv-table .cost { color:var(--gold); }
+  .low-stock { color:#f59e0b; }
+  .out-stock { color:var(--danger); }
+
+  /* Summary cards */
+  .summary-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:16px; }
+  .summary-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px; text-align:center; }
+  .summary-card .num { font-size:1.5rem; font-weight:700; color:var(--gold); }
+  .summary-card .lbl { font-size:0.75rem; color:var(--text-secondary); margin-top:4px; }
+
+  /* Dashboard */
+  .dash-section { margin-bottom:20px; }
+  .dash-section h3 { font-size:0.95rem; color:var(--gold); margin-bottom:10px; }
+
+  /* QuickBooks banner */
+  .qb-banner { background:rgba(220,38,38,0.15); border:1px solid rgba(220,38,38,0.3); border-radius:var(--radius); padding:14px 20px; display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .qb-banner .qb-left { display:flex; align-items:center; gap:10px; }
+  .qb-banner .dot { width:10px; height:10px; border-radius:50%; background:var(--danger); }
+  .qb-banner .btn-connect { background:var(--gold); color:#000; padding:8px 20px; border:none; border-radius:var(--radius); cursor:pointer; font-weight:600; font-size:0.85rem; }
+
+  /* Modal */
+  .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); display:flex; justify-content:center; align-items:flex-start; padding-top:60px; z-index:100; }
+  .modal { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:28px; width:100%; max-width:560px; max-height:80vh; overflow-y:auto; }
+  .modal h2 { margin-bottom:20px; color:var(--gold); }
+  .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; }
+
+  /* Detail tabs */
+  .detail-tabs { display:flex; gap:0; margin-bottom:16px; border-bottom:2px solid var(--border); }
+  .detail-tab { padding:8px 16px; cursor:pointer; font-size:0.85rem; font-weight:500; color:var(--text-secondary); border-bottom:2px solid transparent; margin-bottom:-2px; }
+  .detail-tab.active { color:var(--gold); border-bottom-color:var(--gold); }
 
   /* Interactions */
-  .interaction-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .interaction-item:last-child { border-bottom: none; }
-  .interaction-item .kind { display: inline-block; background: var(--bg); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; margin-right: 8px; }
-  .interaction-item .date { font-size: 0.8rem; color: var(--text-secondary); }
-  .interaction-item .summary { margin-top: 4px; font-size: 0.9rem; }
+  .interaction-item { padding:10px 0; border-bottom:1px solid var(--border); }
+  .interaction-item:last-child { border-bottom:none; }
+  .interaction-item .kind { display:inline-block; background:var(--bg-input); padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:600; text-transform:uppercase; margin-right:8px; }
+  .interaction-item .date { font-size:0.78rem; color:var(--text-secondary); }
+  .interaction-item .summary { margin-top:4px; font-size:0.85rem; }
 
-  .empty { text-align: center; color: var(--text-secondary); padding: 40px; }
-  .error-msg { color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; text-align: center; }
-  .hidden { display: none !important; }
+  .empty { text-align:center; color:var(--text-secondary); padding:40px; font-size:0.9rem; }
+  .error-msg { color:var(--danger); font-size:0.85rem; margin-bottom:12px; text-align:center; }
+  .hidden { display:none !important; }
 
-  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
-  .tab { padding: 8px 16px; cursor: pointer; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; }
-  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  /* FAB */
+  .fab { position:fixed; bottom:24px; right:24px; width:56px; height:56px; border-radius:50%; background:var(--gold); color:#000; border:none; font-size:1.8rem; cursor:pointer; box-shadow:0 4px 16px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; }
+  .fab:hover { background:var(--gold-hover); }
+
+  /* Responsive table wrapper */
+  .table-wrap { overflow-x:auto; }
 </style>
 </head>
 <body>
@@ -122,22 +168,63 @@
 
 <!-- App Page -->
 <div id="app-page" class="hidden">
-  <header>
-    <div class="container">
-      <h1>Mini CRM</h1>
-      <div class="user-info">
-        <span id="user-name"></span>
-        <button onclick="logout()">Sign Out</button>
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">O</div>
+      <h1>OXLEY TIRE CRM</h1>
+    </div>
+    <button class="btn-logout" onclick="logout()">Logout</button>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchMainTab('dashboard')">Dashboard</button>
+    <button class="tab-btn" onclick="switchMainTab('inventory')">Inventory</button>
+    <button class="tab-btn" onclick="switchMainTab('contacts')">Contacts</button>
+  </div>
+
+  <!-- Dashboard Tab -->
+  <div id="tab-dashboard" class="container">
+    <div class="qb-banner">
+      <div class="qb-left">
+        <div class="dot"></div>
+        <span>QuickBooks Not Connected</span>
       </div>
+      <button class="btn-connect" onclick="alert('QuickBooks integration coming soon!')">Connect</button>
     </div>
-  </header>
-  <div class="container">
-    <div class="toolbar">
-      <input type="text" class="search-box" id="search-input" placeholder="Search contacts..." oninput="debouncedSearch()">
-      <button class="btn btn-primary" onclick="openNewContact()">+ New Contact</button>
+    <div class="summary-row" id="dash-summary"></div>
+    <div class="dash-section">
+      <h3>Low Stock Alerts</h3>
+      <div id="dash-low-stock"></div>
     </div>
+  </div>
+
+  <!-- Inventory Tab -->
+  <div id="tab-inventory" class="container hidden">
+    <div class="qb-banner">
+      <div class="qb-left">
+        <div class="dot"></div>
+        <span>QuickBooks Not Connected</span>
+      </div>
+      <button class="btn-connect" onclick="alert('QuickBooks integration coming soon!')">Connect</button>
+    </div>
+    <input type="text" class="search-box" id="inv-search" placeholder="Search inventory..." oninput="debouncedInvSearch()">
+    <div class="filter-chips" id="inv-filters">
+      <span class="chip active" data-filter="all" onclick="setInvFilter('all')">All</span>
+      <span class="chip" data-filter="low_stock" onclick="setInvFilter('low_stock')">Low Stock</span>
+      <span class="chip" data-filter="out_of_stock" onclick="setInvFilter('out_of_stock')">Out of Stock</span>
+    </div>
+    <div class="table-wrap">
+      <div id="inv-list"></div>
+    </div>
+  </div>
+
+  <!-- Contacts Tab -->
+  <div id="tab-contacts" class="container hidden">
+    <input type="text" class="search-box" id="search-input" placeholder="Search contacts..." oninput="debouncedSearch()">
     <div id="contacts-list"></div>
   </div>
+
+  <button class="fab" id="fab-btn" onclick="onFabClick()">+</button>
 </div>
 
 <!-- Contact Modal -->
@@ -145,13 +232,11 @@
   <div class="modal">
     <h2 id="modal-title">New Contact</h2>
     <div id="modal-error" class="error-msg hidden"></div>
-
-    <div class="tabs" id="modal-tabs">
-      <div class="tab active" onclick="switchTab('details')">Details</div>
-      <div class="tab" id="interactions-tab" onclick="switchTab('interactions')">Interactions</div>
+    <div class="detail-tabs" id="modal-tabs">
+      <div class="detail-tab active" onclick="switchDetailTab('details')">Details</div>
+      <div class="detail-tab hidden" id="interactions-tab" onclick="switchDetailTab('interactions')">Interactions</div>
     </div>
-
-    <div id="tab-details">
+    <div id="dtab-details">
       <form id="contact-form">
         <div class="form-row">
           <div class="form-group"><label>First Name *</label><input type="text" id="c-first" required></div>
@@ -183,8 +268,7 @@
         </div>
       </form>
     </div>
-
-    <div id="tab-interactions" class="hidden">
+    <div id="dtab-interactions" class="hidden">
       <form id="interaction-form" style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:16px;">
         <div class="form-row">
           <div class="form-group">
@@ -204,12 +288,48 @@
   </div>
 </div>
 
+<!-- Inventory Item Modal -->
+<div id="inv-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeInvModal()">
+  <div class="modal">
+    <h2 id="inv-modal-title">New Inventory Item</h2>
+    <div id="inv-modal-error" class="error-msg hidden"></div>
+    <form id="inv-form">
+      <div class="form-row">
+        <div class="form-group"><label>Brand *</label><input type="text" id="inv-brand" required></div>
+        <div class="form-group"><label>Model</label><input type="text" id="inv-model"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Size *</label><input type="text" id="inv-size" required></div>
+        <div class="form-group"><label>Zone</label><input type="text" id="inv-zone" placeholder="#7, #13A..."></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Position</label><input type="text" id="inv-position" placeholder="AP, CSD..."></div>
+        <div class="form-group"><label>Condition</label><input type="text" id="inv-condition" value="New"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Quantity</label><input type="number" id="inv-qty" min="0" value="0"></div>
+        <div class="form-group"><label>Unit Cost ($)</label><input type="number" id="inv-cost" min="0" step="0.01" value="0"></div>
+      </div>
+      <div class="form-group"><label>Low Stock Threshold</label><input type="number" id="inv-threshold" min="0" value="5"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeInvModal()">Cancel</button>
+        <button type="button" class="btn btn-danger btn-sm hidden" id="inv-delete-btn" onclick="deleteInvItem()">Delete</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 const API = window.location.origin;
 let token = localStorage.getItem('crm_token');
 let isRegister = false;
+let currentTab = 'dashboard';
 let editingContactId = null;
+let editingInvId = null;
 let searchTimer = null;
+let invSearchTimer = null;
+let currentInvFilter = 'all';
 
 // ── Auth ──
 function toggleAuth() {
@@ -228,13 +348,11 @@ document.getElementById('auth-form').addEventListener('submit', async (e) => {
   errEl.classList.add('hidden');
   const email = document.getElementById('auth-email').value;
   const password = document.getElementById('auth-password').value;
-
   try {
     if (isRegister) {
       const name = document.getElementById('auth-name').value;
       await api('POST', '/auth/register', { email, full_name: name, password });
     }
-    // Login
     const form = new URLSearchParams();
     form.append('username', email);
     form.append('password', password);
@@ -269,42 +387,215 @@ async function api(method, path, body) {
   return res.json();
 }
 
+// ── Main Tabs ──
+function switchMainTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['dashboard','inventory','contacts'][i] === tab);
+  });
+  document.getElementById('tab-dashboard').classList.toggle('hidden', tab !== 'dashboard');
+  document.getElementById('tab-inventory').classList.toggle('hidden', tab !== 'inventory');
+  document.getElementById('tab-contacts').classList.toggle('hidden', tab !== 'contacts');
+
+  if (tab === 'dashboard') loadDashboard();
+  else if (tab === 'inventory') loadInventory();
+  else if (tab === 'contacts') loadContacts();
+}
+
+function onFabClick() {
+  if (currentTab === 'contacts') openNewContact();
+  else if (currentTab === 'inventory') openNewInvItem();
+  else openNewContact();
+}
+
 // ── App ──
 async function showApp() {
   document.getElementById('auth-page').classList.add('hidden');
   document.getElementById('app-page').classList.remove('hidden');
-  try {
-    const me = await api('GET', '/auth/me');
-    document.getElementById('user-name').textContent = me.full_name;
-  } catch { logout(); return; }
-  loadContacts();
+  try { await api('GET', '/auth/me'); } catch { logout(); return; }
+  // Auto-seed inventory on first login
+  try { await api('POST', '/inventory/seed'); } catch {}
+  loadDashboard();
 }
 
+// ── Dashboard ──
+async function loadDashboard() {
+  try {
+    const s = await api('GET', '/inventory/summary');
+    document.getElementById('dash-summary').innerHTML = `
+      <div class="summary-card"><div class="num">${s.total_items}</div><div class="lbl">SKUs</div></div>
+      <div class="summary-card"><div class="num">${s.total_quantity.toLocaleString()}</div><div class="lbl">Total Units</div></div>
+      <div class="summary-card"><div class="num">$${s.total_value.toLocaleString()}</div><div class="lbl">Total Value</div></div>
+      <div class="summary-card"><div class="num ${s.low_stock > 0 ? 'low-stock' : ''}">${s.low_stock}</div><div class="lbl">Low Stock</div></div>
+      <div class="summary-card"><div class="num ${s.out_of_stock > 0 ? 'out-stock' : ''}">${s.out_of_stock}</div><div class="lbl">Out of Stock</div></div>
+    `;
+    const lowItems = await api('GET', '/inventory?stock_filter=low_stock&limit=10');
+    const el = document.getElementById('dash-low-stock');
+    if (!lowItems.length) {
+      el.innerHTML = '<div class="empty">No low stock alerts</div>';
+    } else {
+      el.innerHTML = '<table class="inv-table"><thead><tr><th>Brand</th><th>Size</th><th>Qty</th><th>Zone</th></tr></thead><tbody>' +
+        lowItems.map(i => `<tr class="low-stock"><td>${esc(i.brand)}</td><td>${esc(i.size)}</td><td>${i.quantity}</td><td>${esc(i.zone||'')}</td></tr>`).join('') +
+        '</tbody></table>';
+    }
+  } catch (err) {
+    document.getElementById('dash-summary').innerHTML = '<div class="empty">Unable to load dashboard</div>';
+  }
+}
+
+// ── Inventory ──
+async function loadInventory(q) {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (currentInvFilter && currentInvFilter !== 'all') params.set('stock_filter', currentInvFilter);
+  params.set('limit', '200');
+  params.set('sort', 'zone');
+  try {
+    const items = await api('GET', '/inventory?' + params.toString());
+    const el = document.getElementById('inv-list');
+    if (!items.length) {
+      el.innerHTML = '<div class="empty">&#x1f4e6; No inventory items</div>';
+      return;
+    }
+    let totalQty = 0, totalVal = 0;
+    items.forEach(i => { totalQty += i.quantity; totalVal += i.ext_value; });
+    el.innerHTML = `
+      <table class="inv-table">
+        <thead><tr><th>Zone</th><th>Brand</th><th>Model</th><th>Size</th><th>Pos</th><th>Cond</th><th>Qty</th><th>Cost</th><th>Value</th></tr></thead>
+        <tbody>
+          ${items.map(i => {
+            let cls = '';
+            if (i.quantity === 0) cls = 'out-stock';
+            else if (i.quantity <= i.low_stock_threshold) cls = 'low-stock';
+            return `<tr class="${cls}" onclick="openInvItem(${i.id})">
+              <td>${esc(i.zone||'')}</td><td>${esc(i.brand)}</td><td>${esc(i.model||'')}</td>
+              <td>${esc(i.size)}</td><td>${esc(i.position||'')}</td><td>${esc(i.condition)}</td>
+              <td class="qty">${i.quantity}</td><td class="cost">$${i.unit_cost}</td><td class="cost">$${i.ext_value.toLocaleString()}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot><tr style="font-weight:700;border-top:2px solid var(--gold);">
+          <td colspan="6">TOTAL</td><td>${totalQty}</td><td></td><td class="cost">$${totalVal.toLocaleString()}</td>
+        </tr></tfoot>
+      </table>`;
+  } catch (err) {
+    document.getElementById('inv-list').innerHTML = '<div class="empty">Error loading inventory</div>';
+  }
+}
+
+function setInvFilter(f) {
+  currentInvFilter = f;
+  document.querySelectorAll('#inv-filters .chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filter === f);
+  });
+  loadInventory(document.getElementById('inv-search').value);
+}
+
+function debouncedInvSearch() {
+  clearTimeout(invSearchTimer);
+  invSearchTimer = setTimeout(() => loadInventory(document.getElementById('inv-search').value), 300);
+}
+
+// ── Inventory Modal ──
+function openNewInvItem() {
+  editingInvId = null;
+  document.getElementById('inv-modal-title').textContent = 'New Inventory Item';
+  document.getElementById('inv-form').reset();
+  document.getElementById('inv-condition').value = 'New';
+  document.getElementById('inv-threshold').value = '5';
+  document.getElementById('inv-delete-btn').classList.add('hidden');
+  document.getElementById('inv-modal-error').classList.add('hidden');
+  document.getElementById('inv-modal').classList.remove('hidden');
+}
+
+async function openInvItem(id) {
+  editingInvId = id;
+  try {
+    const items = await api('GET', '/inventory');
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    document.getElementById('inv-modal-title').textContent = item.brand + ' ' + (item.model || '') + ' ' + item.size;
+    document.getElementById('inv-brand').value = item.brand;
+    document.getElementById('inv-model').value = item.model || '';
+    document.getElementById('inv-size').value = item.size;
+    document.getElementById('inv-zone').value = item.zone || '';
+    document.getElementById('inv-position').value = item.position || '';
+    document.getElementById('inv-condition').value = item.condition;
+    document.getElementById('inv-qty').value = item.quantity;
+    document.getElementById('inv-cost').value = item.unit_cost;
+    document.getElementById('inv-threshold').value = item.low_stock_threshold;
+    document.getElementById('inv-delete-btn').classList.remove('hidden');
+    document.getElementById('inv-modal-error').classList.add('hidden');
+    document.getElementById('inv-modal').classList.remove('hidden');
+  } catch {}
+}
+
+function closeInvModal() {
+  document.getElementById('inv-modal').classList.add('hidden');
+}
+
+document.getElementById('inv-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('inv-modal-error');
+  errEl.classList.add('hidden');
+  const data = {
+    brand: document.getElementById('inv-brand').value,
+    model: document.getElementById('inv-model').value || null,
+    size: document.getElementById('inv-size').value,
+    zone: document.getElementById('inv-zone').value || null,
+    position: document.getElementById('inv-position').value || null,
+    condition: document.getElementById('inv-condition').value || 'New',
+    quantity: parseInt(document.getElementById('inv-qty').value) || 0,
+    unit_cost: parseFloat(document.getElementById('inv-cost').value) || 0,
+    low_stock_threshold: parseInt(document.getElementById('inv-threshold').value) || 5,
+  };
+  try {
+    if (editingInvId) {
+      await api('PATCH', '/inventory/' + editingInvId, data);
+    } else {
+      await api('POST', '/inventory', data);
+    }
+    closeInvModal();
+    loadInventory(document.getElementById('inv-search').value);
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+async function deleteInvItem() {
+  if (!confirm('Delete this inventory item?')) return;
+  await api('DELETE', '/inventory/' + editingInvId);
+  closeInvModal();
+  loadInventory(document.getElementById('inv-search').value);
+}
+
+// ── Contacts ──
 async function loadContacts(q) {
   const params = q ? '?q=' + encodeURIComponent(q) : '';
-  const contacts = await api('GET', '/contacts' + params);
-  const list = document.getElementById('contacts-list');
-  if (!contacts.length) {
-    list.innerHTML = '<div class="empty">No contacts yet. Click "+ New Contact" to add one.</div>';
-    return;
-  }
-  list.innerHTML = contacts.map(c => `
-    <div class="contact-card" onclick="openContact(${c.id})">
-      <h3>${esc(c.first_name)} ${esc(c.last_name)}</h3>
-      <div class="meta">
-        ${c.email ? '<span>' + esc(c.email) + '</span>' : ''}
-        ${c.phone ? '<span>' + esc(c.phone) + '</span>' : ''}
-        ${c.company ? '<span>' + esc(c.company) + '</span>' : ''}
+  try {
+    const contacts = await api('GET', '/contacts' + params);
+    const list = document.getElementById('contacts-list');
+    if (!contacts.length) {
+      list.innerHTML = '<div class="empty">No contacts yet. Tap + to add one.</div>';
+      return;
+    }
+    list.innerHTML = contacts.map(c => `
+      <div class="card" onclick="openContact(${c.id})">
+        <h3>${esc(c.first_name)} ${esc(c.last_name)}</h3>
+        <div class="meta">
+          ${c.email ? '<span>' + esc(c.email) + '</span>' : ''}
+          ${c.phone ? '<span>' + esc(c.phone) + '</span>' : ''}
+          ${c.company ? '<span>' + esc(c.company) + '</span>' : ''}
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  } catch {}
 }
 
 function debouncedSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    loadContacts(document.getElementById('search-input').value);
-  }, 300);
+  searchTimer = setTimeout(() => loadContacts(document.getElementById('search-input').value), 300);
 }
 
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -317,7 +608,7 @@ function openNewContact() {
   document.getElementById('delete-btn').classList.add('hidden');
   document.getElementById('interactions-tab').classList.add('hidden');
   document.getElementById('modal-error').classList.add('hidden');
-  switchTab('details');
+  switchDetailTab('details');
   document.getElementById('contact-modal').classList.remove('hidden');
 }
 
@@ -341,24 +632,22 @@ async function openContact(id) {
   document.getElementById('delete-btn').classList.remove('hidden');
   document.getElementById('interactions-tab').classList.remove('hidden');
   document.getElementById('modal-error').classList.add('hidden');
-  switchTab('details');
+  switchDetailTab('details');
   document.getElementById('contact-modal').classList.remove('hidden');
 }
 
-function closeModal() {
-  document.getElementById('contact-modal').classList.add('hidden');
-}
+function closeModal() { document.getElementById('contact-modal').classList.add('hidden'); }
 
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-details').classList.add('hidden');
-  document.getElementById('tab-interactions').classList.add('hidden');
+function switchDetailTab(name) {
+  document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('dtab-details').classList.add('hidden');
+  document.getElementById('dtab-interactions').classList.add('hidden');
   if (name === 'details') {
-    document.querySelectorAll('.tab')[0].classList.add('active');
-    document.getElementById('tab-details').classList.remove('hidden');
+    document.querySelectorAll('.detail-tab')[0].classList.add('active');
+    document.getElementById('dtab-details').classList.remove('hidden');
   } else {
-    document.querySelectorAll('.tab')[1].classList.add('active');
-    document.getElementById('tab-interactions').classList.remove('hidden');
+    document.querySelectorAll('.detail-tab')[1].classList.add('active');
+    document.getElementById('dtab-interactions').classList.remove('hidden');
     loadInteractions();
   }
 }
@@ -383,11 +672,8 @@ document.getElementById('contact-form').addEventListener('submit', async (e) => 
     next_follow_up_at: document.getElementById('c-followup').value || null,
   };
   try {
-    if (editingContactId) {
-      await api('PATCH', '/contacts/' + editingContactId, data);
-    } else {
-      await api('POST', '/contacts', data);
-    }
+    if (editingContactId) await api('PATCH', '/contacts/' + editingContactId, data);
+    else await api('POST', '/contacts', data);
     closeModal();
     loadContacts(document.getElementById('search-input').value);
   } catch (err) {
@@ -408,7 +694,7 @@ async function loadInteractions() {
   if (!editingContactId) return;
   const items = await api('GET', '/contacts/' + editingContactId + '/interactions');
   const list = document.getElementById('interactions-list');
-  if (!items.length) { list.innerHTML = '<div class="empty">No interactions recorded yet.</div>'; return; }
+  if (!items.length) { list.innerHTML = '<div class="empty">No interactions yet.</div>'; return; }
   list.innerHTML = items.map(i => `
     <div class="interaction-item">
       <span class="kind">${esc(i.kind)}</span>
@@ -420,12 +706,11 @@ async function loadInteractions() {
 
 document.getElementById('interaction-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const data = {
+  await api('POST', '/contacts/' + editingContactId + '/interactions', {
     kind: document.getElementById('i-kind').value,
     summary: document.getElementById('i-summary').value,
     occurred_at: document.getElementById('i-date').value || null,
-  };
-  await api('POST', '/contacts/' + editingContactId + '/interactions', data);
+  });
   document.getElementById('i-summary').value = '';
   loadInteractions();
 });

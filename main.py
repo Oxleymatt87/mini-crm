@@ -208,9 +208,15 @@ class GoogleDriveToken(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
-# Store OAuth state tokens temporarily (in production, use Redis or similar)
-_oauth_states: dict[str, int] = {}
-_google_oauth_states: dict[str, int] = {}
+# OAuth state storage - now in database for multi-worker support
+class OAuthState(Base):
+    """Store OAuth state tokens in database for multi-worker environments."""
+    __tablename__ = 'oauth_states'
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(20))  # 'quickbooks' or 'google'
+    redirect_uri: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 InteractionKind = Enum('call', 'email', 'meeting', 'note', name='interaction_kind')
 
@@ -1120,21 +1126,29 @@ def get_stats(
 
 # Routes - QuickBooks Integration
 @app.get("/quickbooks/connect")
-def quickbooks_connect(request: Request, current_user: User = Depends(get_current_user)):
+def quickbooks_connect(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Initiate QuickBooks OAuth flow."""
     client_id = get_qb_client_id()
     client_secret = get_qb_client_secret()
     if not client_id or not client_secret:
         raise HTTPException(status_code=500, detail="QuickBooks not configured. Set QB_CLIENT_ID and QB_CLIENT_SECRET.")
 
+    # Use environment variable for redirect URI (handles proxy/HTTPS correctly)
+    redirect_uri = os.getenv('QB_REDIRECT_URI', str(request.base_url).rstrip('/') + "/quickbooks/callback")
+
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = {"user_id": current_user.id, "redirect_uri": str(request.base_url).rstrip('/') + "/quickbooks/callback"}
+
+    # Store state in database (works across multiple workers/restarts)
+    db.query(OAuthState).filter(OAuthState.provider == 'quickbooks', OAuthState.user_id == current_user.id).delete()
+    oauth_state = OAuthState(state=state, user_id=current_user.id, provider='quickbooks', redirect_uri=redirect_uri)
+    db.add(oauth_state)
+    db.commit()
 
     params = {
         'client_id': client_id,
         'response_type': 'code',
         'scope': 'com.intuit.quickbooks.accounting',
-        'redirect_uri': _oauth_states[state]["redirect_uri"],
+        'redirect_uri': redirect_uri,
         'state': state,
     }
     auth_url = f"{QB_AUTH_URL}?{urlencode(params)}"
@@ -1149,12 +1163,17 @@ def quickbooks_callback(
     db: Session = Depends(get_db)
 ):
     """Handle QuickBooks OAuth callback."""
-    state_data = _oauth_states.pop(state, None)
-    if not state_data:
+    # Retrieve state from database
+    oauth_state = db.query(OAuthState).filter(OAuthState.state == state, OAuthState.provider == 'quickbooks').first()
+    if not oauth_state:
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
 
-    user_id = state_data["user_id"]
-    redirect_uri = state_data["redirect_uri"]
+    user_id = oauth_state.user_id
+    redirect_uri = oauth_state.redirect_uri
+
+    # Delete used state
+    db.delete(oauth_state)
+    db.commit()
 
     # Exchange code for tokens
     auth = (get_qb_client_id(), get_qb_client_secret())
@@ -1517,13 +1536,18 @@ def get_sync_status(current_user: User = Depends(get_current_user)):
 
 # Routes - Google Drive Integration
 @app.get("/google/connect")
-def google_connect(current_user: User = Depends(get_current_user)):
+def google_connect(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Initiate Google OAuth flow for Drive access."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Google not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
 
     state = secrets.token_urlsafe(32)
-    _google_oauth_states[state] = current_user.id
+
+    # Store state in database (works across multiple workers/restarts)
+    db.query(OAuthState).filter(OAuthState.provider == 'google', OAuthState.user_id == current_user.id).delete()
+    oauth_state = OAuthState(state=state, user_id=current_user.id, provider='google', redirect_uri=GOOGLE_REDIRECT_URI)
+    db.add(oauth_state)
+    db.commit()
 
     params = {
         'client_id': GOOGLE_CLIENT_ID,
@@ -1545,9 +1569,15 @@ def google_callback(
     db: Session = Depends(get_db)
 ):
     """Handle Google OAuth callback."""
-    user_id = _google_oauth_states.pop(state, None)
-    if not user_id:
+    oauth_state = db.query(OAuthState).filter(OAuthState.state == state, OAuthState.provider == 'google').first()
+    if not oauth_state:
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
+
+    user_id = oauth_state.user_id
+
+    # Delete used state
+    db.delete(oauth_state)
+    db.commit()
 
     # Exchange code for tokens
     resp = requests.post(

@@ -1128,7 +1128,12 @@ def get_stats(
 
 # Routes - QuickBooks Integration
 @app.get("/quickbooks/connect")
-def quickbooks_connect(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def quickbooks_connect(
+    request: Request,
+    return_url: str = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Initiate QuickBooks OAuth flow."""
     client_id = get_qb_client_id()
     client_secret = get_qb_client_secret()
@@ -1138,9 +1143,8 @@ def quickbooks_connect(request: Request, current_user: User = Depends(get_curren
     # Use environment variable for redirect URI (handles proxy/HTTPS correctly)
     redirect_uri = os.getenv('QB_REDIRECT_URI', str(request.base_url).rstrip('/') + "/quickbooks/callback")
 
-    # Capture where to redirect after OAuth (from Referer header or env var)
-    referer = request.headers.get('referer', '')
-    frontend_url = os.getenv('FRONTEND_URL', referer.split('?')[0] if referer else str(request.base_url).rstrip('/') + "/static/index.html")
+    # Where to redirect after OAuth: explicit param > env var > referer > default
+    frontend_url = return_url or os.getenv('FRONTEND_URL') or str(request.base_url).rstrip('/') + "/static/index.html"
 
     state = secrets.token_urlsafe(32)
 

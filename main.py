@@ -258,6 +258,73 @@ class InventoryTransaction(Base):
     item: Mapped[InventoryItem] = relationship(back_populates='transactions')
 
 
+# Supplier Models
+class Supplier(Base):
+    """Tire/parts supplier."""
+    __tablename__ = 'suppliers'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    code: Mapped[Optional[str]] = mapped_column(String(50))  # short code like BZO, ATD
+    contact_name: Mapped[Optional[str]] = mapped_column(String(255))
+    phone: Mapped[Optional[str]] = mapped_column(String(50))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
+    address: Mapped[Optional[str]] = mapped_column(Text)
+    city: Mapped[Optional[str]] = mapped_column(String(100))
+    website: Mapped[Optional[str]] = mapped_column(String(255))
+    portal_url: Mapped[Optional[str]] = mapped_column(String(500))  # dealer portal URL
+    portal_username: Mapped[Optional[str]] = mapped_column(String(255))
+    portal_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)  # encrypted credentials
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    orders: Mapped[List['PurchaseOrder']] = relationship(back_populates='supplier', cascade='all, delete-orphan')
+
+
+Index('ix_supplier_owner_name', Supplier.owner_id, Supplier.name, unique=True)
+
+
+OrderStatus = Enum('draft', 'submitted', 'confirmed', 'shipped', 'received', 'cancelled', name='order_status')
+
+
+class PurchaseOrder(Base):
+    """Purchase order to supplier."""
+    __tablename__ = 'purchase_orders'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey('suppliers.id', ondelete='CASCADE'), index=True)
+    order_number: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[str] = mapped_column(OrderStatus, default='draft')
+    subtotal: Mapped[float] = mapped_column(Float, default=0)
+    tax: Mapped[float] = mapped_column(Float, default=0)
+    shipping: Mapped[float] = mapped_column(Float, default=0)
+    total: Mapped[float] = mapped_column(Float, default=0)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    submitted_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime(timezone=True))
+    expected_delivery: Mapped[Optional[dt.datetime]] = mapped_column(DateTime(timezone=True))
+    received_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    supplier: Mapped[Supplier] = relationship(back_populates='orders')
+    items: Mapped[List['PurchaseOrderItem']] = relationship(back_populates='order', cascade='all, delete-orphan')
+
+
+class PurchaseOrderItem(Base):
+    """Line item in a purchase order."""
+    __tablename__ = 'purchase_order_items'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('purchase_orders.id', ondelete='CASCADE'), index=True)
+    inventory_item_id: Mapped[Optional[int]] = mapped_column(ForeignKey('inventory_items.id', ondelete='SET NULL'))
+    sku: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(String(500))
+    quantity: Mapped[int] = mapped_column(Integer)
+    unit_cost: Mapped[float] = mapped_column(Float)
+    total: Mapped[float] = mapped_column(Float)
+    received_qty: Mapped[int] = mapped_column(Integer, default=0)
+    order: Mapped[PurchaseOrder] = relationship(back_populates='items')
+
+
 # Schemas
 class Token(BaseModel):
     access_token: str
@@ -426,6 +493,100 @@ class InventoryTransactionOut(BaseModel):
     notes: Optional[str] = None
     contact_id: Optional[int] = None
     created_at: dt.datetime
+
+
+# Supplier Schemas
+class SupplierCreate(BaseModel):
+    name: str
+    code: Optional[str] = None
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    website: Optional[str] = None
+    portal_url: Optional[str] = None
+    portal_username: Optional[str] = None
+    portal_password: Optional[str] = None  # Will be encrypted
+    notes: Optional[str] = None
+
+
+class SupplierUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    website: Optional[str] = None
+    portal_url: Optional[str] = None
+    portal_username: Optional[str] = None
+    portal_password: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SupplierOut(BaseModel):
+    id: int
+    name: str
+    code: Optional[str] = None
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    website: Optional[str] = None
+    portal_url: Optional[str] = None
+    portal_username: Optional[str] = None
+    has_credentials: bool = False  # True if portal credentials are stored
+    notes: Optional[str] = None
+    is_active: bool
+    created_at: dt.datetime
+
+
+# Purchase Order Schemas
+class PurchaseOrderItemCreate(BaseModel):
+    inventory_item_id: Optional[int] = None
+    sku: str
+    description: str
+    quantity: int
+    unit_cost: float
+
+
+class PurchaseOrderItemOut(BaseModel):
+    id: int
+    inventory_item_id: Optional[int] = None
+    sku: str
+    description: str
+    quantity: int
+    unit_cost: float
+    total: float
+    received_qty: int
+
+
+class PurchaseOrderCreate(BaseModel):
+    supplier_id: int
+    notes: Optional[str] = None
+    items: List[PurchaseOrderItemCreate]
+
+
+class PurchaseOrderOut(BaseModel):
+    id: int
+    supplier_id: int
+    supplier_name: str
+    order_number: str
+    status: str
+    subtotal: float
+    tax: float
+    shipping: float
+    total: float
+    notes: Optional[str] = None
+    submitted_at: Optional[dt.datetime] = None
+    expected_delivery: Optional[dt.datetime] = None
+    received_at: Optional[dt.datetime] = None
+    created_at: dt.datetime
+    items: List[PurchaseOrderItemOut] = []
 
 
 # App setup
@@ -2015,6 +2176,502 @@ def sync_inventory_to_quickbooks(
     db.commit()
 
     return {"ok": True, "qb_item_id": item.qb_item_id}
+
+
+# =============================================================================
+# SUPPLIER ENDPOINTS
+# =============================================================================
+
+def _simple_encrypt(text: str) -> str:
+    """Simple XOR encryption for portal passwords (use proper encryption in production)."""
+    key = JWT_SECRET[:32].ljust(32, '0')
+    return ''.join(chr(ord(c) ^ ord(key[i % len(key)])) for i, c in enumerate(text)).encode('latin-1').hex()
+
+
+def _simple_decrypt(encrypted_hex: str) -> str:
+    """Decrypt XOR encrypted text."""
+    key = JWT_SECRET[:32].ljust(32, '0')
+    encrypted = bytes.fromhex(encrypted_hex).decode('latin-1')
+    return ''.join(chr(ord(c) ^ ord(key[i % len(key)])) for i, c in enumerate(encrypted))
+
+
+@app.get("/suppliers", response_model=List[SupplierOut])
+def list_suppliers(
+    active_only: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all suppliers."""
+    query = db.query(Supplier).filter(Supplier.owner_id == current_user.id)
+    if active_only:
+        query = query.filter(Supplier.is_active == True)
+    suppliers = query.order_by(Supplier.name).all()
+
+    result = []
+    for s in suppliers:
+        result.append(SupplierOut(
+            id=s.id,
+            name=s.name,
+            code=s.code,
+            contact_name=s.contact_name,
+            phone=s.phone,
+            email=s.email,
+            address=s.address,
+            city=s.city,
+            website=s.website,
+            portal_url=s.portal_url,
+            portal_username=s.portal_username,
+            has_credentials=bool(s.portal_password_encrypted),
+            notes=s.notes,
+            is_active=s.is_active,
+            created_at=s.created_at
+        ))
+    return result
+
+
+@app.post("/suppliers", response_model=SupplierOut)
+def create_supplier(
+    data: SupplierCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new supplier."""
+    # Check for duplicate name
+    existing = db.query(Supplier).filter(
+        Supplier.owner_id == current_user.id,
+        Supplier.name == data.name
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Supplier with this name already exists")
+
+    supplier = Supplier(
+        owner_id=current_user.id,
+        name=data.name,
+        code=data.code,
+        contact_name=data.contact_name,
+        phone=data.phone,
+        email=data.email,
+        address=data.address,
+        city=data.city,
+        website=data.website,
+        portal_url=data.portal_url,
+        portal_username=data.portal_username,
+        portal_password_encrypted=_simple_encrypt(data.portal_password) if data.portal_password else None,
+        notes=data.notes
+    )
+    db.add(supplier)
+    db.commit()
+    db.refresh(supplier)
+
+    return SupplierOut(
+        id=supplier.id,
+        name=supplier.name,
+        code=supplier.code,
+        contact_name=supplier.contact_name,
+        phone=supplier.phone,
+        email=supplier.email,
+        address=supplier.address,
+        city=supplier.city,
+        website=supplier.website,
+        portal_url=supplier.portal_url,
+        portal_username=supplier.portal_username,
+        has_credentials=bool(supplier.portal_password_encrypted),
+        notes=supplier.notes,
+        is_active=supplier.is_active,
+        created_at=supplier.created_at
+    )
+
+
+@app.get("/suppliers/{supplier_id}", response_model=SupplierOut)
+def get_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a single supplier."""
+    supplier = db.query(Supplier).filter(
+        Supplier.id == supplier_id,
+        Supplier.owner_id == current_user.id
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    return SupplierOut(
+        id=supplier.id,
+        name=supplier.name,
+        code=supplier.code,
+        contact_name=supplier.contact_name,
+        phone=supplier.phone,
+        email=supplier.email,
+        address=supplier.address,
+        city=supplier.city,
+        website=supplier.website,
+        portal_url=supplier.portal_url,
+        portal_username=supplier.portal_username,
+        has_credentials=bool(supplier.portal_password_encrypted),
+        notes=supplier.notes,
+        is_active=supplier.is_active,
+        created_at=supplier.created_at
+    )
+
+
+@app.patch("/suppliers/{supplier_id}", response_model=SupplierOut)
+def update_supplier(
+    supplier_id: int,
+    data: SupplierUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a supplier."""
+    supplier = db.query(Supplier).filter(
+        Supplier.id == supplier_id,
+        Supplier.owner_id == current_user.id
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    if 'portal_password' in update_data:
+        pwd = update_data.pop('portal_password')
+        if pwd:
+            supplier.portal_password_encrypted = _simple_encrypt(pwd)
+        else:
+            supplier.portal_password_encrypted = None
+
+    for key, value in update_data.items():
+        setattr(supplier, key, value)
+
+    db.commit()
+    db.refresh(supplier)
+
+    return SupplierOut(
+        id=supplier.id,
+        name=supplier.name,
+        code=supplier.code,
+        contact_name=supplier.contact_name,
+        phone=supplier.phone,
+        email=supplier.email,
+        address=supplier.address,
+        city=supplier.city,
+        website=supplier.website,
+        portal_url=supplier.portal_url,
+        portal_username=supplier.portal_username,
+        has_credentials=bool(supplier.portal_password_encrypted),
+        notes=supplier.notes,
+        is_active=supplier.is_active,
+        created_at=supplier.created_at
+    )
+
+
+@app.delete("/suppliers/{supplier_id}")
+def delete_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a supplier."""
+    supplier = db.query(Supplier).filter(
+        Supplier.id == supplier_id,
+        Supplier.owner_id == current_user.id
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    db.delete(supplier)
+    db.commit()
+    return {"ok": True}
+
+
+# =============================================================================
+# PURCHASE ORDER ENDPOINTS
+# =============================================================================
+
+def _generate_order_number(db: Session, user_id: int) -> str:
+    """Generate a unique PO number like PO-2026-0001."""
+    year = dt.datetime.now().year
+    prefix = f"PO-{year}-"
+
+    last_order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.owner_id == user_id,
+        PurchaseOrder.order_number.like(f"{prefix}%")
+    ).order_by(PurchaseOrder.order_number.desc()).first()
+
+    if last_order:
+        try:
+            last_num = int(last_order.order_number.split('-')[-1])
+            next_num = last_num + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+
+    return f"{prefix}{next_num:04d}"
+
+
+@app.get("/orders", response_model=List[PurchaseOrderOut])
+def list_orders(
+    status: Optional[str] = None,
+    supplier_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List purchase orders."""
+    query = db.query(PurchaseOrder).filter(PurchaseOrder.owner_id == current_user.id)
+
+    if status:
+        query = query.filter(PurchaseOrder.status == status)
+    if supplier_id:
+        query = query.filter(PurchaseOrder.supplier_id == supplier_id)
+
+    orders = query.order_by(PurchaseOrder.created_at.desc()).all()
+
+    result = []
+    for order in orders:
+        items = [PurchaseOrderItemOut(
+            id=item.id,
+            inventory_item_id=item.inventory_item_id,
+            sku=item.sku,
+            description=item.description,
+            quantity=item.quantity,
+            unit_cost=item.unit_cost,
+            total=item.total,
+            received_qty=item.received_qty
+        ) for item in order.items]
+
+        result.append(PurchaseOrderOut(
+            id=order.id,
+            supplier_id=order.supplier_id,
+            supplier_name=order.supplier.name,
+            order_number=order.order_number,
+            status=order.status,
+            subtotal=order.subtotal,
+            tax=order.tax,
+            shipping=order.shipping,
+            total=order.total,
+            notes=order.notes,
+            submitted_at=order.submitted_at,
+            expected_delivery=order.expected_delivery,
+            received_at=order.received_at,
+            created_at=order.created_at,
+            items=items
+        ))
+
+    return result
+
+
+@app.post("/orders", response_model=PurchaseOrderOut)
+def create_order(
+    data: PurchaseOrderCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new purchase order."""
+    # Verify supplier exists
+    supplier = db.query(Supplier).filter(
+        Supplier.id == data.supplier_id,
+        Supplier.owner_id == current_user.id
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    order_number = _generate_order_number(db, current_user.id)
+
+    subtotal = sum(item.quantity * item.unit_cost for item in data.items)
+
+    order = PurchaseOrder(
+        owner_id=current_user.id,
+        supplier_id=data.supplier_id,
+        order_number=order_number,
+        status='draft',
+        subtotal=subtotal,
+        total=subtotal,  # Tax/shipping added later
+        notes=data.notes
+    )
+    db.add(order)
+    db.flush()  # Get the order ID
+
+    for item_data in data.items:
+        order_item = PurchaseOrderItem(
+            order_id=order.id,
+            inventory_item_id=item_data.inventory_item_id,
+            sku=item_data.sku,
+            description=item_data.description,
+            quantity=item_data.quantity,
+            unit_cost=item_data.unit_cost,
+            total=item_data.quantity * item_data.unit_cost
+        )
+        db.add(order_item)
+
+    db.commit()
+    db.refresh(order)
+
+    items = [PurchaseOrderItemOut(
+        id=item.id,
+        inventory_item_id=item.inventory_item_id,
+        sku=item.sku,
+        description=item.description,
+        quantity=item.quantity,
+        unit_cost=item.unit_cost,
+        total=item.total,
+        received_qty=item.received_qty
+    ) for item in order.items]
+
+    return PurchaseOrderOut(
+        id=order.id,
+        supplier_id=order.supplier_id,
+        supplier_name=supplier.name,
+        order_number=order.order_number,
+        status=order.status,
+        subtotal=order.subtotal,
+        tax=order.tax,
+        shipping=order.shipping,
+        total=order.total,
+        notes=order.notes,
+        submitted_at=order.submitted_at,
+        expected_delivery=order.expected_delivery,
+        received_at=order.received_at,
+        created_at=order.created_at,
+        items=items
+    )
+
+
+@app.get("/orders/{order_id}", response_model=PurchaseOrderOut)
+def get_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a single purchase order."""
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == order_id,
+        PurchaseOrder.owner_id == current_user.id
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    items = [PurchaseOrderItemOut(
+        id=item.id,
+        inventory_item_id=item.inventory_item_id,
+        sku=item.sku,
+        description=item.description,
+        quantity=item.quantity,
+        unit_cost=item.unit_cost,
+        total=item.total,
+        received_qty=item.received_qty
+    ) for item in order.items]
+
+    return PurchaseOrderOut(
+        id=order.id,
+        supplier_id=order.supplier_id,
+        supplier_name=order.supplier.name,
+        order_number=order.order_number,
+        status=order.status,
+        subtotal=order.subtotal,
+        tax=order.tax,
+        shipping=order.shipping,
+        total=order.total,
+        notes=order.notes,
+        submitted_at=order.submitted_at,
+        expected_delivery=order.expected_delivery,
+        received_at=order.received_at,
+        created_at=order.created_at,
+        items=items
+    )
+
+
+@app.post("/orders/{order_id}/submit")
+def submit_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Submit an order (mark as submitted)."""
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == order_id,
+        PurchaseOrder.owner_id == current_user.id
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status != 'draft':
+        raise HTTPException(status_code=400, detail="Only draft orders can be submitted")
+
+    order.status = 'submitted'
+    order.submitted_at = dt.datetime.utcnow()
+    db.commit()
+
+    return {"ok": True, "order_number": order.order_number, "status": order.status}
+
+
+@app.post("/orders/{order_id}/receive")
+def receive_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mark order as received and update inventory."""
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == order_id,
+        PurchaseOrder.owner_id == current_user.id
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status == 'received':
+        raise HTTPException(status_code=400, detail="Order already received")
+
+    # Update inventory for each item
+    for order_item in order.items:
+        if order_item.inventory_item_id:
+            inv_item = db.query(InventoryItem).filter(
+                InventoryItem.id == order_item.inventory_item_id,
+                InventoryItem.owner_id == current_user.id
+            ).first()
+            if inv_item:
+                inv_item.quantity += order_item.quantity
+                inv_item.cost = order_item.unit_cost  # Update cost
+
+                # Create transaction record
+                txn = InventoryTransaction(
+                    item_id=inv_item.id,
+                    owner_id=current_user.id,
+                    transaction_type='receive',
+                    quantity=order_item.quantity,
+                    unit_cost=order_item.unit_cost,
+                    reference=order.order_number,
+                    notes=f"Received from {order.supplier.name}"
+                )
+                db.add(txn)
+
+        order_item.received_qty = order_item.quantity
+
+    order.status = 'received'
+    order.received_at = dt.datetime.utcnow()
+    db.commit()
+
+    return {"ok": True, "order_number": order.order_number, "status": order.status}
+
+
+@app.delete("/orders/{order_id}")
+def delete_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a draft order."""
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == order_id,
+        PurchaseOrder.owner_id == current_user.id
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status != 'draft':
+        raise HTTPException(status_code=400, detail="Only draft orders can be deleted")
+
+    db.delete(order)
+    db.commit()
+    return {"ok": True}
 
 
 if __name__ == "__main__":

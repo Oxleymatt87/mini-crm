@@ -1028,19 +1028,19 @@ def get_stats(
 
 # Routes - QuickBooks Integration
 @app.get("/quickbooks/connect")
-def quickbooks_connect(current_user: User = Depends(get_current_user)):
+def quickbooks_connect(request: Request, current_user: User = Depends(get_current_user)):
     """Initiate QuickBooks OAuth flow."""
     if not QB_CLIENT_ID or not QB_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="QuickBooks not configured. Set QB_CLIENT_ID and QB_CLIENT_SECRET.")
 
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = current_user.id
+    _oauth_states[state] = {"user_id": current_user.id, "redirect_uri": str(request.base_url).rstrip('/') + "/quickbooks/callback"}
 
     params = {
         'client_id': QB_CLIENT_ID,
         'response_type': 'code',
         'scope': 'com.intuit.quickbooks.accounting',
-        'redirect_uri': QB_REDIRECT_URI,
+        'redirect_uri': _oauth_states[state]["redirect_uri"],
         'state': state,
     }
     auth_url = f"{QB_AUTH_URL}?{urlencode(params)}"
@@ -1055,9 +1055,12 @@ def quickbooks_callback(
     db: Session = Depends(get_db)
 ):
     """Handle QuickBooks OAuth callback."""
-    user_id = _oauth_states.pop(state, None)
-    if not user_id:
+    state_data = _oauth_states.pop(state, None)
+    if not state_data:
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
+
+    user_id = state_data["user_id"]
+    redirect_uri = state_data["redirect_uri"]
 
     # Exchange code for tokens
     auth = (QB_CLIENT_ID, QB_CLIENT_SECRET)
@@ -1068,7 +1071,7 @@ def quickbooks_callback(
         data={
             'grant_type': 'authorization_code',
             'code': code,
-            'redirect_uri': QB_REDIRECT_URI,
+            'redirect_uri': redirect_uri,
         },
         timeout=30
     )

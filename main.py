@@ -61,6 +61,9 @@ QB_ENVIRONMENT = os.getenv('QB_ENVIRONMENT', 'sandbox')  # 'sandbox' or 'product
 QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 QB_API_BASE = 'https://sandbox-quickbooks.api.intuit.com' if QB_ENVIRONMENT == 'sandbox' else 'https://quickbooks.api.intuit.com'
+# Pre-seeded tokens (set these to auto-initialize QuickBooks on startup)
+QB_REFRESH_TOKEN = os.getenv('QB_REFRESH_TOKEN', '')
+QB_REALM_ID = os.getenv('QB_REALM_ID', '')
 
 # Google OAuth Configuration (for Drive access)
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
@@ -661,6 +664,56 @@ def startup():
         print("Database tables created successfully")
     except Exception as e:
         print(f"Database initialization error: {e}")
+
+    # Auto-seed QuickBooks tokens from env vars
+    if QB_REFRESH_TOKEN and QB_REALM_ID and QB_CLIENT_ID and QB_CLIENT_SECRET:
+        try:
+            db = SessionLocal()
+            # Get first user or create a system user
+            user = db.query(User).first()
+            if not user:
+                user = User(
+                    email="system@localhost",
+                    full_name="System User",
+                    hashed_password=hash_password(secrets.token_urlsafe(32)),
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+                print("Created system user for QuickBooks")
+
+            # Check if QB token already exists for this user
+            qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user.id).first()
+            if not qb_token:
+                # Get fresh access token using refresh token
+                resp = requests.post(
+                    QB_TOKEN_URL,
+                    auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+                    headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+                    data={'grant_type': 'refresh_token', 'refresh_token': QB_REFRESH_TOKEN},
+                    timeout=30
+                )
+                if resp.status_code == 200:
+                    tokens = resp.json()
+                    now = dt.datetime.utcnow()
+                    qb_token = QuickBooksToken(
+                        user_id=user.id,
+                        realm_id=QB_REALM_ID,
+                        access_token=tokens['access_token'],
+                        refresh_token=tokens['refresh_token'],
+                        access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
+                        refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
+                    )
+                    db.add(qb_token)
+                    db.commit()
+                    print(f"QuickBooks tokens seeded for user {user.id}")
+                else:
+                    print(f"Failed to get QB access token: {resp.status_code} - {resp.text}")
+            else:
+                print(f"QuickBooks already configured for user {user.id}")
+            db.close()
+        except Exception as e:
+            print(f"QuickBooks auto-seed error: {e}")
 
 
 # Routes - Health

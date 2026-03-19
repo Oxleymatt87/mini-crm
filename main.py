@@ -681,6 +681,9 @@ def geocode_address(contact: Contact) -> tuple[Optional[float], Optional[float]]
 @app.on_event("startup")
 def startup():
     try:
+        # Drop and recreate oauth_states table to ensure schema is current
+        # (it's just temporary state for in-flight OAuth, safe to clear)
+        OAuthState.__table__.drop(engine, checkfirst=True)
         Base.metadata.create_all(bind=engine)
         print("Database tables created successfully")
     except Exception as e:

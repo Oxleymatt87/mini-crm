@@ -1100,7 +1100,7 @@ def quickbooks_callback(
         db.add(qb_token)
 
     db.commit()
-    return RedirectResponse(url="/?quickbooks=connected")
+    return RedirectResponse(url="/static/index.html?quickbooks=connected")
 
 
 def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:

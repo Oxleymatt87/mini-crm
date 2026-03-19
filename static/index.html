@@ -1,437 +1,1098 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mini CRM</title>
-<style>
-  :root {
-    --primary: #4f46e5;
-    --primary-hover: #4338ca;
-    --danger: #dc2626;
-    --danger-hover: #b91c1c;
-    --bg: #f9fafb;
-    --card: #ffffff;
-    --border: #e5e7eb;
-    --text: #111827;
-    --text-secondary: #6b7280;
-    --radius: 8px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-
-  /* Layout */
-  .container { max-width: 960px; margin: 0 auto; padding: 20px; }
-  header { background: var(--primary); color: white; padding: 16px 0; margin-bottom: 24px; }
-  header .container { display: flex; justify-content: space-between; align-items: center; }
-  header h1 { font-size: 1.4rem; }
-  .user-info { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
-  .user-info button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; }
-  .user-info button:hover { background: rgba(255,255,255,0.3); }
-
-  /* Auth */
-  .auth-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: var(--bg); }
-  .auth-card { background: var(--card); padding: 40px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); width: 100%; max-width: 400px; }
-  .auth-card h2 { margin-bottom: 24px; text-align: center; color: var(--primary); }
-  .auth-card .toggle { text-align: center; margin-top: 16px; font-size: 0.9rem; color: var(--text-secondary); }
-  .auth-card .toggle a { color: var(--primary); cursor: pointer; text-decoration: none; }
-
-  /* Forms */
-  .form-group { margin-bottom: 16px; }
-  .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary); }
-  .form-group input, .form-group textarea, .form-group select {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
-    font-size: 0.95rem; outline: none; transition: border 0.2s;
-  }
-  .form-group input:focus, .form-group textarea:focus { border-color: var(--primary); }
-  .form-group textarea { resize: vertical; min-height: 60px; }
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-  /* Buttons */
-  .btn { padding: 10px 20px; border: none; border-radius: var(--radius); font-size: 0.95rem; cursor: pointer; font-weight: 500; transition: background 0.2s; }
-  .btn-primary { background: var(--primary); color: white; }
-  .btn-primary:hover { background: var(--primary-hover); }
-  .btn-danger { background: var(--danger); color: white; }
-  .btn-danger:hover { background: var(--danger-hover); }
-  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-  .btn-outline:hover { background: var(--bg); }
-  .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
-  .btn-block { width: 100%; }
-
-  /* Contacts list */
-  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
-  .search-box { flex: 1; min-width: 200px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.95rem; outline: none; }
-  .search-box:focus { border-color: var(--primary); }
-
-  .contact-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 8px; cursor: pointer; transition: box-shadow 0.2s; }
-  .contact-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-  .contact-card h3 { font-size: 1rem; margin-bottom: 4px; }
-  .contact-card .meta { font-size: 0.85rem; color: var(--text-secondary); }
-  .contact-card .meta span { margin-right: 16px; }
-
-  /* Detail / Modal */
-  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: flex-start; padding-top: 60px; z-index: 100; }
-  .modal { background: var(--card); border-radius: 12px; padding: 32px; width: 100%; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
-  .modal h2 { margin-bottom: 20px; }
-  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
-
-  /* Interactions */
-  .interaction-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .interaction-item:last-child { border-bottom: none; }
-  .interaction-item .kind { display: inline-block; background: var(--bg); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; margin-right: 8px; }
-  .interaction-item .date { font-size: 0.8rem; color: var(--text-secondary); }
-  .interaction-item .summary { margin-top: 4px; font-size: 0.9rem; }
-
-  .empty { text-align: center; color: var(--text-secondary); padding: 40px; }
-  .error-msg { color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; text-align: center; }
-  .hidden { display: none !important; }
-
-  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
-  .tab { padding: 8px 16px; cursor: pointer; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; }
-  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <title>Oxley Tire CRM</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #111;
+            color: #f5f5f5;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a1a, #000);
+            color: #d4a12a;
+            padding: 16px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 8px rgba(212,161,42,0.2);
+            border-bottom: 2px solid #d4a12a;
+        }
+        .header h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+        .header-actions { display: flex; gap: 12px; margin-top: 8px; }
+        .header-btn {
+            background: rgba(212,161,42,0.2);
+            border: 1px solid #d4a12a;
+            color: #d4a12a;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .container { padding: 16px; max-width: 600px; margin: 0 auto; }
+        .card {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #333;
+        }
+        .card-clickable { cursor: pointer; }
+        .card-clickable:active { background: #252525; }
+        .contact-name { font-weight: 600; font-size: 16px; color: #d4a12a; }
+        .contact-company { font-size: 14px; color: #888; margin-top: 2px; }
+        .contact-details { font-size: 13px; color: #666; margin-top: 8px; }
+        .contact-details a { color: #d4a12a; text-decoration: none; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .stat-card {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #333;
+        }
+        .stat-number { font-size: 28px; font-weight: 700; color: #d4a12a; }
+        .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #d4a12a; }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            font-size: 16px;
+            background: #222;
+            color: #f5f5f5;
+        }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #d4a12a; }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #d4a12a, #b8860b);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn:disabled { background: #444; color: #888; }
+        .btn-secondary { background: #333; color: #d4a12a; border: 1px solid #d4a12a; }
+        .btn-danger { background: #8b0000; color: #fff; }
+        .btn-small { padding: 10px 16px; font-size: 14px; width: auto; }
+        .nav-tabs {
+            display: flex;
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #333;
+        }
+        .nav-tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            border: none;
+            background: none;
+            font-size: 13px;
+            font-weight: 500;
+            color: #888;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .nav-tab.active { background: #d4a12a; color: #000; }
+        .search-box {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #333;
+            border-radius: 12px;
+            font-size: 16px;
+            margin-bottom: 16px;
+            background: #1a1a1a;
+            color: #f5f5f5;
+        }
+        .search-box:focus { outline: none; border-color: #d4a12a; }
+        .hidden { display: none !important; }
+        .fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #d4a12a, #b8860b);
+            color: #000;
+            border: none;
+            font-size: 28px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(212,161,42,0.4);
+            cursor: pointer;
+        }
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: flex-end;
+            z-index: 200;
+        }
+        .modal-content {
+            background: #1a1a1a;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 20px 20px 0 0;
+            padding: 24px;
+            border-top: 2px solid #d4a12a;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .modal-header h2 { font-size: 18px; color: #d4a12a; }
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #888;
+            cursor: pointer;
+        }
+        .error { color: #ff6b6b; font-size: 14px; margin-top: 8px; }
+        .success { color: #4ade80; font-size: 14px; margin-top: 8px; }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
+        }
+        .empty-state-icon { font-size: 48px; margin-bottom: 16px; }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #d4a12a;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #000;
+            font-size: 18px;
+        }
+        /* Inventory specific styles */
+        .inv-item { display: flex; justify-content: space-between; align-items: flex-start; }
+        .inv-name { font-weight: 600; font-size: 16px; color: #d4a12a; }
+        .inv-sku { font-size: 12px; color: #666; margin-top: 2px; }
+        .inv-details { font-size: 13px; color: #888; margin-top: 6px; }
+        .inv-qty { text-align: right; }
+        .inv-qty-num { font-size: 24px; font-weight: 700; color: #f5f5f5; }
+        .inv-qty-label { font-size: 11px; color: #666; }
+        .inv-low { color: #ff6b6b; }
+        .inv-price { font-size: 14px; color: #4ade80; margin-top: 4px; }
+        .qb-banner {
+            background: #1a2a1a;
+            border: 1px solid #2d4a2d;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .qb-banner.disconnected {
+            background: #2a1a1a;
+            border-color: #4a2d2d;
+        }
+        .qb-status { font-size: 14px; }
+        .qb-status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .qb-status-dot.connected { background: #4ade80; }
+        .qb-status-dot.disconnected { background: #ff6b6b; }
+        .filter-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .filter-chip {
+            padding: 6px 12px;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 16px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+        }
+        .filter-chip.active {
+            background: #d4a12a;
+            color: #000;
+            border-color: #d4a12a;
+        }
+        .action-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .action-row .btn { flex: 1; }
+    </style>
 </head>
 <body>
-
-<!-- Auth Page -->
-<div id="auth-page" class="auth-page">
-  <div class="auth-card">
-    <h2 id="auth-title">Sign In</h2>
-    <div id="auth-error" class="error-msg hidden"></div>
-    <form id="auth-form">
-      <div id="name-field" class="form-group hidden">
-        <label>Full Name</label>
-        <input type="text" id="auth-name" placeholder="John Doe">
-      </div>
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" id="auth-email" placeholder="you@example.com" required>
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="auth-password" placeholder="Min. 6 characters" required>
-      </div>
-      <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Sign In</button>
-    </form>
-    <div class="toggle">
-      <span id="auth-toggle-text">Don't have an account?</span>
-      <a id="auth-toggle" onclick="toggleAuth()">Sign Up</a>
-    </div>
-  </div>
-</div>
-
-<!-- App Page -->
-<div id="app-page" class="hidden">
-  <header>
-    <div class="container">
-      <h1>Mini CRM</h1>
-      <div class="user-info">
-        <span id="user-name"></span>
-        <button onclick="logout()">Sign Out</button>
-      </div>
-    </div>
-  </header>
-  <div class="container">
-    <div class="toolbar">
-      <input type="text" class="search-box" id="search-input" placeholder="Search contacts..." oninput="debouncedSearch()">
-      <button class="btn btn-primary" onclick="openNewContact()">+ New Contact</button>
-    </div>
-    <div id="contacts-list"></div>
-  </div>
-</div>
-
-<!-- Contact Modal -->
-<div id="contact-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <h2 id="modal-title">New Contact</h2>
-    <div id="modal-error" class="error-msg hidden"></div>
-
-    <div class="tabs" id="modal-tabs">
-      <div class="tab active" onclick="switchTab('details')">Details</div>
-      <div class="tab" id="interactions-tab" onclick="switchTab('interactions')">Interactions</div>
-    </div>
-
-    <div id="tab-details">
-      <form id="contact-form">
-        <div class="form-row">
-          <div class="form-group"><label>First Name *</label><input type="text" id="c-first" required></div>
-          <div class="form-group"><label>Last Name *</label><input type="text" id="c-last" required></div>
+    <!-- Login Screen -->
+    <div id="login-screen">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">O</div>
+                <h1>OXLEY TIRE CRM</h1>
+            </div>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label>Email</label><input type="email" id="c-email"></div>
-          <div class="form-group"><label>Phone</label><input type="text" id="c-phone"></div>
+        <div class="container" style="padding-top: 40px;">
+            <div class="card">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="you@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="Your password">
+                </div>
+                <div id="login-error" class="error hidden"></div>
+                <button class="btn" onclick="login()" style="margin-top: 8px;">Sign In</button>
+                <button class="btn btn-secondary" onclick="showRegister()" style="margin-top: 12px;">Create Account</button>
+            </div>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label>Company</label><input type="text" id="c-company"></div>
-          <div class="form-group"><label>Position</label><input type="text" id="c-position"></div>
-        </div>
-        <div class="form-group"><label>Address</label><input type="text" id="c-addr1" placeholder="Street address"></div>
-        <div class="form-row">
-          <div class="form-group"><label>City</label><input type="text" id="c-city"></div>
-          <div class="form-group"><label>State</label><input type="text" id="c-state"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Postal Code</label><input type="text" id="c-postal"></div>
-          <div class="form-group"><label>Country</label><input type="text" id="c-country"></div>
-        </div>
-        <div class="form-group"><label>Notes</label><textarea id="c-notes"></textarea></div>
-        <div class="form-group"><label>Next Follow-up</label><input type="datetime-local" id="c-followup"></div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
-          <button type="button" class="btn btn-danger btn-sm hidden" id="delete-btn" onclick="deleteContact()">Delete</button>
-          <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
-        </div>
-      </form>
     </div>
 
-    <div id="tab-interactions" class="hidden">
-      <form id="interaction-form" style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:16px;">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Type</label>
-            <select id="i-kind"><option>call</option><option>email</option><option>meeting</option><option>note</option></select>
-          </div>
-          <div class="form-group">
-            <label>Date</label>
-            <input type="datetime-local" id="i-date">
-          </div>
+    <!-- Register Screen -->
+    <div id="register-screen" class="hidden">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">O</div>
+                <h1>Create Account</h1>
+            </div>
         </div>
-        <div class="form-group"><label>Summary</label><textarea id="i-summary" required placeholder="What happened?"></textarea></div>
-        <button type="submit" class="btn btn-primary btn-sm">Add Interaction</button>
-      </form>
-      <div id="interactions-list"></div>
+        <div class="container" style="padding-top: 40px;">
+            <div class="card">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="reg-name" placeholder="John Doe">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="reg-email" placeholder="you@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="reg-password" placeholder="Min 6 characters">
+                </div>
+                <div id="reg-error" class="error hidden"></div>
+                <button class="btn" onclick="register()">Create Account</button>
+                <button class="btn btn-secondary" onclick="showLogin()" style="margin-top: 12px;">Back to Login</button>
+            </div>
+        </div>
     </div>
-  </div>
-</div>
 
-<script>
-const API = window.location.origin;
-let token = localStorage.getItem('crm_token');
-let isRegister = false;
-let editingContactId = null;
-let searchTimer = null;
+    <!-- Main App -->
+    <div id="app-screen" class="hidden">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">O</div>
+                <h1>OXLEY TIRE CRM</h1>
+            </div>
+            <div class="header-actions">
+                <button class="header-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        <div class="container">
+            <div class="nav-tabs">
+                <button class="nav-tab active" onclick="showTab('dashboard')">Dashboard</button>
+                <button class="nav-tab" onclick="showTab('inventory')">Inventory</button>
+                <button class="nav-tab" onclick="showTab('contacts')">Contacts</button>
+            </div>
 
-// ── Auth ──
-function toggleAuth() {
-  isRegister = !isRegister;
-  document.getElementById('auth-title').textContent = isRegister ? 'Sign Up' : 'Sign In';
-  document.getElementById('auth-submit').textContent = isRegister ? 'Sign Up' : 'Sign In';
-  document.getElementById('auth-toggle-text').textContent = isRegister ? 'Already have an account?' : "Don't have an account?";
-  document.getElementById('auth-toggle').textContent = isRegister ? 'Sign In' : 'Sign Up';
-  document.getElementById('name-field').classList.toggle('hidden', !isRegister);
-  document.getElementById('auth-error').classList.add('hidden');
-}
+            <!-- Dashboard Tab -->
+            <div id="tab-dashboard">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-contacts">0</div>
+                        <div class="stat-label">Contacts</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-interactions">0</div>
+                        <div class="stat-label">Interactions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-inv-items">0</div>
+                        <div class="stat-label">Inventory Items</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-inv-low">0</div>
+                        <div class="stat-label">Low Stock</div>
+                    </div>
+                </div>
+                <div id="qb-dashboard-status"></div>
+            </div>
 
-document.getElementById('auth-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const errEl = document.getElementById('auth-error');
-  errEl.classList.add('hidden');
-  const email = document.getElementById('auth-email').value;
-  const password = document.getElementById('auth-password').value;
+            <!-- Inventory Tab -->
+            <div id="tab-inventory" class="hidden">
+                <div id="qb-banner"></div>
+                <input type="text" class="search-box" id="inv-search" placeholder="Search inventory..." oninput="searchInventory(this.value)">
+                <div class="filter-row">
+                    <button class="filter-chip active" onclick="filterInventory('all')">All</button>
+                    <button class="filter-chip" onclick="filterInventory('low')">Low Stock</button>
+                    <button class="filter-chip" onclick="filterInventory('out')">Out of Stock</button>
+                </div>
+                <div id="inventory-list"></div>
+            </div>
 
-  try {
-    if (isRegister) {
-      const name = document.getElementById('auth-name').value;
-      await api('POST', '/auth/register', { email, full_name: name, password });
-    }
-    // Login
-    const form = new URLSearchParams();
-    form.append('username', email);
-    form.append('password', password);
-    const res = await fetch(API + '/auth/login', { method: 'POST', body: form });
-    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Login failed'); }
-    const data = await res.json();
-    token = data.access_token;
-    localStorage.setItem('crm_token', token);
-    showApp();
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
-  }
-});
+            <!-- Contacts Tab -->
+            <div id="tab-contacts" class="hidden">
+                <input type="text" class="search-box" placeholder="Search contacts..." oninput="searchContacts(this.value)">
+                <div id="contacts-list"></div>
+            </div>
+        </div>
 
-function logout() {
-  token = null;
-  localStorage.removeItem('crm_token');
-  document.getElementById('app-page').classList.add('hidden');
-  document.getElementById('auth-page').classList.remove('hidden');
-}
-
-// ── API helper ──
-async function api(method, path, body) {
-  const opts = { method, headers: {} };
-  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
-  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const res = await fetch(API + path, opts);
-  if (res.status === 401) { logout(); throw new Error('Session expired'); }
-  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'Request failed'); }
-  if (res.status === 204) return null;
-  return res.json();
-}
-
-// ── App ──
-async function showApp() {
-  document.getElementById('auth-page').classList.add('hidden');
-  document.getElementById('app-page').classList.remove('hidden');
-  try {
-    const me = await api('GET', '/auth/me');
-    document.getElementById('user-name').textContent = me.full_name;
-  } catch { logout(); return; }
-  loadContacts();
-}
-
-async function loadContacts(q) {
-  const params = q ? '?q=' + encodeURIComponent(q) : '';
-  const contacts = await api('GET', '/contacts' + params);
-  const list = document.getElementById('contacts-list');
-  if (!contacts.length) {
-    list.innerHTML = '<div class="empty">No contacts yet. Click "+ New Contact" to add one.</div>';
-    return;
-  }
-  list.innerHTML = contacts.map(c => `
-    <div class="contact-card" onclick="openContact(${c.id})">
-      <h3>${esc(c.first_name)} ${esc(c.last_name)}</h3>
-      <div class="meta">
-        ${c.email ? '<span>' + esc(c.email) + '</span>' : ''}
-        ${c.phone ? '<span>' + esc(c.phone) + '</span>' : ''}
-        ${c.company ? '<span>' + esc(c.company) + '</span>' : ''}
-      </div>
+        <button class="fab" id="fab-btn" onclick="showAddModal()">+</button>
     </div>
-  `).join('');
-}
 
-function debouncedSearch() {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    loadContacts(document.getElementById('search-input').value);
-  }, 300);
-}
-
-function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-// ── Contact Modal ──
-function openNewContact() {
-  editingContactId = null;
-  document.getElementById('modal-title').textContent = 'New Contact';
-  document.getElementById('contact-form').reset();
-  document.getElementById('delete-btn').classList.add('hidden');
-  document.getElementById('interactions-tab').classList.add('hidden');
-  document.getElementById('modal-error').classList.add('hidden');
-  switchTab('details');
-  document.getElementById('contact-modal').classList.remove('hidden');
-}
-
-async function openContact(id) {
-  editingContactId = id;
-  const c = await api('GET', '/contacts/' + id);
-  document.getElementById('modal-title').textContent = c.first_name + ' ' + c.last_name;
-  document.getElementById('c-first').value = c.first_name || '';
-  document.getElementById('c-last').value = c.last_name || '';
-  document.getElementById('c-email').value = c.email || '';
-  document.getElementById('c-phone').value = c.phone || '';
-  document.getElementById('c-company').value = c.company || '';
-  document.getElementById('c-position').value = c.position || '';
-  document.getElementById('c-addr1').value = c.address_line1 || '';
-  document.getElementById('c-city').value = c.city || '';
-  document.getElementById('c-state').value = c.state || '';
-  document.getElementById('c-postal').value = c.postal_code || '';
-  document.getElementById('c-country').value = c.country || '';
-  document.getElementById('c-notes').value = c.notes || '';
-  document.getElementById('c-followup').value = c.next_follow_up_at ? c.next_follow_up_at.slice(0, 16) : '';
-  document.getElementById('delete-btn').classList.remove('hidden');
-  document.getElementById('interactions-tab').classList.remove('hidden');
-  document.getElementById('modal-error').classList.add('hidden');
-  switchTab('details');
-  document.getElementById('contact-modal').classList.remove('hidden');
-}
-
-function closeModal() {
-  document.getElementById('contact-modal').classList.add('hidden');
-}
-
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-details').classList.add('hidden');
-  document.getElementById('tab-interactions').classList.add('hidden');
-  if (name === 'details') {
-    document.querySelectorAll('.tab')[0].classList.add('active');
-    document.getElementById('tab-details').classList.remove('hidden');
-  } else {
-    document.querySelectorAll('.tab')[1].classList.add('active');
-    document.getElementById('tab-interactions').classList.remove('hidden');
-    loadInteractions();
-  }
-}
-
-document.getElementById('contact-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const errEl = document.getElementById('modal-error');
-  errEl.classList.add('hidden');
-  const data = {
-    first_name: document.getElementById('c-first').value,
-    last_name: document.getElementById('c-last').value,
-    email: document.getElementById('c-email').value || null,
-    phone: document.getElementById('c-phone').value || null,
-    company: document.getElementById('c-company').value || null,
-    position: document.getElementById('c-position').value || null,
-    address_line1: document.getElementById('c-addr1').value || null,
-    city: document.getElementById('c-city').value || null,
-    state: document.getElementById('c-state').value || null,
-    postal_code: document.getElementById('c-postal').value || null,
-    country: document.getElementById('c-country').value || null,
-    notes: document.getElementById('c-notes').value || null,
-    next_follow_up_at: document.getElementById('c-followup').value || null,
-  };
-  try {
-    if (editingContactId) {
-      await api('PATCH', '/contacts/' + editingContactId, data);
-    } else {
-      await api('POST', '/contacts', data);
-    }
-    closeModal();
-    loadContacts(document.getElementById('search-input').value);
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
-  }
-});
-
-async function deleteContact() {
-  if (!confirm('Delete this contact?')) return;
-  await api('DELETE', '/contacts/' + editingContactId);
-  closeModal();
-  loadContacts(document.getElementById('search-input').value);
-}
-
-// ── Interactions ──
-async function loadInteractions() {
-  if (!editingContactId) return;
-  const items = await api('GET', '/contacts/' + editingContactId + '/interactions');
-  const list = document.getElementById('interactions-list');
-  if (!items.length) { list.innerHTML = '<div class="empty">No interactions recorded yet.</div>'; return; }
-  list.innerHTML = items.map(i => `
-    <div class="interaction-item">
-      <span class="kind">${esc(i.kind)}</span>
-      <span class="date">${new Date(i.occurred_at).toLocaleString()}</span>
-      <div class="summary">${esc(i.summary)}</div>
+    <!-- Add Contact Modal -->
+    <div id="add-contact-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add Contact</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>First Name *</label>
+                <input type="text" id="add-firstname">
+            </div>
+            <div class="form-group">
+                <label>Last Name *</label>
+                <input type="text" id="add-lastname">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="add-email">
+            </div>
+            <div class="form-group">
+                <label>Phone</label>
+                <input type="tel" id="add-phone">
+            </div>
+            <div class="form-group">
+                <label>Company</label>
+                <input type="text" id="add-company">
+            </div>
+            <div id="add-contact-error" class="error hidden"></div>
+            <button class="btn" onclick="addContact()">Save Contact</button>
+        </div>
     </div>
-  `).join('');
-}
 
-document.getElementById('interaction-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const data = {
-    kind: document.getElementById('i-kind').value,
-    summary: document.getElementById('i-summary').value,
-    occurred_at: document.getElementById('i-date').value || null,
-  };
-  await api('POST', '/contacts/' + editingContactId + '/interactions', data);
-  document.getElementById('i-summary').value = '';
-  loadInteractions();
-});
+    <!-- Add Inventory Modal -->
+    <div id="add-inv-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="inv-modal-title">Add Inventory Item</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>SKU *</label>
+                <input type="text" id="inv-sku" placeholder="e.g., TIRE-001">
+            </div>
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="inv-name" placeholder="Item name">
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <input type="text" id="inv-category" placeholder="e.g., Tires, Parts">
+            </div>
+            <div class="form-group">
+                <label>Brand</label>
+                <input type="text" id="inv-brand" placeholder="e.g., Michelin">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="inv-desc">
+            </div>
+            <div class="form-group">
+                <label>Quantity</label>
+                <input type="number" id="inv-qty" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label>Reorder Level</label>
+                <input type="number" id="inv-reorder" value="5" min="0">
+            </div>
+            <div class="form-group">
+                <label>Cost</label>
+                <input type="number" id="inv-cost" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label>Price</label>
+                <input type="number" id="inv-price" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <div id="add-inv-error" class="error hidden"></div>
+            <button class="btn" id="inv-save-btn" onclick="saveInventoryItem()">Save Item</button>
+            <button class="btn btn-danger hidden" id="inv-delete-btn" onclick="deleteInventoryItem()" style="margin-top: 12px;">Delete Item</button>
+        </div>
+    </div>
 
-// ── Init ──
-if (token) { showApp(); }
-</script>
+    <!-- QuickBooks Modal -->
+    <div id="qb-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>QuickBooks Settings</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div id="qb-modal-content"></div>
+        </div>
+    </div>
+
+    <!-- Item Detail Modal -->
+    <div id="item-detail-modal" class="modal hidden" onclick="if(event.target===this)closeAllModals()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="detail-title">Item Details</h2>
+                <button class="modal-close" onclick="closeAllModals()">&times;</button>
+            </div>
+            <div id="item-detail-content"></div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        let token = localStorage.getItem('token');
+        let contacts = [];
+        let inventory = [];
+        let qbConnected = false;
+        let currentTab = 'dashboard';
+        let editingItemId = null;
+        let currentFilter = 'all';
+
+        async function api(path, opts = {}) {
+            const headers = { 'Content-Type': 'application/json', ...opts.headers };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            let res;
+            try {
+                res = await fetch(API + path, { ...opts, headers });
+            } catch (e) {
+                throw new Error('Network error - check connection');
+            }
+            if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
+            if (!res.ok) {
+                const text = await res.text();
+                let msg = `Error ${res.status}`;
+                try {
+                    const err = JSON.parse(text);
+                    if (typeof err.detail === 'string') {
+                        msg = err.detail;
+                    } else if (Array.isArray(err.detail) && err.detail.length > 0) {
+                        msg = err.detail.map(e => e.msg || e.message || JSON.stringify(e)).join(', ');
+                    }
+                } catch (e) {
+                    if (text) msg = text.substring(0, 100);
+                }
+                throw new Error(msg);
+            }
+            return res.json();
+        }
+
+        function showScreen(id) {
+            document.querySelectorAll('[id$="-screen"]').forEach(el => el.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function showLogin() { showScreen('login-screen'); }
+        function showRegister() { showScreen('register-screen'); }
+
+        async function login() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            const errEl = document.getElementById('login-error');
+            errEl.classList.add('hidden');
+            try {
+                const form = new URLSearchParams();
+                form.append('username', email);
+                form.append('password', password);
+                const res = await fetch(API + '/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: form
+                });
+                if (!res.ok) throw new Error('Invalid credentials');
+                const data = await res.json();
+                token = data.access_token;
+                localStorage.setItem('token', token);
+                loadApp();
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        async function register() {
+            const errEl = document.getElementById('reg-error');
+            errEl.classList.add('hidden');
+            try {
+                await api('/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        full_name: document.getElementById('reg-name').value,
+                        email: document.getElementById('reg-email').value,
+                        password: document.getElementById('reg-password').value
+                    })
+                });
+                document.getElementById('login-email').value = document.getElementById('reg-email').value;
+                showLogin();
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            token = null;
+            localStorage.removeItem('token');
+            showLogin();
+        }
+
+        async function loadApp() {
+            showScreen('app-screen');
+            await Promise.all([loadStats(), loadContacts(), loadInventory(), checkQBStatus()]);
+        }
+
+        async function loadStats() {
+            try {
+                const stats = await api('/stats');
+                document.getElementById('stat-contacts').textContent = stats.total_contacts;
+                document.getElementById('stat-interactions').textContent = stats.total_interactions;
+            } catch (e) { console.error(e); }
+
+            try {
+                const invStats = await api('/inventory/stats/summary');
+                document.getElementById('stat-inv-items').textContent = invStats.total_items;
+                document.getElementById('stat-inv-low').textContent = invStats.low_stock_count;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadContacts() {
+            try {
+                contacts = await api('/contacts');
+                renderContacts(contacts);
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadInventory() {
+            try {
+                inventory = await api('/inventory?active_only=true');
+                renderInventory(inventory);
+            } catch (e) { console.error(e); }
+        }
+
+        async function checkQBStatus() {
+            try {
+                const status = await api('/quickbooks/status');
+                qbConnected = status.connected;
+                renderQBBanner();
+                renderQBDashboard();
+            } catch (e) {
+                qbConnected = false;
+                renderQBBanner();
+                renderQBDashboard();
+            }
+        }
+
+        function renderQBBanner() {
+            const el = document.getElementById('qb-banner');
+            if (qbConnected) {
+                el.innerHTML = `
+                    <div class="qb-banner">
+                        <div class="qb-status">
+                            <span class="qb-status-dot connected"></span>
+                            QuickBooks Connected
+                        </div>
+                        <button class="btn btn-small btn-secondary" onclick="showQBModal()">Sync</button>
+                    </div>
+                `;
+            } else {
+                el.innerHTML = `
+                    <div class="qb-banner disconnected">
+                        <div class="qb-status">
+                            <span class="qb-status-dot disconnected"></span>
+                            QuickBooks Not Connected
+                        </div>
+                        <button class="btn btn-small" onclick="connectQB()">Connect</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderQBDashboard() {
+            const el = document.getElementById('qb-dashboard-status');
+            if (qbConnected) {
+                el.innerHTML = `
+                    <div class="card" style="text-align: center;">
+                        <div style="color: #4ade80; margin-bottom: 8px;">QuickBooks Connected</div>
+                        <button class="btn btn-small btn-secondary" onclick="showTab('inventory'); showQBModal();">Manage Sync</button>
+                    </div>
+                `;
+            } else {
+                el.innerHTML = `
+                    <div class="card" style="text-align: center;">
+                        <div style="color: #888; margin-bottom: 8px;">Connect QuickBooks to sync inventory</div>
+                        <button class="btn btn-small" onclick="connectQB()">Connect QuickBooks</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderContacts(list) {
+            const el = document.getElementById('contacts-list');
+            if (!list.length) {
+                el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128100;</div><div>No contacts yet</div></div>';
+                return;
+            }
+            el.innerHTML = list.map(c => `
+                <div class="card">
+                    <div class="contact-name">${escapeHtml(c.first_name)} ${escapeHtml(c.last_name)}</div>
+                    ${c.company ? `<div class="contact-company">${escapeHtml(c.company)}</div>` : ''}
+                    <div class="contact-details">
+                        ${c.email ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>` : ''}
+                        ${c.email && c.phone ? ' &bull; ' : ''}
+                        ${c.phone ? `<a href="tel:${escapeHtml(c.phone)}">${escapeHtml(c.phone)}</a>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderInventory(list) {
+            const el = document.getElementById('inventory-list');
+            if (!list.length) {
+                el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128230;</div><div>No inventory items</div></div>';
+                return;
+            }
+            el.innerHTML = list.map(item => {
+                const isLow = item.quantity <= item.reorder_level;
+                const isOut = item.quantity <= 0;
+                return `
+                    <div class="card card-clickable" onclick="showItemDetail(${item.id})">
+                        <div class="inv-item">
+                            <div>
+                                <div class="inv-name">${escapeHtml(item.name)}</div>
+                                <div class="inv-sku">SKU: ${escapeHtml(item.sku)}</div>
+                                <div class="inv-details">
+                                    ${item.brand ? escapeHtml(item.brand) : ''}
+                                    ${item.brand && item.category ? ' &bull; ' : ''}
+                                    ${item.category ? escapeHtml(item.category) : ''}
+                                </div>
+                                ${item.price ? `<div class="inv-price">$${item.price.toFixed(2)}</div>` : ''}
+                            </div>
+                            <div class="inv-qty">
+                                <div class="inv-qty-num ${isLow ? 'inv-low' : ''}">${item.quantity}</div>
+                                <div class="inv-qty-label">${isOut ? 'OUT' : isLow ? 'LOW' : 'in stock'}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function searchContacts(q) {
+            q = q.toLowerCase();
+            const filtered = contacts.filter(c =>
+                c.first_name.toLowerCase().includes(q) ||
+                c.last_name.toLowerCase().includes(q) ||
+                (c.email || '').toLowerCase().includes(q) ||
+                (c.company || '').toLowerCase().includes(q)
+            );
+            renderContacts(filtered);
+        }
+
+        function searchInventory(q) {
+            applyInventoryFilters();
+        }
+
+        function filterInventory(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-chip').forEach(el => el.classList.remove('active'));
+            document.querySelector(`[onclick="filterInventory('${filter}')"]`).classList.add('active');
+            applyInventoryFilters();
+        }
+
+        function applyInventoryFilters() {
+            const q = (document.getElementById('inv-search').value || '').toLowerCase();
+            let filtered = inventory;
+
+            if (q) {
+                filtered = filtered.filter(item =>
+                    item.name.toLowerCase().includes(q) ||
+                    item.sku.toLowerCase().includes(q) ||
+                    (item.brand || '').toLowerCase().includes(q) ||
+                    (item.category || '').toLowerCase().includes(q)
+                );
+            }
+
+            if (currentFilter === 'low') {
+                filtered = filtered.filter(item => item.quantity <= item.reorder_level && item.quantity > 0);
+            } else if (currentFilter === 'out') {
+                filtered = filtered.filter(item => item.quantity <= 0);
+            }
+
+            renderInventory(filtered);
+        }
+
+        function showTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+            document.querySelector(`[onclick="showTab('${tab}')"]`).classList.add('active');
+            document.getElementById('tab-dashboard').classList.toggle('hidden', tab !== 'dashboard');
+            document.getElementById('tab-inventory').classList.toggle('hidden', tab !== 'inventory');
+            document.getElementById('tab-contacts').classList.toggle('hidden', tab !== 'contacts');
+        }
+
+        function showAddModal() {
+            if (currentTab === 'contacts') {
+                showAddContactModal();
+            } else if (currentTab === 'inventory') {
+                showAddInvModal();
+            } else {
+                showAddContactModal();
+            }
+        }
+
+        function showAddContactModal() {
+            document.getElementById('add-contact-modal').classList.remove('hidden');
+        }
+
+        function showAddInvModal() {
+            editingItemId = null;
+            document.getElementById('inv-modal-title').textContent = 'Add Inventory Item';
+            document.getElementById('inv-save-btn').textContent = 'Save Item';
+            document.getElementById('inv-delete-btn').classList.add('hidden');
+            ['inv-sku', 'inv-name', 'inv-category', 'inv-brand', 'inv-desc'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('inv-qty').value = '0';
+            document.getElementById('inv-reorder').value = '5';
+            document.getElementById('inv-cost').value = '';
+            document.getElementById('inv-price').value = '';
+            document.getElementById('add-inv-modal').classList.remove('hidden');
+        }
+
+        function closeAllModals() {
+            document.querySelectorAll('.modal').forEach(el => el.classList.add('hidden'));
+            document.getElementById('add-contact-error').classList.add('hidden');
+            document.getElementById('add-inv-error').classList.add('hidden');
+        }
+
+        async function addContact() {
+            const errEl = document.getElementById('add-contact-error');
+            errEl.classList.add('hidden');
+            try {
+                await api('/contacts', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        first_name: document.getElementById('add-firstname').value,
+                        last_name: document.getElementById('add-lastname').value,
+                        email: document.getElementById('add-email').value || null,
+                        phone: document.getElementById('add-phone').value || null,
+                        company: document.getElementById('add-company').value || null
+                    })
+                });
+                closeAllModals();
+                ['add-firstname', 'add-lastname', 'add-email', 'add-phone', 'add-company'].forEach(id => {
+                    document.getElementById(id).value = '';
+                });
+                await Promise.all([loadStats(), loadContacts()]);
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        async function saveInventoryItem() {
+            const errEl = document.getElementById('add-inv-error');
+            errEl.classList.add('hidden');
+
+            const data = {
+                sku: document.getElementById('inv-sku').value,
+                name: document.getElementById('inv-name').value,
+                category: document.getElementById('inv-category').value || null,
+                brand: document.getElementById('inv-brand').value || null,
+                description: document.getElementById('inv-desc').value || null,
+                quantity: parseInt(document.getElementById('inv-qty').value) || 0,
+                reorder_level: parseInt(document.getElementById('inv-reorder').value) || 5,
+                cost: parseFloat(document.getElementById('inv-cost').value) || null,
+                price: parseFloat(document.getElementById('inv-price').value) || null
+            };
+
+            try {
+                if (editingItemId) {
+                    await api(`/inventory/${editingItemId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    await api('/inventory', {
+                        method: 'POST',
+                        body: JSON.stringify(data)
+                    });
+                }
+                closeAllModals();
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        async function deleteInventoryItem() {
+            if (!editingItemId) return;
+            if (!confirm('Delete this item?')) return;
+
+            try {
+                await api(`/inventory/${editingItemId}`, { method: 'DELETE' });
+                closeAllModals();
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        async function showItemDetail(id) {
+            const item = inventory.find(i => i.id === id);
+            if (!item) return;
+
+            const isLow = item.quantity <= item.reorder_level;
+            const el = document.getElementById('item-detail-content');
+            document.getElementById('detail-title').textContent = item.name;
+
+            el.innerHTML = `
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div>
+                            <div class="inv-sku">SKU: ${escapeHtml(item.sku)}</div>
+                            ${item.qb_item_id ? `<div class="inv-sku" style="color: #4ade80;">QB Item: ${item.qb_item_id}</div>` : ''}
+                        </div>
+                        <div class="inv-qty">
+                            <div class="inv-qty-num ${isLow ? 'inv-low' : ''}">${item.quantity}</div>
+                            <div class="inv-qty-label">in stock</div>
+                        </div>
+                    </div>
+                    ${item.brand ? `<div class="inv-details"><strong>Brand:</strong> ${escapeHtml(item.brand)}</div>` : ''}
+                    ${item.category ? `<div class="inv-details"><strong>Category:</strong> ${escapeHtml(item.category)}</div>` : ''}
+                    ${item.description ? `<div class="inv-details" style="margin-top: 8px;">${escapeHtml(item.description)}</div>` : ''}
+                    <div style="display: flex; gap: 16px; margin-top: 16px;">
+                        ${item.cost ? `<div><strong style="color: #888;">Cost:</strong> $${item.cost.toFixed(2)}</div>` : ''}
+                        ${item.price ? `<div><strong style="color: #888;">Price:</strong> <span style="color: #4ade80;">$${item.price.toFixed(2)}</span></div>` : ''}
+                    </div>
+                    <div class="inv-details" style="margin-top: 8px;">Reorder at: ${item.reorder_level} units</div>
+                </div>
+                <div class="action-row">
+                    <button class="btn btn-secondary" onclick="editItem(${item.id})">Edit</button>
+                    <button class="btn" onclick="showAdjustQty(${item.id})">Adjust Qty</button>
+                </div>
+                ${qbConnected && !item.qb_item_id ? `
+                    <button class="btn btn-secondary" onclick="syncItemToQB(${item.id})" style="margin-top: 12px;">Sync to QuickBooks</button>
+                ` : ''}
+            `;
+
+            document.getElementById('item-detail-modal').classList.remove('hidden');
+        }
+
+        function editItem(id) {
+            const item = inventory.find(i => i.id === id);
+            if (!item) return;
+
+            closeAllModals();
+            editingItemId = id;
+            document.getElementById('inv-modal-title').textContent = 'Edit Item';
+            document.getElementById('inv-save-btn').textContent = 'Update Item';
+            document.getElementById('inv-delete-btn').classList.remove('hidden');
+
+            document.getElementById('inv-sku').value = item.sku;
+            document.getElementById('inv-name').value = item.name;
+            document.getElementById('inv-category').value = item.category || '';
+            document.getElementById('inv-brand').value = item.brand || '';
+            document.getElementById('inv-desc').value = item.description || '';
+            document.getElementById('inv-qty').value = item.quantity;
+            document.getElementById('inv-reorder').value = item.reorder_level;
+            document.getElementById('inv-cost').value = item.cost || '';
+            document.getElementById('inv-price').value = item.price || '';
+
+            document.getElementById('add-inv-modal').classList.remove('hidden');
+        }
+
+        function showAdjustQty(id) {
+            const item = inventory.find(i => i.id === id);
+            if (!item) return;
+
+            const el = document.getElementById('item-detail-content');
+            el.innerHTML = `
+                <div class="card">
+                    <div class="form-group">
+                        <label>Transaction Type</label>
+                        <select id="txn-type">
+                            <option value="adjustment">Adjustment</option>
+                            <option value="sale">Sale</option>
+                            <option value="purchase">Purchase/Restock</option>
+                            <option value="return">Return</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity Change</label>
+                        <input type="number" id="txn-qty" value="0" placeholder="Use negative for removals">
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <input type="text" id="txn-notes" placeholder="Optional notes">
+                    </div>
+                    <div id="txn-error" class="error hidden"></div>
+                    <div class="action-row">
+                        <button class="btn btn-secondary" onclick="showItemDetail(${id})">Cancel</button>
+                        <button class="btn" onclick="submitTransaction(${id})">Submit</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function submitTransaction(id) {
+            const errEl = document.getElementById('txn-error');
+            errEl.classList.add('hidden');
+
+            try {
+                await api(`/inventory/${id}/transactions`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        transaction_type: document.getElementById('txn-type').value,
+                        quantity: parseInt(document.getElementById('txn-qty').value),
+                        notes: document.getElementById('txn-notes').value || null
+                    })
+                });
+                closeAllModals();
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        function connectQB() {
+            window.location.href = '/quickbooks/connect';
+        }
+
+        function showQBModal() {
+            const el = document.getElementById('qb-modal-content');
+            if (qbConnected) {
+                el.innerHTML = `
+                    <div class="card" style="text-align: center; margin-bottom: 16px;">
+                        <div style="color: #4ade80; font-size: 16px; margin-bottom: 4px;">Connected</div>
+                        <div style="color: #888; font-size: 13px;">Your inventory syncs with QuickBooks</div>
+                    </div>
+                    <button class="btn" onclick="importFromQB()" id="qb-import-btn">Import Items from QuickBooks</button>
+                    <div id="qb-import-status" class="success hidden" style="text-align: center;"></div>
+                    <button class="btn btn-secondary" onclick="disconnectQB()" style="margin-top: 12px;">Disconnect QuickBooks</button>
+                `;
+            } else {
+                el.innerHTML = `
+                    <div class="empty-state">
+                        <div>Connect to QuickBooks to sync your inventory</div>
+                    </div>
+                    <button class="btn" onclick="connectQB()">Connect QuickBooks</button>
+                `;
+            }
+            document.getElementById('qb-modal').classList.remove('hidden');
+        }
+
+        async function importFromQB() {
+            const btn = document.getElementById('qb-import-btn');
+            const status = document.getElementById('qb-import-status');
+            btn.disabled = true;
+            btn.textContent = 'Importing...';
+            status.classList.add('hidden');
+
+            try {
+                const result = await api('/quickbooks/import-items', { method: 'POST' });
+                status.textContent = `Imported ${result.imported} new items, updated ${result.updated} existing`;
+                status.classList.remove('hidden');
+                await Promise.all([loadStats(), loadInventory()]);
+            } catch (e) {
+                status.textContent = e.message;
+                status.classList.remove('hidden');
+                status.style.color = '#ff6b6b';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Import Items from QuickBooks';
+            }
+        }
+
+        async function syncItemToQB(id) {
+            try {
+                await api(`/inventory/${id}/sync-to-qb`, { method: 'POST' });
+                alert('Item synced to QuickBooks!');
+                await loadInventory();
+                closeAllModals();
+            } catch (e) {
+                alert('Sync failed: ' + e.message);
+            }
+        }
+
+        async function disconnectQB() {
+            if (!confirm('Disconnect from QuickBooks?')) return;
+            try {
+                await api('/quickbooks/disconnect', { method: 'DELETE' });
+                qbConnected = false;
+                renderQBBanner();
+                renderQBDashboard();
+                closeAllModals();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Init
+        if (token) {
+            loadApp();
+        } else {
+            showLogin();
+        }
+
+        // Check if returning from QB OAuth
+        if (window.location.search.includes('quickbooks=connected')) {
+            history.replaceState({}, '', '/');
+        }
+
+        // Register service worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js');
+        }
+    </script>
 </body>
 </html>

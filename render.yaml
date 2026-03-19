@@ -2,12 +2,37 @@ services:
   - type: web
     name: mini-crm-api
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: DATABASE_URL
-        sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: JWT_EXPIRE_MIN
+        value: "1440"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mini-crm-db
+          property: connectionString
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: QB_CLIENT_ID
+        sync: false
+      - key: QB_CLIENT_SECRET
+        sync: false
+      - key: QB_ENVIRONMENT
+        value: "production"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: "https://rm-api-kab0.onrender.com/google/callback"
       - key: PYTHON_VERSION
-        value: "3.11"
+        value: "3.11.0"
+    healthCheckPath: /health
+    autoDeploy: true
+
+databases:
+  - name: mini-crm-db
+    databaseName: mini_crm
+    plan: free

@@ -3,7 +3,7 @@ services:
     name: mini-crm-api
     runtime: python
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     envVars:
       - key: JWT_SECRET
         generateValue: true
@@ -25,6 +25,10 @@ services:
         sync: false
       - key: QB_ENVIRONMENT
         value: "production"
+      - key: QB_REDIRECT_URI
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

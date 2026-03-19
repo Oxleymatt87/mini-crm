@@ -53,17 +53,29 @@ if DATABASE_URL.startswith('postgres://'):
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 PORT = int(os.getenv('PORT', '10000'))
 
-# QuickBooks OAuth Configuration
-QB_CLIENT_ID = os.getenv('QB_CLIENT_ID', '')
-QB_CLIENT_SECRET = os.getenv('QB_CLIENT_SECRET', '')
-QB_REDIRECT_URI = os.getenv('QB_REDIRECT_URI', 'http://localhost:10000/quickbooks/callback')
-QB_ENVIRONMENT = os.getenv('QB_ENVIRONMENT', 'sandbox')  # 'sandbox' or 'production'
+# QuickBooks OAuth Configuration - read dynamically for flexibility
+def get_qb_client_id():
+    return os.getenv('QB_CLIENT_ID', '')
+
+def get_qb_client_secret():
+    return os.getenv('QB_CLIENT_SECRET', '')
+
+def get_qb_environment():
+    return os.getenv('QB_ENVIRONMENT', 'sandbox')
+
+def get_qb_api_base():
+    env = get_qb_environment()
+    return 'https://sandbox-quickbooks.api.intuit.com' if env == 'sandbox' else 'https://quickbooks.api.intuit.com'
+
 QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
-QB_API_BASE = 'https://sandbox-quickbooks.api.intuit.com' if QB_ENVIRONMENT == 'sandbox' else 'https://quickbooks.api.intuit.com'
+
 # Pre-seeded tokens (set these to auto-initialize QuickBooks on startup)
-QB_REFRESH_TOKEN = os.getenv('QB_REFRESH_TOKEN', '')
-QB_REALM_ID = os.getenv('QB_REALM_ID', '')
+def get_qb_refresh_token():
+    return os.getenv('QB_REFRESH_TOKEN', '')
+
+def get_qb_realm_id():
+    return os.getenv('QB_REALM_ID', '')
 
 # Google OAuth Configuration (for Drive access)
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
@@ -668,7 +680,11 @@ def startup():
         print(f"Database initialization error: {e}")
 
     # Auto-seed QuickBooks tokens from env vars
-    if QB_REFRESH_TOKEN and QB_REALM_ID and QB_CLIENT_ID and QB_CLIENT_SECRET:
+    qb_refresh = get_qb_refresh_token()
+    qb_realm = get_qb_realm_id()
+    qb_client = get_qb_client_id()
+    qb_secret = get_qb_client_secret()
+    if qb_refresh and qb_realm and qb_client and qb_secret:
         try:
             db = SessionLocal()
             # Get first user or create a system user
@@ -690,9 +706,9 @@ def startup():
                 # Get fresh access token using refresh token
                 resp = requests.post(
                     QB_TOKEN_URL,
-                    auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+                    auth=(qb_client, qb_secret),
                     headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
-                    data={'grant_type': 'refresh_token', 'refresh_token': QB_REFRESH_TOKEN},
+                    data={'grant_type': 'refresh_token', 'refresh_token': qb_refresh},
                     timeout=30
                 )
                 if resp.status_code == 200:
@@ -700,7 +716,7 @@ def startup():
                     now = dt.datetime.utcnow()
                     qb_token = QuickBooksToken(
                         user_id=user.id,
-                        realm_id=QB_REALM_ID,
+                        realm_id=qb_realm,
                         access_token=tokens['access_token'],
                         refresh_token=tokens['refresh_token'],
                         access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
@@ -734,12 +750,16 @@ def health():
 @app.get("/debug/env")
 def debug_env():
     """Debug endpoint to check QuickBooks env vars (shows masked values)."""
+    client_id = get_qb_client_id()
+    client_secret = get_qb_client_secret()
+    refresh_token = get_qb_refresh_token()
+    realm_id = get_qb_realm_id()
     return {
-        "QB_CLIENT_ID": f"{QB_CLIENT_ID[:4]}...{QB_CLIENT_ID[-4:]}" if len(QB_CLIENT_ID) > 8 else ("SET" if QB_CLIENT_ID else "NOT SET"),
-        "QB_CLIENT_SECRET": "SET" if QB_CLIENT_SECRET else "NOT SET",
-        "QB_ENVIRONMENT": QB_ENVIRONMENT,
-        "QB_REFRESH_TOKEN": "SET" if QB_REFRESH_TOKEN else "NOT SET",
-        "QB_REALM_ID": QB_REALM_ID if QB_REALM_ID else "NOT SET",
+        "QB_CLIENT_ID": f"{client_id[:4]}...{client_id[-4:]}" if len(client_id) > 8 else ("SET" if client_id else "NOT SET"),
+        "QB_CLIENT_SECRET": "SET" if client_secret else "NOT SET",
+        "QB_ENVIRONMENT": get_qb_environment(),
+        "QB_REFRESH_TOKEN": "SET" if refresh_token else "NOT SET",
+        "QB_REALM_ID": realm_id if realm_id else "NOT SET",
     }
 
 
@@ -1095,14 +1115,16 @@ def get_stats(
 @app.get("/quickbooks/connect")
 def quickbooks_connect(request: Request, current_user: User = Depends(get_current_user)):
     """Initiate QuickBooks OAuth flow."""
-    if not QB_CLIENT_ID or not QB_CLIENT_SECRET:
+    client_id = get_qb_client_id()
+    client_secret = get_qb_client_secret()
+    if not client_id or not client_secret:
         raise HTTPException(status_code=500, detail="QuickBooks not configured. Set QB_CLIENT_ID and QB_CLIENT_SECRET.")
 
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = {"user_id": current_user.id, "redirect_uri": str(request.base_url).rstrip('/') + "/quickbooks/callback"}
 
     params = {
-        'client_id': QB_CLIENT_ID,
+        'client_id': client_id,
         'response_type': 'code',
         'scope': 'com.intuit.quickbooks.accounting',
         'redirect_uri': _oauth_states[state]["redirect_uri"],
@@ -1128,7 +1150,7 @@ def quickbooks_callback(
     redirect_uri = state_data["redirect_uri"]
 
     # Exchange code for tokens
-    auth = (QB_CLIENT_ID, QB_CLIENT_SECRET)
+    auth = (get_qb_client_id(), get_qb_client_secret())
     resp = requests.post(
         QB_TOKEN_URL,
         auth=auth,
@@ -1188,7 +1210,7 @@ def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:
     if qb_token.access_token_expires_at < now:
         resp = requests.post(
             QB_TOKEN_URL,
-            auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+            auth=(get_qb_client_id(), get_qb_client_secret()),
             headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
             data={'grant_type': 'refresh_token', 'refresh_token': qb_token.refresh_token},
             timeout=30
@@ -1247,7 +1269,7 @@ def list_quickbooks_customers(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -1302,7 +1324,7 @@ def sync_contact_to_quickbooks(
         }
 
     resp = requests.post(
-        f"{QB_API_BASE}/v3/company/{realm_id}/customer",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/customer",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -1327,7 +1349,7 @@ def import_quickbooks_customers(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -1435,7 +1457,7 @@ def _background_sync_worker():
                     if qb_token.access_token_expires_at < now:
                         resp = requests.post(
                             QB_TOKEN_URL,
-                            auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+                            auth=(get_qb_client_id(), get_qb_client_secret()),
                             headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
                             data={'grant_type': 'refresh_token', 'refresh_token': qb_token.refresh_token},
                             timeout=30
@@ -2108,7 +2130,7 @@ def list_quickbooks_items(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -2134,7 +2156,7 @@ def import_quickbooks_items(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -2225,7 +2247,7 @@ def sync_inventory_to_quickbooks(
         qb_item_data["UnitPrice"] = item.price
 
     resp = requests.post(
-        f"{QB_API_BASE}/v3/company/{realm_id}/item",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/item",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',

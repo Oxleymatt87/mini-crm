@@ -997,8 +997,13 @@
             }
         }
 
-        function connectQB() {
-            window.location.href = '/quickbooks/connect';
+        async function connectQB() {
+            try {
+                const result = await api('/quickbooks/connect');
+                window.location.href = result.auth_url;
+            } catch (e) {
+                alert('Failed to connect QuickBooks: ' + e.message);
+            }
         }
 
         function showQBModal() {

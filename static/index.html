@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini CRM</title>
+<style>
+  :root {
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --danger: #dc2626;
+    --danger-hover: #b91c1c;
+    --bg: #f9fafb;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text-secondary: #6b7280;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* Layout */
+  .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+  header { background: var(--primary); color: white; padding: 16px 0; margin-bottom: 24px; }
+  header .container { display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 1.4rem; }
+  .user-info { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
+  .user-info button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; }
+  .user-info button:hover { background: rgba(255,255,255,0.3); }
+
+  /* Auth */
+  .auth-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: var(--bg); }
+  .auth-card { background: var(--card); padding: 40px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); width: 100%; max-width: 400px; }
+  .auth-card h2 { margin-bottom: 24px; text-align: center; color: var(--primary); }
+  .auth-card .toggle { text-align: center; margin-top: 16px; font-size: 0.9rem; color: var(--text-secondary); }
+  .auth-card .toggle a { color: var(--primary); cursor: pointer; text-decoration: none; }
+
+  /* Forms */
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary); }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: 0.95rem; outline: none; transition: border 0.2s;
+  }
+  .form-group input:focus, .form-group textarea:focus { border-color: var(--primary); }
+  .form-group textarea { resize: vertical; min-height: 60px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Buttons */
+  .btn { padding: 10px 20px; border: none; border-radius: var(--radius); font-size: 0.95rem; cursor: pointer; font-weight: 500; transition: background 0.2s; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: var(--danger-hover); }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { background: var(--bg); }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
+  .btn-block { width: 100%; }
+
+  /* Contacts list */
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+  .search-box { flex: 1; min-width: 200px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.95rem; outline: none; }
+  .search-box:focus { border-color: var(--primary); }
+
+  .contact-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 8px; cursor: pointer; transition: box-shadow 0.2s; }
+  .contact-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .contact-card h3 { font-size: 1rem; margin-bottom: 4px; }
+  .contact-card .meta { font-size: 0.85rem; color: var(--text-secondary); }
+  .contact-card .meta span { margin-right: 16px; }
+
+  /* Detail / Modal */
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: flex-start; padding-top: 60px; z-index: 100; }
+  .modal { background: var(--card); border-radius: 12px; padding: 32px; width: 100%; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+  .modal h2 { margin-bottom: 20px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Interactions */
+  .interaction-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .interaction-item:last-child { border-bottom: none; }
+  .interaction-item .kind { display: inline-block; background: var(--bg); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; margin-right: 8px; }
+  .interaction-item .date { font-size: 0.8rem; color: var(--text-secondary); }
+  .interaction-item .summary { margin-top: 4px; font-size: 0.9rem; }
+
+  .empty { text-align: center; color: var(--text-secondary); padding: 40px; }
+  .error-msg { color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; text-align: center; }
+  .hidden { display: none !important; }
+
+  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
+  .tab { padding: 8px 16px; cursor: pointer; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+</style>
+</head>
+<body>
+
+<!-- Auth Page -->
+<div id="auth-page" class="auth-page">
+  <div class="auth-card">
+    <h2 id="auth-title">Sign In</h2>
+    <div id="auth-error" class="error-msg hidden"></div>
+    <form id="auth-form">
+      <div id="name-field" class="form-group hidden">
+        <label>Full Name</label>
+        <input type="text" id="auth-name" placeholder="John Doe">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="auth-email" placeholder="you@example.com" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="auth-password" placeholder="Min. 6 characters" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Sign In</button>
+    </form>
+    <div class="toggle">
+      <span id="auth-toggle-text">Don't have an account?</span>
+      <a id="auth-toggle" onclick="toggleAuth()">Sign Up</a>
+    </div>
+  </div>
+</div>
+
+<!-- App Page -->
+<div id="app-page" class="hidden">
+  <header>
+    <div class="container">
+      <h1>Mini CRM</h1>
+      <div class="user-info">
+        <span id="user-name"></span>
+        <button onclick="logout()">Sign Out</button>
+      </div>
+    </div>
+  </header>
+  <div class="container">
+    <div class="toolbar">
+      <input type="text" class="search-box" id="search-input" placeholder="Search contacts..." oninput="debouncedSearch()">
+      <button class="btn btn-primary" onclick="openNewContact()">+ New Contact</button>
+    </div>
+    <div id="contacts-list"></div>
+  </div>
+</div>
+
+<!-- Contact Modal -->
+<div id="contact-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h2 id="modal-title">New Contact</h2>
+    <div id="modal-error" class="error-msg hidden"></div>
+
+    <div class="tabs" id="modal-tabs">
+      <div class="tab active" onclick="switchTab('details')">Details</div>
+      <div class="tab" id="interactions-tab" onclick="switchTab('interactions')">Interactions</div>
+    </div>
+
+    <div id="tab-details">
+      <form id="contact-form">
+        <div class="form-row">
+          <div class="form-group"><label>First Name *</label><input type="text" id="c-first" required></div>
+          <div class="form-group"><label>Last Name *</label><input type="text" id="c-last" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Email</label><input type="email" id="c-email"></div>
+          <div class="form-group"><label>Phone</label><input type="text" id="c-phone"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Company</label><input type="text" id="c-company"></div>
+          <div class="form-group"><label>Position</label><input type="text" id="c-position"></div>
+        </div>
+        <div class="form-group"><label>Address</label><input type="text" id="c-addr1" placeholder="Street address"></div>
+        <div class="form-row">
+          <div class="form-group"><label>City</label><input type="text" id="c-city"></div>
+          <div class="form-group"><label>State</label><input type="text" id="c-state"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Postal Code</label><input type="text" id="c-postal"></div>
+          <div class="form-group"><label>Country</label><input type="text" id="c-country"></div>
+        </div>
+        <div class="form-group"><label>Notes</label><textarea id="c-notes"></textarea></div>
+        <div class="form-group"><label>Next Follow-up</label><input type="datetime-local" id="c-followup"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+          <button type="button" class="btn btn-danger btn-sm hidden" id="delete-btn" onclick="deleteContact()">Delete</button>
+          <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="tab-interactions" class="hidden">
+      <form id="interaction-form" style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:16px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Type</label>
+            <select id="i-kind"><option>call</option><option>email</option><option>meeting</option><option>note</option></select>
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="datetime-local" id="i-date">
+          </div>
+        </div>
+        <div class="form-group"><label>Summary</label><textarea id="i-summary" required placeholder="What happened?"></textarea></div>
+        <button type="submit" class="btn btn-primary btn-sm">Add Interaction</button>
+      </form>
+      <div id="interactions-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let token = localStorage.getItem('crm_token');
+let isRegister = false;
+let editingContactId = null;
+let searchTimer = null;
+
+// ── Auth ──
+function toggleAuth() {
+  isRegister = !isRegister;
+  document.getElementById('auth-title').textContent = isRegister ? 'Sign Up' : 'Sign In';
+  document.getElementById('auth-submit').textContent = isRegister ? 'Sign Up' : 'Sign In';
+  document.getElementById('auth-toggle-text').textContent = isRegister ? 'Already have an account?' : "Don't have an account?";
+  document.getElementById('auth-toggle').textContent = isRegister ? 'Sign In' : 'Sign Up';
+  document.getElementById('name-field').classList.toggle('hidden', !isRegister);
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+document.getElementById('auth-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('auth-error');
+  errEl.classList.add('hidden');
+  const email = document.getElementById('auth-email').value;
+  const password = document.getElementById('auth-password').value;
+
+  try {
+    if (isRegister) {
+      const name = document.getElementById('auth-name').value;
+      await api('POST', '/auth/register', { email, full_name: name, password });
+    }
+    // Login
+    const form = new URLSearchParams();
+    form.append('username', email);
+    form.append('password', password);
+    const res = await fetch(API + '/auth/login', { method: 'POST', body: form });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Login failed'); }
+    const data = await res.json();
+    token = data.access_token;
+    localStorage.setItem('crm_token', token);
+    showApp();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+function logout() {
+  token = null;
+  localStorage.removeItem('crm_token');
+  document.getElementById('app-page').classList.add('hidden');
+  document.getElementById('auth-page').classList.remove('hidden');
+}
+
+// ── API helper ──
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const res = await fetch(API + path, opts);
+  if (res.status === 401) { logout(); throw new Error('Session expired'); }
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'Request failed'); }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── App ──
+async function showApp() {
+  document.getElementById('auth-page').classList.add('hidden');
+  document.getElementById('app-page').classList.remove('hidden');
+  try {
+    const me = await api('GET', '/auth/me');
+    document.getElementById('user-name').textContent = me.full_name;
+  } catch { logout(); return; }
+  loadContacts();
+}
+
+async function loadContacts(q) {
+  const params = q ? '?q=' + encodeURIComponent(q) : '';
+  const contacts = await api('GET', '/contacts' + params);
+  const list = document.getElementById('contacts-list');
+  if (!contacts.length) {
+    list.innerHTML = '<div class="empty">No contacts yet. Click "+ New Contact" to add one.</div>';
+    return;
+  }
+  list.innerHTML = contacts.map(c => `
+    <div class="contact-card" onclick="openContact(${c.id})">
+      <h3>${esc(c.first_name)} ${esc(c.last_name)}</h3>
+      <div class="meta">
+        ${c.email ? '<span>' + esc(c.email) + '</span>' : ''}
+        ${c.phone ? '<span>' + esc(c.phone) + '</span>' : ''}
+        ${c.company ? '<span>' + esc(c.company) + '</span>' : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function debouncedSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    loadContacts(document.getElementById('search-input').value);
+  }, 300);
+}
+
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Contact Modal ──
+function openNewContact() {
+  editingContactId = null;
+  document.getElementById('modal-title').textContent = 'New Contact';
+  document.getElementById('contact-form').reset();
+  document.getElementById('delete-btn').classList.add('hidden');
+  document.getElementById('interactions-tab').classList.add('hidden');
+  document.getElementById('modal-error').classList.add('hidden');
+  switchTab('details');
+  document.getElementById('contact-modal').classList.remove('hidden');
+}
+
+async function openContact(id) {
+  editingContactId = id;
+  const c = await api('GET', '/contacts/' + id);
+  document.getElementById('modal-title').textContent = c.first_name + ' ' + c.last_name;
+  document.getElementById('c-first').value = c.first_name || '';
+  document.getElementById('c-last').value = c.last_name || '';
+  document.getElementById('c-email').value = c.email || '';
+  document.getElementById('c-phone').value = c.phone || '';
+  document.getElementById('c-company').value = c.company || '';
+  document.getElementById('c-position').value = c.position || '';
+  document.getElementById('c-addr1').value = c.address_line1 || '';
+  document.getElementById('c-city').value = c.city || '';
+  document.getElementById('c-state').value = c.state || '';
+  document.getElementById('c-postal').value = c.postal_code || '';
+  document.getElementById('c-country').value = c.country || '';
+  document.getElementById('c-notes').value = c.notes || '';
+  document.getElementById('c-followup').value = c.next_follow_up_at ? c.next_follow_up_at.slice(0, 16) : '';
+  document.getElementById('delete-btn').classList.remove('hidden');
+  document.getElementById('interactions-tab').classList.remove('hidden');
+  document.getElementById('modal-error').classList.add('hidden');
+  switchTab('details');
+  document.getElementById('contact-modal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('contact-modal').classList.add('hidden');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-details').classList.add('hidden');
+  document.getElementById('tab-interactions').classList.add('hidden');
+  if (name === 'details') {
+    document.querySelectorAll('.tab')[0].classList.add('active');
+    document.getElementById('tab-details').classList.remove('hidden');
+  } else {
+    document.querySelectorAll('.tab')[1].classList.add('active');
+    document.getElementById('tab-interactions').classList.remove('hidden');
+    loadInteractions();
+  }
+}
+
+document.getElementById('contact-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('modal-error');
+  errEl.classList.add('hidden');
+  const data = {
+    first_name: document.getElementById('c-first').value,
+    last_name: document.getElementById('c-last').value,
+    email: document.getElementById('c-email').value || null,
+    phone: document.getElementById('c-phone').value || null,
+    company: document.getElementById('c-company').value || null,
+    position: document.getElementById('c-position').value || null,
+    address_line1: document.getElementById('c-addr1').value || null,
+    city: document.getElementById('c-city').value || null,
+    state: document.getElementById('c-state').value || null,
+    postal_code: document.getElementById('c-postal').value || null,
+    country: document.getElementById('c-country').value || null,
+    notes: document.getElementById('c-notes').value || null,
+    next_follow_up_at: document.getElementById('c-followup').value || null,
+  };
+  try {
+    if (editingContactId) {
+      await api('PATCH', '/contacts/' + editingContactId, data);
+    } else {
+      await api('POST', '/contacts', data);
+    }
+    closeModal();
+    loadContacts(document.getElementById('search-input').value);
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+async function deleteContact() {
+  if (!confirm('Delete this contact?')) return;
+  await api('DELETE', '/contacts/' + editingContactId);
+  closeModal();
+  loadContacts(document.getElementById('search-input').value);
+}
+
+// ── Interactions ──
+async function loadInteractions() {
+  if (!editingContactId) return;
+  const items = await api('GET', '/contacts/' + editingContactId + '/interactions');
+  const list = document.getElementById('interactions-list');
+  if (!items.length) { list.innerHTML = '<div class="empty">No interactions recorded yet.</div>'; return; }
+  list.innerHTML = items.map(i => `
+    <div class="interaction-item">
+      <span class="kind">${esc(i.kind)}</span>
+      <span class="date">${new Date(i.occurred_at).toLocaleString()}</span>
+      <div class="summary">${esc(i.summary)}</div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('interaction-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = {
+    kind: document.getElementById('i-kind').value,
+    summary: document.getElementById('i-summary').value,
+    occurred_at: document.getElementById('i-date').value || null,
+  };
+  await api('POST', '/contacts/' + editingContactId + '/interactions', data);
+  document.getElementById('i-summary').value = '';
+  loadInteractions();
+});
+
+// ── Init ──
+if (token) { showApp(); }
+</script>
+</body>
+</html>

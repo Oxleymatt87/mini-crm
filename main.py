@@ -216,6 +216,7 @@ class OAuthState(Base):
     user_id: Mapped[int] = mapped_column(Integer)
     provider: Mapped[str] = mapped_column(String(20))  # 'quickbooks' or 'google'
     redirect_uri: Mapped[Optional[str]] = mapped_column(String(500))
+    frontend_url: Mapped[Optional[str]] = mapped_column(String(500))  # Where to redirect after OAuth
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 InteractionKind = Enum('call', 'email', 'meeting', 'note', name='interaction_kind')
@@ -1134,11 +1135,15 @@ def quickbooks_connect(request: Request, current_user: User = Depends(get_curren
     # Use environment variable for redirect URI (handles proxy/HTTPS correctly)
     redirect_uri = os.getenv('QB_REDIRECT_URI', str(request.base_url).rstrip('/') + "/quickbooks/callback")
 
+    # Capture where to redirect after OAuth (from Referer header or env var)
+    referer = request.headers.get('referer', '')
+    frontend_url = os.getenv('FRONTEND_URL', referer.split('?')[0] if referer else str(request.base_url).rstrip('/') + "/static/index.html")
+
     state = secrets.token_urlsafe(32)
 
     # Store state in database (works across multiple workers/restarts)
     db.query(OAuthState).filter(OAuthState.provider == 'quickbooks', OAuthState.user_id == current_user.id).delete()
-    oauth_state = OAuthState(state=state, user_id=current_user.id, provider='quickbooks', redirect_uri=redirect_uri)
+    oauth_state = OAuthState(state=state, user_id=current_user.id, provider='quickbooks', redirect_uri=redirect_uri, frontend_url=frontend_url)
     db.add(oauth_state)
     db.commit()
 
@@ -1168,6 +1173,7 @@ def quickbooks_callback(
 
     user_id = oauth_state.user_id
     redirect_uri = oauth_state.redirect_uri
+    frontend_url = oauth_state.frontend_url or "/static/index.html"
 
     # Delete used state
     db.delete(oauth_state)
@@ -1213,7 +1219,9 @@ def quickbooks_callback(
         db.add(qb_token)
 
     db.commit()
-    return RedirectResponse(url="/static/index.html?quickbooks=connected")
+    # Redirect back to frontend (preserves user's login session)
+    sep = '&' if '?' in frontend_url else '?'
+    return RedirectResponse(url=f"{frontend_url}{sep}quickbooks=connected")
 
 
 def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:

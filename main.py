@@ -752,12 +752,19 @@ def debug_env():
     client_secret = get_qb_client_secret()
     refresh_token = get_qb_refresh_token()
     realm_id = get_qb_realm_id()
+
+    # Find ALL env vars containing 'qb' or 'quickbooks' (case insensitive)
+    all_qb_vars = {k: "SET" for k in os.environ.keys() if 'qb' in k.lower() or 'quickbooks' in k.lower()}
+
     return {
-        "QB_CLIENT_ID": f"{client_id[:4]}...{client_id[-4:]}" if len(client_id) > 8 else ("SET" if client_id else "NOT SET"),
-        "QB_CLIENT_SECRET": "SET" if client_secret else "NOT SET",
-        "QB_ENVIRONMENT": get_qb_environment(),
-        "QB_REFRESH_TOKEN": "SET" if refresh_token else "NOT SET",
-        "QB_REALM_ID": realm_id if realm_id else "NOT SET",
+        "expected_vars": {
+            "QB_CLIENT_ID": f"{client_id[:4]}...{client_id[-4:]}" if len(client_id) > 8 else ("SET" if client_id else "NOT SET"),
+            "QB_CLIENT_SECRET": "SET" if client_secret else "NOT SET",
+            "QB_ENVIRONMENT": get_qb_environment(),
+            "QB_REFRESH_TOKEN": "SET" if refresh_token else "NOT SET",
+            "QB_REALM_ID": realm_id if realm_id else "NOT SET",
+        },
+        "actual_env_vars_found": all_qb_vars
     }
 
 

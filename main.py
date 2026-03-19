@@ -729,6 +729,18 @@ def health():
     return {"status": "healthy"}
 
 
+@app.get("/debug/env")
+def debug_env():
+    """Debug endpoint to check QuickBooks env vars (shows masked values)."""
+    return {
+        "QB_CLIENT_ID": f"{QB_CLIENT_ID[:4]}...{QB_CLIENT_ID[-4:]}" if len(QB_CLIENT_ID) > 8 else ("SET" if QB_CLIENT_ID else "NOT SET"),
+        "QB_CLIENT_SECRET": "SET" if QB_CLIENT_SECRET else "NOT SET",
+        "QB_ENVIRONMENT": QB_ENVIRONMENT,
+        "QB_REFRESH_TOKEN": "SET" if QB_REFRESH_TOKEN else "NOT SET",
+        "QB_REALM_ID": QB_REALM_ID if QB_REALM_ID else "NOT SET",
+    }
+
+
 # Routes - Auth
 @app.post("/auth/register", response_model=UserOut)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):

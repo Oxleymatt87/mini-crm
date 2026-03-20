@@ -685,7 +685,16 @@ def startup():
         # (it's just temporary state for in-flight OAuth, safe to clear)
         OAuthState.__table__.drop(engine, checkfirst=True)
         Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully")
+
+        # Verify critical tables exist
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        print(f"Database tables: {tables}")
+        if 'quickbooks_tokens' not in tables:
+            print("WARNING: quickbooks_tokens table missing!")
+        else:
+            print("QuickBooks tokens table verified")
     except Exception as e:
         print(f"Database initialization error: {e}")
 
@@ -1213,27 +1222,41 @@ def quickbooks_callback(
     tokens = resp.json()
     now = dt.datetime.utcnow()
 
-    # Save or update tokens
-    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
-    if qb_token:
-        qb_token.realm_id = realmId
-        qb_token.access_token = tokens['access_token']
-        qb_token.refresh_token = tokens['refresh_token']
-        qb_token.access_token_expires_at = now + dt.timedelta(seconds=tokens['expires_in'])
-        qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in'])
-    else:
-        qb_token = QuickBooksToken(
-            user_id=user_id,
-            realm_id=realmId,
-            access_token=tokens['access_token'],
-            refresh_token=tokens['refresh_token'],
-            access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
-            refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
-        )
-        db.add(qb_token)
+    # Save or update tokens with explicit error handling
+    try:
+        qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+        if qb_token:
+            print(f"[QB Callback] Updating existing token for user_id={user_id}")
+            qb_token.realm_id = realmId
+            qb_token.access_token = tokens['access_token']
+            qb_token.refresh_token = tokens['refresh_token']
+            qb_token.access_token_expires_at = now + dt.timedelta(seconds=tokens['expires_in'])
+            qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in'])
+        else:
+            print(f"[QB Callback] Creating new token for user_id={user_id}")
+            qb_token = QuickBooksToken(
+                user_id=user_id,
+                realm_id=realmId,
+                access_token=tokens['access_token'],
+                refresh_token=tokens['refresh_token'],
+                access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
+                refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
+            )
+            db.add(qb_token)
 
-    db.commit()
-    print(f"[QB Callback] SUCCESS: Saved token for user_id={user_id}, realm_id={realmId}")
+        db.flush()  # Force write to DB before commit
+        db.commit()
+
+        # Verify the save worked
+        verify = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+        if verify:
+            print(f"[QB Callback] SUCCESS: Verified token saved for user_id={user_id}, realm_id={verify.realm_id}")
+        else:
+            print(f"[QB Callback] ERROR: Token verification failed - not found after commit!")
+    except Exception as e:
+        print(f"[QB Callback] ERROR saving token: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save QuickBooks token: {str(e)}")
 
     # Redirect back to frontend (preserves user's login session)
     # Ensure frontend_url is absolute
@@ -1290,10 +1313,15 @@ def quickbooks_status(
     current_user: User = Depends(get_current_user)
 ):
     """Check QuickBooks connection status."""
-    print(f"[QB Status] Checking for user_id={current_user.id}")
+    # Count all tokens for debugging
+    all_count = db.query(QuickBooksToken).count()
+    print(f"[QB Status] Checking for user_id={current_user.id}, total tokens in DB: {all_count}")
+
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
     if not qb_token:
-        print(f"[QB Status] No token found for user_id={current_user.id}")
+        # Show what user_ids DO have tokens
+        existing = db.query(QuickBooksToken.user_id).all()
+        print(f"[QB Status] No token for user_id={current_user.id}. Existing user_ids with tokens: {[x[0] for x in existing]}")
         return {"connected": False}
     print(f"[QB Status] Token found for user_id={current_user.id}, realm_id={qb_token.realm_id}")
 

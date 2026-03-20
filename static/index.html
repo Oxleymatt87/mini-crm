@@ -1085,10 +1085,10 @@
         }
 
         // Check if returning from QB OAuth
-        const qbConnected = window.location.search.includes('quickbooks=connected');
-        console.log('Init:', { token: !!token, qbConnected, url: window.location.href });
+        const justConnectedQB = window.location.search.includes('quickbooks=connected');
+        console.log('Init:', { token: !!token, justConnectedQB, url: window.location.href });
 
-        if (qbConnected) {
+        if (justConnectedQB) {
             // Clean up URL without navigating away
             history.replaceState({}, '', window.location.pathname);
         }
@@ -1096,7 +1096,7 @@
         // Init
         if (token) {
             loadApp().then(() => {
-                if (qbConnected) {
+                if (justConnectedQB) {
                     // Show success message
                     alert('QuickBooks connected successfully!');
                 }
@@ -1104,7 +1104,7 @@
                 console.error('loadApp failed:', err);
             });
         } else {
-            if (qbConnected) {
+            if (justConnectedQB) {
                 // QB connected but not logged in - session expired during OAuth
                 alert('QuickBooks connected! Please log in to continue.');
             }

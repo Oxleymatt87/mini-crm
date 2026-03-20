@@ -1084,19 +1084,31 @@
             return div.innerHTML;
         }
 
-        // Init
-        if (token) {
-            loadApp();
-        } else {
-            showLogin();
-        }
-
         // Check if returning from QB OAuth
-        if (window.location.search.includes('quickbooks=connected')) {
+        const qbConnected = window.location.search.includes('quickbooks=connected');
+        console.log('Init:', { token: !!token, qbConnected, url: window.location.href });
+
+        if (qbConnected) {
             // Clean up URL without navigating away
             history.replaceState({}, '', window.location.pathname);
-            // Refresh QB status
-            checkQBStatus();
+        }
+
+        // Init
+        if (token) {
+            loadApp().then(() => {
+                if (qbConnected) {
+                    // Show success message
+                    alert('QuickBooks connected successfully!');
+                }
+            }).catch(err => {
+                console.error('loadApp failed:', err);
+            });
+        } else {
+            if (qbConnected) {
+                // QB connected but not logged in - session expired during OAuth
+                alert('QuickBooks connected! Please log in to continue.');
+            }
+            showLogin();
         }
 
         // Register service worker

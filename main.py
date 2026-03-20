@@ -1229,8 +1229,16 @@ def quickbooks_callback(
 
     db.commit()
     # Redirect back to frontend (preserves user's login session)
+    # Ensure frontend_url is absolute
+    if not frontend_url.startswith('http'):
+        base = os.getenv('FRONTEND_URL', '').rsplit('/', 1)[0]  # Get base URL
+        if base:
+            frontend_url = f"{base}/{frontend_url.lstrip('/')}"
+        else:
+            frontend_url = f"/static/index.html"
+
     sep = '&' if '?' in frontend_url else '?'
-    return RedirectResponse(url=f"{frontend_url}{sep}quickbooks=connected")
+    return RedirectResponse(url=f"{frontend_url}{sep}quickbooks=connected", status_code=302)
 
 
 def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:

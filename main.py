@@ -1272,8 +1272,14 @@ def quickbooks_callback(
 
 
 def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:
-    """Get valid QuickBooks access token, refreshing if needed."""
+    """Get valid QuickBooks access token, refreshing if needed.
+
+    For single-tenant CRM: tries user's token first, then falls back to any org token.
+    """
+    # Try user's token first, then any available token (org-wide sharing)
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+    if not qb_token:
+        qb_token = db.query(QuickBooksToken).first()  # Fallback to any org token
     if not qb_token:
         raise HTTPException(status_code=400, detail="QuickBooks not connected. Visit /quickbooks/connect first.")
 
@@ -1312,18 +1318,16 @@ def quickbooks_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Check QuickBooks connection status."""
-    # Count all tokens for debugging
-    all_count = db.query(QuickBooksToken).count()
-    print(f"[QB Status] Checking for user_id={current_user.id}, total tokens in DB: {all_count}")
-
+    """Check QuickBooks connection status (org-wide for single-tenant CRM)."""
+    # For single-tenant CRM: check user's token first, then any org token
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
     if not qb_token:
-        # Show what user_ids DO have tokens
-        existing = db.query(QuickBooksToken.user_id).all()
-        print(f"[QB Status] No token for user_id={current_user.id}. Existing user_ids with tokens: {[x[0] for x in existing]}")
+        qb_token = db.query(QuickBooksToken).first()  # Fallback to any org token
+
+    if not qb_token:
+        print(f"[QB Status] No tokens in database for org")
         return {"connected": False}
-    print(f"[QB Status] Token found for user_id={current_user.id}, realm_id={qb_token.realm_id}")
+    print(f"[QB Status] Found org token, realm_id={qb_token.realm_id}")
 
     now = dt.datetime.utcnow()
     return {

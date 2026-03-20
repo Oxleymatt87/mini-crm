@@ -1135,6 +1135,7 @@ def quickbooks_connect(
     db: Session = Depends(get_db)
 ):
     """Initiate QuickBooks OAuth flow."""
+    print(f"[QB Connect] Starting OAuth for user_id={current_user.id}")
     client_id = get_qb_client_id()
     client_secret = get_qb_client_secret()
     if not client_id or not client_secret:
@@ -1173,14 +1174,18 @@ def quickbooks_callback(
     db: Session = Depends(get_db)
 ):
     """Handle QuickBooks OAuth callback."""
+    print(f"[QB Callback] Received state={state[:20]}..., realmId={realmId}")
+
     # Retrieve state from database
     oauth_state = db.query(OAuthState).filter(OAuthState.state == state, OAuthState.provider == 'quickbooks').first()
     if not oauth_state:
+        print(f"[QB Callback] ERROR: State not found in database")
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
 
     user_id = oauth_state.user_id
     redirect_uri = oauth_state.redirect_uri
     frontend_url = oauth_state.frontend_url or "/static/index.html"
+    print(f"[QB Callback] Found state for user_id={user_id}, frontend_url={frontend_url}")
 
     # Delete used state
     db.delete(oauth_state)
@@ -1226,6 +1231,8 @@ def quickbooks_callback(
         db.add(qb_token)
 
     db.commit()
+    print(f"[QB Callback] SUCCESS: Saved token for user_id={user_id}, realm_id={realmId}")
+
     # Redirect back to frontend (preserves user's login session)
     # Ensure frontend_url is absolute
     if not frontend_url.startswith('http'):
@@ -1281,9 +1288,12 @@ def quickbooks_status(
     current_user: User = Depends(get_current_user)
 ):
     """Check QuickBooks connection status."""
+    print(f"[QB Status] Checking for user_id={current_user.id}")
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
     if not qb_token:
+        print(f"[QB Status] No token found for user_id={current_user.id}")
         return {"connected": False}
+    print(f"[QB Status] Token found for user_id={current_user.id}, realm_id={qb_token.realm_id}")
 
     now = dt.datetime.utcnow()
     return {

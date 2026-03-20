@@ -1304,6 +1304,19 @@ def quickbooks_status(
     }
 
 
+@app.get("/quickbooks/debug")
+def quickbooks_debug(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Debug: Show all QB tokens in database."""
+    all_tokens = db.query(QuickBooksToken).all()
+    return {
+        "current_user_id": current_user.id,
+        "all_tokens": [{"user_id": t.user_id, "realm_id": t.realm_id, "created": str(t.access_token_expires_at)} for t in all_tokens]
+    }
+
+
 @app.delete("/quickbooks/disconnect")
 def quickbooks_disconnect(
     db: Session = Depends(get_db),

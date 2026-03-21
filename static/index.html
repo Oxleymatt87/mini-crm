@@ -997,8 +997,15 @@
             }
         }
 
-        function connectQB() {
-            window.location.href = '/quickbooks/connect';
+        async function connectQB() {
+            try {
+                // Pass current URL so callback knows where to redirect back
+                const returnUrl = encodeURIComponent(window.location.origin + window.location.pathname);
+                const result = await api('/quickbooks/connect?return_url=' + returnUrl);
+                window.location.href = result.auth_url;
+            } catch (e) {
+                alert('Failed to connect QuickBooks: ' + e.message);
+            }
         }
 
         function showQBModal() {
@@ -1077,16 +1084,31 @@
             return div.innerHTML;
         }
 
-        // Init
-        if (token) {
-            loadApp();
-        } else {
-            showLogin();
+        // Check if returning from QB OAuth
+        const justConnectedQB = window.location.search.includes('quickbooks=connected');
+        console.log('Init:', { token: !!token, justConnectedQB, url: window.location.href });
+
+        if (justConnectedQB) {
+            // Clean up URL without navigating away
+            history.replaceState({}, '', window.location.pathname);
         }
 
-        // Check if returning from QB OAuth
-        if (window.location.search.includes('quickbooks=connected')) {
-            history.replaceState({}, '', '/');
+        // Init
+        if (token) {
+            loadApp().then(() => {
+                if (justConnectedQB) {
+                    // Show success message
+                    alert('QuickBooks connected successfully!');
+                }
+            }).catch(err => {
+                console.error('loadApp failed:', err);
+            });
+        } else {
+            if (justConnectedQB) {
+                // QB connected but not logged in - session expired during OAuth
+                alert('QuickBooks connected! Please log in to continue.');
+            }
+            showLogin();
         }
 
         // Register service worker

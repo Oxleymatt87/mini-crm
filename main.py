@@ -2131,7 +2131,7 @@ def sync_inventory_to_quickbooks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Sync an inventory item to QuickBooks."""
+    """Sync an inventory item to QuickBooks as NonInventory."""
     item = db.query(InventoryItem).filter(
         InventoryItem.id == item_id,
         InventoryItem.owner_id == current_user.id
@@ -2140,66 +2140,14 @@ def sync_inventory_to_quickbooks(
         raise HTTPException(status_code=404, detail="Inventory item not found")
 
     access_token, realm_id = get_qb_access_token(current_user.id, db)
-    qb_headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-    }
-
-    # Query QBO for required account references
-    acct_query = "SELECT * FROM Account WHERE AccountType IN ('Income', 'Cost of Goods Sold', 'Other Current Asset') MAXRESULTS 100"
-    acct_resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
-        headers=qb_headers,
-        params={"query": acct_query},
-        timeout=30
-    )
-    income_ref = None
-    expense_ref = None
-    asset_ref = None
-    if acct_resp.status_code == 200:
-        accounts = acct_resp.json().get('QueryResponse', {}).get('Account', [])
-        for a in accounts:
-            atype = a.get('AccountType', '')
-            asubtype = a.get('AccountSubType', '')
-            aname = a.get('Name', '')
-            if atype == 'Income' and not income_ref:
-                if 'product' in aname.lower() or 'sales' in aname.lower() or asubtype == 'SalesOfProductIncome':
-                    income_ref = {"value": a['Id'], "name": aname}
-            if atype == 'Cost of Goods Sold' and not expense_ref:
-                if 'cost' in aname.lower() or 'goods' in aname.lower() or asubtype == 'SuppliesMaterialsCogs':
-                    expense_ref = {"value": a['Id'], "name": aname}
-            if atype == 'Other Current Asset' and not asset_ref:
-                if 'inventory' in aname.lower() or asubtype == 'Inventory':
-                    asset_ref = {"value": a['Id'], "name": aname}
-        # Fallback: just use first of each type
-        if not income_ref:
-            for a in accounts:
-                if a.get('AccountType') == 'Income':
-                    income_ref = {"value": a['Id'], "name": a['Name']}; break
-        if not expense_ref:
-            for a in accounts:
-                if a.get('AccountType') == 'Cost of Goods Sold':
-                    expense_ref = {"value": a['Id'], "name": a['Name']}; break
-        if not asset_ref:
-            for a in accounts:
-                if a.get('AccountType') == 'Other Current Asset':
-                    asset_ref = {"value": a['Id'], "name": a['Name']}; break
-
-    if not income_ref or not expense_ref or not asset_ref:
-        raise HTTPException(status_code=400, detail=f"Could not find required QBO accounts. Income={income_ref}, Expense={expense_ref}, Asset={asset_ref}")
 
     qb_item_data = {
         "Name": item.name[:100],
-        "Type": "Inventory",
-        "Sku": item.sku,
-        "Description": item.description or "",
-        "QtyOnHand": item.quantity,
-        "TrackQtyOnHand": True,
-        "InvStartDate": dt.date.today().isoformat(),
-        "IncomeAccountRef": income_ref,
-        "ExpenseAccountRef": expense_ref,
-        "AssetAccountRef": asset_ref,
+        "Type": "NonInventory",
+        "Sku": item.sku or "",
+        "Description": item.description or item.name,
+        "IncomeAccountRef": {"value": "7", "name": "Sales"},
+        "ExpenseAccountRef": {"value": "9", "name": "Cost of Goods Sold"},
     }
     if item.cost:
         qb_item_data["PurchaseCost"] = item.cost
@@ -2208,7 +2156,11 @@ def sync_inventory_to_quickbooks(
 
     resp = requests.post(
         f"{QB_API_BASE}/v3/company/{realm_id}/item",
-        headers=qb_headers,
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        },
         json=qb_item_data,
         timeout=30
     )

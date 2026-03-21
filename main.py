@@ -118,7 +118,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def create_access_token(subject: str, minutes: int = JWT_EXPIRE_MIN) -> str:
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     exp = now + dt.timedelta(minutes=minutes)
     return jwt.encode(
         {'sub': subject, 'iat': int(now.timestamp()), 'exp': int(exp.timestamp())},
@@ -730,7 +730,7 @@ def startup():
                 )
                 if resp.status_code == 200:
                     tokens = resp.json()
-                    now = dt.datetime.utcnow()
+                    now = dt.datetime.now(dt.timezone.utc)
                     qb_token = QuickBooksToken(
                         user_id=user.id,
                         realm_id=qb_realm,
@@ -973,7 +973,7 @@ def create_interaction(
         owner_id=current_user.id,
         kind=interaction_data.kind,
         summary=interaction_data.summary,
-        occurred_at=interaction_data.occurred_at or dt.datetime.utcnow()
+        occurred_at=interaction_data.occurred_at or dt.datetime.now(dt.timezone.utc)
     )
     db.add(interaction)
 
@@ -1114,7 +1114,7 @@ def get_stats(
     total_interactions = db.query(Interaction).filter(Interaction.owner_id == current_user.id).count()
 
     # Contacts needing follow-up (next_follow_up_at in past or today)
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     follow_ups_due = db.query(Contact).filter(
         Contact.owner_id == current_user.id,
         Contact.next_follow_up_at <= now
@@ -1218,7 +1218,7 @@ def quickbooks_callback(
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
 
     tokens = resp.json()
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Save or update tokens with explicit error handling
     try:
@@ -1281,7 +1281,7 @@ def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:
     if not qb_token:
         raise HTTPException(status_code=400, detail="QuickBooks not connected. Visit /quickbooks/connect first.")
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Check if refresh token expired
     if qb_token.refresh_token_expires_at < now:
@@ -1327,7 +1327,7 @@ def quickbooks_status(
         return {"connected": False}
     print(f"[QB Status] Found org token, realm_id={qb_token.realm_id}")
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     return {
         "connected": True,
         "realm_id": qb_token.realm_id,
@@ -1515,7 +1515,7 @@ def init_quickbooks_tokens(
     current_user: User = Depends(get_current_user)
 ):
     """Initialize QuickBooks connection with existing tokens."""
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
     if qb_token:
@@ -1555,7 +1555,7 @@ def _background_sync_worker():
             for qb_token in tokens:
                 try:
                     # Refresh token if needed
-                    now = dt.datetime.utcnow()
+                    now = dt.datetime.now(dt.timezone.utc)
                     if qb_token.access_token_expires_at < now:
                         resp = requests.post(
                             QB_TOKEN_URL,
@@ -1672,7 +1672,7 @@ def google_callback(
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
 
     tokens = resp.json()
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Save or update tokens
     g_token = db.query(GoogleDriveToken).filter(GoogleDriveToken.user_id == user_id).first()
@@ -1699,7 +1699,7 @@ def get_google_access_token(user_id: int, db: Session) -> str:
     if not g_token:
         raise HTTPException(status_code=400, detail="Google Drive not connected. Visit /google/connect first.")
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Refresh access token if expired
     if g_token.access_token_expires_at < now:
@@ -1739,7 +1739,7 @@ def google_status(
     if not g_token:
         return {"connected": False}
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     return {
         "connected": True,
         "access_token_valid": g_token.access_token_expires_at > now,
@@ -2802,7 +2802,7 @@ def submit_order(
         raise HTTPException(status_code=400, detail="Only draft orders can be submitted")
 
     order.status = 'submitted'
-    order.submitted_at = dt.datetime.utcnow()
+    order.submitted_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
 
     return {"ok": True, "order_number": order.order_number, "status": order.status}
@@ -2851,7 +2851,7 @@ def receive_order(
         order_item.received_qty = order_item.quantity
 
     order.status = 'received'
-    order.received_at = dt.datetime.utcnow()
+    order.received_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
 
     return {"ok": True, "order_number": order.order_number, "status": order.status}

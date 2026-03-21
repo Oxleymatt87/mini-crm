@@ -26,15 +26,15 @@ services:
       - key: QB_ENVIRONMENT
         value: "production"
       - key: QB_REDIRECT_URI
-        value: "https://rm-api-kab0.onrender.com/quickbooks/callback"
+        value: "https://mini-crm-api-kab0.onrender.com/quickbooks/callback"
       - key: FRONTEND_URL
-        value: "https://rm-api-kab0.onrender.com"
+        value: "https://mini-crm-api-kab0.onrender.com"
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: GOOGLE_REDIRECT_URI
-        value: "https://rm-api-kab0.onrender.com/google/callback"
+        value: "https://mini-crm-api-kab0.onrender.com/google/callback"
       - key: PYTHON_VERSION
         value: "3.11.0"
     healthCheckPath: /health

@@ -2299,10 +2299,12 @@ def import_quickbooks_items(
             InventoryItem.qb_item_id == qb_id
         ).first()
 
+        qty = qb_item.get('QtyOnHand') or 0
+
         if existing:
             # Update existing
             existing.name = name
-            existing.quantity = int(qb_item.get('QtyOnHand', 0))
+            existing.quantity = int(qty)
             existing.cost = qb_item.get('PurchaseCost')
             existing.price = qb_item.get('UnitPrice')
             updated += 1
@@ -2320,7 +2322,7 @@ def import_quickbooks_items(
                 sku=sku,
                 name=name,
                 description=qb_item.get('Description'),
-                quantity=int(qb_item.get('QtyOnHand', 0)),
+                quantity=int(qty),
                 cost=qb_item.get('PurchaseCost'),
                 price=qb_item.get('UnitPrice'),
                 qb_item_id=qb_id,

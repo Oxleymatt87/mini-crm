@@ -3045,6 +3045,8 @@ def bulk_qb_sync(
 from bs4 import BeautifulSoup
 import re
 from typing import Dict, Any
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+import os
 
 class PortalScrapeResult(BaseModel):
     supplier_name: str
@@ -3485,45 +3487,88 @@ def scrape_km_tire_portal(portal_url: str, username: str, password: str) -> Dict
     return {"orders": orders, "errors": errors}
 
 
-def scrape_hesselbein_portal(portal_url: str, username: str, password: str) -> Dict[str, Any]:
-    """Scrape Hesselbein Tire dealer portal."""
-    session = requests.Session()
+def scrape_hesselbein_portal(portal_url: str, username: str, password: str, screenshot_path: str = None) -> Dict[str, Any]:
+    """Scrape Hesselbein Tire dealer portal using Playwright for JS-rendered content."""
     orders = []
     errors = []
-
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    })
+    login_success = False
 
     try:
-        # Hesselbein typically uses their own dealer portal
-        base_url = "https://dealer.hesselbeintire.com"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
 
-        login_page = session.get(f"{base_url}/login", timeout=30)
-        soup = BeautifulSoup(login_page.text, 'lxml')
+            base_url = "https://dealer.hesselbeintire.com"
 
-        login_data = {'account': username, 'password': password}
-        login_resp = session.post(f"{base_url}/login", data=login_data, timeout=30, allow_redirects=True)
+            # Navigate to login page
+            page.goto(f"{base_url}/login", timeout=30000)
+            page.wait_for_load_state("networkidle")
 
-        # Look for orders
-        orders_resp = session.get(f"{base_url}/orders", timeout=30)
-        if orders_resp.status_code == 200:
-            soup = BeautifulSoup(orders_resp.text, 'lxml')
-            for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
-                text = row.get_text()
-                po_match = re.search(r'(INV[-#]?\s*\d+|\d{6,})', text)
-                if po_match:
-                    orders.append({
-                        "order_number": po_match.group(1),
-                        "status": "shipped" if 'ship' in text.lower() else "pending",
-                        "supplier": "Hesselbein Tire",
-                        "line_items": []
-                    })
+            # Fill login form - try common field selectors
+            try:
+                # Try various selectors for account/username field
+                account_selectors = ['input[name="account"]', 'input[name="username"]', 'input[name="email"]', '#account', '#username', 'input[type="text"]']
+                for selector in account_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, username)
+                        break
+
+                # Fill password
+                password_selectors = ['input[name="password"]', 'input[type="password"]', '#password']
+                for selector in password_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, password)
+                        break
+
+                # Submit form
+                submit_selectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Login")', 'button:has-text("Sign In")']
+                for selector in submit_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.click(selector)
+                        break
+
+                page.wait_for_load_state("networkidle")
+
+                # Check if login was successful (not still on login page)
+                if "/login" not in page.url.lower():
+                    login_success = True
+
+            except PlaywrightTimeout:
+                errors.append("Hesselbein login form timeout")
+
+            if login_success:
+                # Navigate to orders page
+                page.goto(f"{base_url}/orders", timeout=30000)
+                page.wait_for_load_state("networkidle")
+
+                # Take screenshot if requested
+                if screenshot_path:
+                    page.screenshot(path=screenshot_path, full_page=True)
+
+                # Parse the page content
+                content = page.content()
+                soup = BeautifulSoup(content, 'lxml')
+
+                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
+                    text = row.get_text()
+                    po_match = re.search(r'(INV[-#]?\s*\d+|\d{6,})', text)
+                    if po_match:
+                        orders.append({
+                            "order_number": po_match.group(1),
+                            "status": "shipped" if 'ship' in text.lower() else "pending",
+                            "supplier": "Hesselbein Tire",
+                            "line_items": []
+                        })
+
+            browser.close()
 
     except Exception as e:
         errors.append(f"Hesselbein scraping error: {str(e)}")
 
-    return {"orders": orders, "errors": errors}
+    return {"orders": orders, "errors": errors, "login_success": login_success}
 
 
 def scrape_south_gateway_portal(portal_url: str, username: str, password: str) -> Dict[str, Any]:
@@ -3565,43 +3610,88 @@ def scrape_south_gateway_portal(portal_url: str, username: str, password: str) -
     return {"orders": orders, "errors": errors}
 
 
-def scrape_bzo_portal(portal_url: str, username: str, password: str) -> Dict[str, Any]:
-    """Scrape BZO Wheels/TireLink portal."""
-    session = requests.Session()
+def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_path: str = None) -> Dict[str, Any]:
+    """Scrape BZO Wheels/TireLink portal using Playwright for JS-rendered content."""
     orders = []
     errors = []
-
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    })
+    login_success = False
 
     try:
-        # BZO/TireLink portal
-        base_url = "https://www.tirelink.com"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
 
-        login_page = session.get(f"{base_url}/dealer/login", timeout=30)
+            base_url = "https://www.tirelink.com"
 
-        login_data = {'dealer_id': username, 'password': password}
-        login_resp = session.post(f"{base_url}/dealer/login", data=login_data, timeout=30, allow_redirects=True)
+            # Navigate to login page
+            page.goto(f"{base_url}/dealer/login", timeout=30000)
+            page.wait_for_load_state("networkidle")
 
-        orders_resp = session.get(f"{base_url}/dealer/orders", timeout=30)
-        if orders_resp.status_code == 200:
-            soup = BeautifulSoup(orders_resp.text, 'lxml')
-            for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
-                text = row.get_text()
-                po_match = re.search(r'(ORD[-#]?\s*\d+|\d{6,})', text)
-                if po_match:
-                    orders.append({
-                        "order_number": po_match.group(1),
-                        "status": "shipped" if 'ship' in text.lower() else "pending",
-                        "supplier": "BZO Wheels/TireLink",
-                        "line_items": []
-                    })
+            # Fill login form - try common field selectors
+            try:
+                # Try various selectors for dealer_id/username field
+                account_selectors = ['input[name="dealer_id"]', 'input[name="username"]', 'input[name="email"]', '#dealer_id', '#username', 'input[type="text"]']
+                for selector in account_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, username)
+                        break
+
+                # Fill password
+                password_selectors = ['input[name="password"]', 'input[type="password"]', '#password']
+                for selector in password_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, password)
+                        break
+
+                # Submit form
+                submit_selectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Login")', 'button:has-text("Sign In")']
+                for selector in submit_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.click(selector)
+                        break
+
+                page.wait_for_load_state("networkidle")
+
+                # Check if login was successful (not still on login page)
+                if "/login" not in page.url.lower():
+                    login_success = True
+
+            except PlaywrightTimeout:
+                errors.append("BZO/TireLink login form timeout")
+
+            if login_success:
+                # Navigate to orders page
+                page.goto(f"{base_url}/dealer/orders", timeout=30000)
+                page.wait_for_load_state("networkidle")
+
+                # Take screenshot if requested
+                if screenshot_path:
+                    page.screenshot(path=screenshot_path, full_page=True)
+
+                # Parse the page content
+                content = page.content()
+                soup = BeautifulSoup(content, 'lxml')
+
+                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
+                    text = row.get_text()
+                    po_match = re.search(r'(ORD[-#]?\s*\d+|\d{6,})', text)
+                    if po_match:
+                        orders.append({
+                            "order_number": po_match.group(1),
+                            "status": "shipped" if 'ship' in text.lower() else "pending",
+                            "supplier": "BZO Wheels/TireLink",
+                            "line_items": []
+                        })
+
+            browser.close()
 
     except Exception as e:
         errors.append(f"BZO scraping error: {str(e)}")
 
-    return {"orders": orders, "errors": errors}
+    return {"orders": orders, "errors": errors, "login_success": login_success}
 
 
 # Mapping of supplier names to scraper functions
@@ -3613,6 +3703,51 @@ PORTAL_SCRAPERS = {
     "South Gateway": scrape_south_gateway_portal,
     "BZO Wheels/TireLink (Royal Black)": scrape_bzo_portal,
 }
+
+
+class PortalLoginTestResult(BaseModel):
+    portal: str
+    login_success: bool
+    screenshot_path: Optional[str] = None
+    errors: List[str]
+
+
+@app.post("/suppliers/test-portal-login")
+def test_portal_login(
+    portal: str,
+    username: str,
+    password: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Test login to a supplier portal (BZO/TireLink or Hesselbein).
+    Takes a screenshot of the order history page if login succeeds.
+    """
+    screenshot_dir = os.path.join(os.path.dirname(__file__), "static", "screenshots")
+    os.makedirs(screenshot_dir, exist_ok=True)
+
+    portal_lower = portal.lower()
+
+    if "bzo" in portal_lower or "tirelink" in portal_lower:
+        screenshot_path = os.path.join(screenshot_dir, f"bzo_orders_{current_user.id}.png")
+        result = scrape_bzo_portal("", username, password, screenshot_path=screenshot_path)
+        return PortalLoginTestResult(
+            portal="BZO Wheels/TireLink",
+            login_success=result.get("login_success", False),
+            screenshot_path=f"/static/screenshots/bzo_orders_{current_user.id}.png" if result.get("login_success") else None,
+            errors=result.get("errors", [])
+        )
+    elif "hesselbein" in portal_lower:
+        screenshot_path = os.path.join(screenshot_dir, f"hesselbein_orders_{current_user.id}.png")
+        result = scrape_hesselbein_portal("", username, password, screenshot_path=screenshot_path)
+        return PortalLoginTestResult(
+            portal="Hesselbein Tire",
+            login_success=result.get("login_success", False),
+            screenshot_path=f"/static/screenshots/hesselbein_orders_{current_user.id}.png" if result.get("login_success") else None,
+            errors=result.get("errors", [])
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown portal: {portal}. Supported: BZO, TireLink, Hesselbein")
 
 
 @app.post("/suppliers/check-portals", response_model=List[PortalScrapeResult])

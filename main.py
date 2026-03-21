@@ -2413,9 +2413,9 @@ def sync_firebase_inventory(
 
     id_token = auth_resp.json().get("idToken")
 
-    # Fetch inventory from Firestore
+    # Fetch items from Firestore (collection is "items")
     firestore_resp = requests.get(
-        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/inventory",
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/items",
         headers={"Authorization": f"Bearer {id_token}"},
         timeout=30
     )
@@ -2445,11 +2445,16 @@ def sync_firebase_inventory(
                 return v["booleanValue"]
             return default
 
-        sku = get_val("sku") or get_val("partNumber") or firebase_id
-        name = get_val("name") or get_val("description") or sku
-        qty = get_val("quantity", 0) or get_val("qtyOnHand", 0)
-        cost = get_val("cost") or get_val("unitCost")
-        price = get_val("price") or get_val("sellPrice")
+        sku = get_val("sku") or firebase_id
+        brand = get_val("brand") or ""
+        model = get_val("model") or ""
+        size = get_val("size") or ""
+        position = get_val("position") or ""
+        condition = get_val("condition") or ""
+        # Build name from tire attributes
+        name = f"{brand} {model} {size} {position} {condition}".strip() or sku
+        cost = get_val("unitCost") or get_val("landedCost")
+        price = get_val("landedCost")  # landed cost as sell price
 
         # Check if exists by SKU
         existing = db.query(InventoryItem).filter(
@@ -2459,28 +2464,26 @@ def sync_firebase_inventory(
 
         if existing:
             existing.name = name[:255]
-            existing.quantity = int(qty) if qty else existing.quantity
             if cost:
                 existing.cost = float(cost)
             if price:
                 existing.price = float(price)
-            existing.category = get_val("category") or get_val("type") or existing.category
-            existing.brand = get_val("brand") or existing.brand
-            existing.size = get_val("size") or existing.size
+            existing.brand = brand or existing.brand
+            existing.size = size or existing.size
+            existing.category = "tire"
             updated += 1
         else:
             item = InventoryItem(
                 owner_id=current_user.id,
                 sku=sku[:100],
                 name=name[:255],
-                description=get_val("description"),
-                category=get_val("category") or get_val("type"),
-                brand=get_val("brand"),
-                size=get_val("size"),
-                quantity=int(qty) if qty else 0,
+                description=f"{position} - {condition}",
+                category="tire",
+                brand=brand,
+                size=size,
+                quantity=0,
                 cost=float(cost) if cost else None,
                 price=float(price) if price else None,
-                location=get_val("location") or get_val("zone"),
             )
             db.add(item)
             imported += 1

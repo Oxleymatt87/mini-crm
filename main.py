@@ -11,7 +11,7 @@ from typing import Optional, List
 from urllib.parse import urlencode
 
 import requests
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,14 +53,29 @@ if DATABASE_URL.startswith('postgres://'):
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 PORT = int(os.getenv('PORT', '10000'))
 
-# QuickBooks OAuth Configuration
-QB_CLIENT_ID = os.getenv('QB_CLIENT_ID', '')
-QB_CLIENT_SECRET = os.getenv('QB_CLIENT_SECRET', '')
-QB_REDIRECT_URI = os.getenv('QB_REDIRECT_URI', 'http://localhost:10000/quickbooks/callback')
-QB_ENVIRONMENT = os.getenv('QB_ENVIRONMENT', 'sandbox')  # 'sandbox' or 'production'
+# QuickBooks OAuth Configuration - read dynamically for flexibility
+def get_qb_client_id():
+    return os.getenv('QB_CLIENT_ID', '')
+
+def get_qb_client_secret():
+    return os.getenv('QB_CLIENT_SECRET', '')
+
+def get_qb_environment():
+    return os.getenv('QB_ENVIRONMENT', 'sandbox')
+
+def get_qb_api_base():
+    env = get_qb_environment()
+    return 'https://sandbox-quickbooks.api.intuit.com' if env == 'sandbox' else 'https://quickbooks.api.intuit.com'
+
 QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
-QB_API_BASE = 'https://sandbox-quickbooks.api.intuit.com' if QB_ENVIRONMENT == 'sandbox' else 'https://quickbooks.api.intuit.com'
+
+# Pre-seeded tokens (set these to auto-initialize QuickBooks on startup)
+def get_qb_refresh_token():
+    return os.getenv('QB_REFRESH_TOKEN', '')
+
+def get_qb_realm_id():
+    return os.getenv('QB_REALM_ID', '')
 
 # Google OAuth Configuration (for Drive access)
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
@@ -103,7 +118,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def create_access_token(subject: str, minutes: int = JWT_EXPIRE_MIN) -> str:
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     exp = now + dt.timedelta(minutes=minutes)
     return jwt.encode(
         {'sub': subject, 'iat': int(now.timestamp()), 'exp': int(exp.timestamp())},
@@ -193,9 +208,16 @@ class GoogleDriveToken(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
-# Store OAuth state tokens temporarily (in production, use Redis or similar)
-_oauth_states: dict[str, int] = {}
-_google_oauth_states: dict[str, int] = {}
+# OAuth state storage - now in database for multi-worker support
+class OAuthState(Base):
+    """Store OAuth state tokens in database for multi-worker environments."""
+    __tablename__ = 'oauth_states'
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(20))  # 'quickbooks' or 'google'
+    redirect_uri: Mapped[Optional[str]] = mapped_column(String(500))
+    frontend_url: Mapped[Optional[str]] = mapped_column(String(500))  # Where to redirect after OAuth
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 InteractionKind = Enum('call', 'email', 'meeting', 'note', name='interaction_kind')
 
@@ -659,10 +681,76 @@ def geocode_address(contact: Contact) -> tuple[Optional[float], Optional[float]]
 @app.on_event("startup")
 def startup():
     try:
+        # Drop and recreate oauth_states table to ensure schema is current
+        # (it's just temporary state for in-flight OAuth, safe to clear)
+        OAuthState.__table__.drop(engine, checkfirst=True)
         Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully")
+
+        # Verify critical tables exist
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        print(f"Database tables: {tables}")
+        if 'quickbooks_tokens' not in tables:
+            print("WARNING: quickbooks_tokens table missing!")
+        else:
+            print("QuickBooks tokens table verified")
     except Exception as e:
         print(f"Database initialization error: {e}")
+
+    # Auto-seed QuickBooks tokens from env vars
+    qb_refresh = get_qb_refresh_token()
+    qb_realm = get_qb_realm_id()
+    qb_client = get_qb_client_id()
+    qb_secret = get_qb_client_secret()
+    if qb_refresh and qb_realm and qb_client and qb_secret:
+        try:
+            db = SessionLocal()
+            # Get first user or create a system user
+            user = db.query(User).first()
+            if not user:
+                user = User(
+                    email="system@localhost",
+                    full_name="System User",
+                    hashed_password=hash_password(secrets.token_urlsafe(32)),
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+                print("Created system user for QuickBooks")
+
+            # Check if QB token already exists for this user
+            qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user.id).first()
+            if not qb_token:
+                # Get fresh access token using refresh token
+                resp = requests.post(
+                    QB_TOKEN_URL,
+                    auth=(qb_client, qb_secret),
+                    headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+                    data={'grant_type': 'refresh_token', 'refresh_token': qb_refresh},
+                    timeout=30
+                )
+                if resp.status_code == 200:
+                    tokens = resp.json()
+                    now = dt.datetime.now(dt.timezone.utc)
+                    qb_token = QuickBooksToken(
+                        user_id=user.id,
+                        realm_id=qb_realm,
+                        access_token=tokens['access_token'],
+                        refresh_token=tokens['refresh_token'],
+                        access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
+                        refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
+                    )
+                    db.add(qb_token)
+                    db.commit()
+                    print(f"QuickBooks tokens seeded for user {user.id}")
+                else:
+                    print(f"Failed to get QB access token: {resp.status_code} - {resp.text}")
+            else:
+                print(f"QuickBooks already configured for user {user.id}")
+            db.close()
+        except Exception as e:
+            print(f"QuickBooks auto-seed error: {e}")
 
 
 # Routes - Health
@@ -676,6 +764,29 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.get("/debug/env")
+def debug_env():
+    """Debug endpoint to check QuickBooks env vars (shows masked values)."""
+    client_id = get_qb_client_id()
+    client_secret = get_qb_client_secret()
+    refresh_token = get_qb_refresh_token()
+    realm_id = get_qb_realm_id()
+
+    # Find ALL env vars containing 'qb' or 'quickbooks' (case insensitive)
+    all_qb_vars = {k: "SET" for k in os.environ.keys() if 'qb' in k.lower() or 'quickbooks' in k.lower()}
+
+    return {
+        "expected_vars": {
+            "QB_CLIENT_ID": f"{client_id[:4]}...{client_id[-4:]}" if len(client_id) > 8 else ("SET" if client_id else "NOT SET"),
+            "QB_CLIENT_SECRET": "SET" if client_secret else "NOT SET",
+            "QB_ENVIRONMENT": get_qb_environment(),
+            "QB_REFRESH_TOKEN": "SET" if refresh_token else "NOT SET",
+            "QB_REALM_ID": realm_id if realm_id else "NOT SET",
+        },
+        "actual_env_vars_found": all_qb_vars
+    }
 
 
 # Routes - Auth
@@ -864,7 +975,7 @@ def create_interaction(
         owner_id=current_user.id,
         kind=interaction_data.kind,
         summary=interaction_data.summary,
-        occurred_at=interaction_data.occurred_at or dt.datetime.utcnow()
+        occurred_at=interaction_data.occurred_at or dt.datetime.now(dt.timezone.utc)
     )
     db.add(interaction)
 
@@ -1005,7 +1116,7 @@ def get_stats(
     total_interactions = db.query(Interaction).filter(Interaction.owner_id == current_user.id).count()
 
     # Contacts needing follow-up (next_follow_up_at in past or today)
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     follow_ups_due = db.query(Contact).filter(
         Contact.owner_id == current_user.id,
         Contact.next_follow_up_at <= now
@@ -1028,19 +1139,38 @@ def get_stats(
 
 # Routes - QuickBooks Integration
 @app.get("/quickbooks/connect")
-def quickbooks_connect(current_user: User = Depends(get_current_user)):
+def quickbooks_connect(
+    request: Request,
+    return_url: str = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Initiate QuickBooks OAuth flow."""
-    if not QB_CLIENT_ID or not QB_CLIENT_SECRET:
+    print(f"[QB Connect] Starting OAuth for user_id={current_user.id}")
+    client_id = get_qb_client_id()
+    client_secret = get_qb_client_secret()
+    if not client_id or not client_secret:
         raise HTTPException(status_code=500, detail="QuickBooks not configured. Set QB_CLIENT_ID and QB_CLIENT_SECRET.")
 
+    # Use environment variable for redirect URI (handles proxy/HTTPS correctly)
+    redirect_uri = os.getenv('QB_REDIRECT_URI', str(request.base_url).rstrip('/') + "/quickbooks/callback")
+
+    # Where to redirect after OAuth: explicit param > env var > referer > default
+    frontend_url = return_url or os.getenv('FRONTEND_URL') or str(request.base_url).rstrip('/') + "/static/index.html"
+
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = current_user.id
+
+    # Store state in database (works across multiple workers/restarts)
+    db.query(OAuthState).filter(OAuthState.provider == 'quickbooks', OAuthState.user_id == current_user.id).delete()
+    oauth_state = OAuthState(state=state, user_id=current_user.id, provider='quickbooks', redirect_uri=redirect_uri, frontend_url=frontend_url)
+    db.add(oauth_state)
+    db.commit()
 
     params = {
-        'client_id': QB_CLIENT_ID,
+        'client_id': client_id,
         'response_type': 'code',
         'scope': 'com.intuit.quickbooks.accounting',
-        'redirect_uri': QB_REDIRECT_URI,
+        'redirect_uri': redirect_uri,
         'state': state,
     }
     auth_url = f"{QB_AUTH_URL}?{urlencode(params)}"
@@ -1055,12 +1185,25 @@ def quickbooks_callback(
     db: Session = Depends(get_db)
 ):
     """Handle QuickBooks OAuth callback."""
-    user_id = _oauth_states.pop(state, None)
-    if not user_id:
+    print(f"[QB Callback] Received state={state[:20]}..., realmId={realmId}")
+
+    # Retrieve state from database
+    oauth_state = db.query(OAuthState).filter(OAuthState.state == state, OAuthState.provider == 'quickbooks').first()
+    if not oauth_state:
+        print(f"[QB Callback] ERROR: State not found in database")
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
 
+    user_id = oauth_state.user_id
+    redirect_uri = oauth_state.redirect_uri
+    frontend_url = oauth_state.frontend_url or "/static/index.html"
+    print(f"[QB Callback] Found state for user_id={user_id}, frontend_url={frontend_url}")
+
+    # Delete used state
+    db.delete(oauth_state)
+    db.commit()
+
     # Exchange code for tokens
-    auth = (QB_CLIENT_ID, QB_CLIENT_SECRET)
+    auth = (get_qb_client_id(), get_qb_client_secret())
     resp = requests.post(
         QB_TOKEN_URL,
         auth=auth,
@@ -1068,7 +1211,7 @@ def quickbooks_callback(
         data={
             'grant_type': 'authorization_code',
             'code': code,
-            'redirect_uri': QB_REDIRECT_URI,
+            'redirect_uri': redirect_uri,
         },
         timeout=30
     )
@@ -1077,38 +1220,70 @@ def quickbooks_callback(
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
 
     tokens = resp.json()
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
-    # Save or update tokens
-    qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
-    if qb_token:
-        qb_token.realm_id = realmId
-        qb_token.access_token = tokens['access_token']
-        qb_token.refresh_token = tokens['refresh_token']
-        qb_token.access_token_expires_at = now + dt.timedelta(seconds=tokens['expires_in'])
-        qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in'])
-    else:
-        qb_token = QuickBooksToken(
-            user_id=user_id,
-            realm_id=realmId,
-            access_token=tokens['access_token'],
-            refresh_token=tokens['refresh_token'],
-            access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
-            refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
-        )
-        db.add(qb_token)
+    # Save or update tokens with explicit error handling
+    try:
+        qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+        if qb_token:
+            print(f"[QB Callback] Updating existing token for user_id={user_id}")
+            qb_token.realm_id = realmId
+            qb_token.access_token = tokens['access_token']
+            qb_token.refresh_token = tokens['refresh_token']
+            qb_token.access_token_expires_at = now + dt.timedelta(seconds=tokens['expires_in'])
+            qb_token.refresh_token_expires_at = now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in'])
+        else:
+            print(f"[QB Callback] Creating new token for user_id={user_id}")
+            qb_token = QuickBooksToken(
+                user_id=user_id,
+                realm_id=realmId,
+                access_token=tokens['access_token'],
+                refresh_token=tokens['refresh_token'],
+                access_token_expires_at=now + dt.timedelta(seconds=tokens['expires_in']),
+                refresh_token_expires_at=now + dt.timedelta(seconds=tokens['x_refresh_token_expires_in']),
+            )
+            db.add(qb_token)
 
-    db.commit()
-    return RedirectResponse(url="/?quickbooks=connected")
+        db.flush()  # Force write to DB before commit
+        db.commit()
+
+        # Verify the save worked
+        verify = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+        if verify:
+            print(f"[QB Callback] SUCCESS: Verified token saved for user_id={user_id}, realm_id={verify.realm_id}")
+        else:
+            print(f"[QB Callback] ERROR: Token verification failed - not found after commit!")
+    except Exception as e:
+        print(f"[QB Callback] ERROR saving token: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save QuickBooks token: {str(e)}")
+
+    # Redirect back to frontend (preserves user's login session)
+    # Ensure frontend_url is absolute
+    if not frontend_url.startswith('http'):
+        base = os.getenv('FRONTEND_URL', '').rsplit('/', 1)[0]  # Get base URL
+        if base:
+            frontend_url = f"{base}/{frontend_url.lstrip('/')}"
+        else:
+            frontend_url = f"/static/index.html"
+
+    sep = '&' if '?' in frontend_url else '?'
+    return RedirectResponse(url=f"{frontend_url}{sep}quickbooks=connected", status_code=302)
 
 
 def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:
-    """Get valid QuickBooks access token, refreshing if needed."""
+    """Get valid QuickBooks access token, refreshing if needed.
+
+    For single-tenant CRM: tries user's token first, then falls back to any org token.
+    """
+    # Try user's token first, then any available token (org-wide sharing)
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == user_id).first()
+    if not qb_token:
+        qb_token = db.query(QuickBooksToken).first()  # Fallback to any org token
     if not qb_token:
         raise HTTPException(status_code=400, detail="QuickBooks not connected. Visit /quickbooks/connect first.")
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Check if refresh token expired
     if qb_token.refresh_token_expires_at < now:
@@ -1120,7 +1295,7 @@ def get_qb_access_token(user_id: int, db: Session) -> tuple[str, str]:
     if qb_token.access_token_expires_at < now:
         resp = requests.post(
             QB_TOKEN_URL,
-            auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+            auth=(get_qb_client_id(), get_qb_client_secret()),
             headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
             data={'grant_type': 'refresh_token', 'refresh_token': qb_token.refresh_token},
             timeout=30
@@ -1143,17 +1318,36 @@ def quickbooks_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Check QuickBooks connection status."""
+    """Check QuickBooks connection status (org-wide for single-tenant CRM)."""
+    # For single-tenant CRM: check user's token first, then any org token
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
     if not qb_token:
-        return {"connected": False}
+        qb_token = db.query(QuickBooksToken).first()  # Fallback to any org token
 
-    now = dt.datetime.utcnow()
+    if not qb_token:
+        print(f"[QB Status] No tokens in database for org")
+        return {"connected": False}
+    print(f"[QB Status] Found org token, realm_id={qb_token.realm_id}")
+
+    now = dt.datetime.now(dt.timezone.utc)
     return {
         "connected": True,
         "realm_id": qb_token.realm_id,
         "access_token_valid": qb_token.access_token_expires_at > now,
         "refresh_token_valid": qb_token.refresh_token_expires_at > now,
+    }
+
+
+@app.get("/quickbooks/debug")
+def quickbooks_debug(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Debug: Show all QB tokens in database."""
+    all_tokens = db.query(QuickBooksToken).all()
+    return {
+        "current_user_id": current_user.id,
+        "all_tokens": [{"user_id": t.user_id, "realm_id": t.realm_id, "created": str(t.access_token_expires_at)} for t in all_tokens]
     }
 
 
@@ -1179,7 +1373,7 @@ def list_quickbooks_customers(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -1234,7 +1428,7 @@ def sync_contact_to_quickbooks(
         }
 
     resp = requests.post(
-        f"{QB_API_BASE}/v3/company/{realm_id}/customer",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/customer",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -1259,7 +1453,7 @@ def import_quickbooks_customers(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -1323,7 +1517,7 @@ def init_quickbooks_tokens(
     current_user: User = Depends(get_current_user)
 ):
     """Initialize QuickBooks connection with existing tokens."""
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     qb_token = db.query(QuickBooksToken).filter(QuickBooksToken.user_id == current_user.id).first()
     if qb_token:
@@ -1363,11 +1557,11 @@ def _background_sync_worker():
             for qb_token in tokens:
                 try:
                     # Refresh token if needed
-                    now = dt.datetime.utcnow()
+                    now = dt.datetime.now(dt.timezone.utc)
                     if qb_token.access_token_expires_at < now:
                         resp = requests.post(
                             QB_TOKEN_URL,
-                            auth=(QB_CLIENT_ID, QB_CLIENT_SECRET),
+                            auth=(get_qb_client_id(), get_qb_client_secret()),
                             headers={'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
                             data={'grant_type': 'refresh_token', 'refresh_token': qb_token.refresh_token},
                             timeout=30
@@ -1420,13 +1614,18 @@ def get_sync_status(current_user: User = Depends(get_current_user)):
 
 # Routes - Google Drive Integration
 @app.get("/google/connect")
-def google_connect(current_user: User = Depends(get_current_user)):
+def google_connect(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Initiate Google OAuth flow for Drive access."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Google not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
 
     state = secrets.token_urlsafe(32)
-    _google_oauth_states[state] = current_user.id
+
+    # Store state in database (works across multiple workers/restarts)
+    db.query(OAuthState).filter(OAuthState.provider == 'google', OAuthState.user_id == current_user.id).delete()
+    oauth_state = OAuthState(state=state, user_id=current_user.id, provider='google', redirect_uri=GOOGLE_REDIRECT_URI)
+    db.add(oauth_state)
+    db.commit()
 
     params = {
         'client_id': GOOGLE_CLIENT_ID,
@@ -1448,9 +1647,15 @@ def google_callback(
     db: Session = Depends(get_db)
 ):
     """Handle Google OAuth callback."""
-    user_id = _google_oauth_states.pop(state, None)
-    if not user_id:
+    oauth_state = db.query(OAuthState).filter(OAuthState.state == state, OAuthState.provider == 'google').first()
+    if not oauth_state:
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
+
+    user_id = oauth_state.user_id
+
+    # Delete used state
+    db.delete(oauth_state)
+    db.commit()
 
     # Exchange code for tokens
     resp = requests.post(
@@ -1469,7 +1674,7 @@ def google_callback(
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
 
     tokens = resp.json()
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Save or update tokens
     g_token = db.query(GoogleDriveToken).filter(GoogleDriveToken.user_id == user_id).first()
@@ -1496,7 +1701,7 @@ def get_google_access_token(user_id: int, db: Session) -> str:
     if not g_token:
         raise HTTPException(status_code=400, detail="Google Drive not connected. Visit /google/connect first.")
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Refresh access token if expired
     if g_token.access_token_expires_at < now:
@@ -1536,7 +1741,7 @@ def google_status(
     if not g_token:
         return {"connected": False}
 
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
     return {
         "connected": True,
         "access_token_valid": g_token.access_token_expires_at > now,
@@ -2040,12 +2245,12 @@ def list_quickbooks_items(
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
         },
-        params={'query': 'SELECT * FROM Item WHERE Type = \'Inventory\' MAXRESULTS 500'},
+        params={'query': 'SELECT * FROM Item MAXRESULTS 500'},
         timeout=30
     )
 
@@ -2062,16 +2267,16 @@ def import_quickbooks_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Import QuickBooks inventory items."""
+    """Import QuickBooks items (all types)."""
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
-        f"{QB_API_BASE}/v3/company/{realm_id}/query",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
         },
-        params={'query': 'SELECT * FROM Item WHERE Type = \'Inventory\' MAXRESULTS 500'},
+        params={'query': 'SELECT * FROM Item MAXRESULTS 500'},
         timeout=30
     )
 
@@ -2085,8 +2290,8 @@ def import_quickbooks_items(
     updated = 0
     for qb_item in qb_items:
         qb_id = qb_item.get('Id')
-        sku = qb_item.get('Sku') or qb_item.get('Name', f'QB-{qb_id}')
-        name = qb_item.get('Name', 'Unknown')
+        sku = (qb_item.get('Sku') or qb_item.get('Name', f'QB-{qb_id}'))[:100]
+        name = qb_item.get('Name', 'Unknown')[:255]
 
         # Check if already imported
         existing = db.query(InventoryItem).filter(
@@ -2094,10 +2299,12 @@ def import_quickbooks_items(
             InventoryItem.qb_item_id == qb_id
         ).first()
 
+        qty = qb_item.get('QtyOnHand') or 0
+
         if existing:
             # Update existing
             existing.name = name
-            existing.quantity = int(qb_item.get('QtyOnHand', 0))
+            existing.quantity = int(qty)
             existing.cost = qb_item.get('PurchaseCost')
             existing.price = qb_item.get('UnitPrice')
             updated += 1
@@ -2115,7 +2322,7 @@ def import_quickbooks_items(
                 sku=sku,
                 name=name,
                 description=qb_item.get('Description'),
-                quantity=int(qb_item.get('QtyOnHand', 0)),
+                quantity=int(qty),
                 cost=qb_item.get('PurchaseCost'),
                 price=qb_item.get('UnitPrice'),
                 qb_item_id=qb_id,
@@ -2157,7 +2364,7 @@ def sync_inventory_to_quickbooks(
         qb_item_data["UnitPrice"] = item.price
 
     resp = requests.post(
-        f"{QB_API_BASE}/v3/company/{realm_id}/item",
+        f"{get_qb_api_base()}/v3/company/{realm_id}/item",
         headers={
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
@@ -2175,6 +2382,114 @@ def sync_inventory_to_quickbooks(
     db.commit()
 
     return {"ok": True, "qb_item_id": item.qb_item_id}
+
+
+# =============================================================================
+# FIREBASE INVENTORY SYNC
+# =============================================================================
+
+FIREBASE_API_KEY = "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E"
+FIREBASE_PROJECT_ID = "inventory-setup-b3f20"
+
+
+@app.post("/firebase/sync-inventory")
+def sync_firebase_inventory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sync inventory from Firebase Oxley Tire app."""
+    # Authenticate with Firebase
+    auth_resp = requests.post(
+        f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}",
+        json={
+            "email": "moxley@oxleytireinc.com",
+            "password": "Silver28!!",
+            "returnSecureToken": True
+        },
+        timeout=30
+    )
+    if auth_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Firebase auth failed: {auth_resp.text}")
+
+    id_token = auth_resp.json().get("idToken")
+
+    # Fetch items from Firestore (collection is "items")
+    firestore_resp = requests.get(
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/items",
+        headers={"Authorization": f"Bearer {id_token}"},
+        timeout=30
+    )
+    if firestore_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Firestore fetch failed: {firestore_resp.text}")
+
+    docs = firestore_resp.json().get("documents", [])
+    imported = 0
+    updated = 0
+
+    for doc in docs:
+        fields = doc.get("fields", {})
+        firebase_id = doc.get("name", "").split("/")[-1]
+
+        # Extract fields (Firestore uses typed values)
+        def get_val(f, default=None):
+            if f not in fields:
+                return default
+            v = fields[f]
+            if "stringValue" in v:
+                return v["stringValue"]
+            if "integerValue" in v:
+                return int(v["integerValue"])
+            if "doubleValue" in v:
+                return float(v["doubleValue"])
+            if "booleanValue" in v:
+                return v["booleanValue"]
+            return default
+
+        sku = get_val("sku") or firebase_id
+        brand = get_val("brand") or ""
+        model = get_val("model") or ""
+        size = get_val("size") or ""
+        position = get_val("position") or ""
+        condition = get_val("condition") or ""
+        # Build name from tire attributes
+        name = f"{brand} {model} {size} {position} {condition}".strip() or sku
+        cost = get_val("unitCost") or get_val("landedCost")
+        price = get_val("landedCost")  # landed cost as sell price
+
+        # Check if exists by SKU
+        existing = db.query(InventoryItem).filter(
+            InventoryItem.owner_id == current_user.id,
+            InventoryItem.sku == sku[:100]
+        ).first()
+
+        if existing:
+            existing.name = name[:255]
+            if cost:
+                existing.cost = float(cost)
+            if price:
+                existing.price = float(price)
+            existing.brand = brand or existing.brand
+            existing.size = size or existing.size
+            existing.category = "tire"
+            updated += 1
+        else:
+            item = InventoryItem(
+                owner_id=current_user.id,
+                sku=sku[:100],
+                name=name[:255],
+                description=f"{position} - {condition}",
+                category="tire",
+                brand=brand,
+                size=size,
+                quantity=0,
+                cost=float(cost) if cost else None,
+                price=float(price) if price else None,
+            )
+            db.add(item)
+            imported += 1
+
+    db.commit()
+    return {"imported": imported, "updated": updated, "total_firebase_docs": len(docs)}
 
 
 # =============================================================================
@@ -2596,7 +2911,7 @@ def submit_order(
         raise HTTPException(status_code=400, detail="Only draft orders can be submitted")
 
     order.status = 'submitted'
-    order.submitted_at = dt.datetime.utcnow()
+    order.submitted_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
 
     return {"ok": True, "order_number": order.order_number, "status": order.status}
@@ -2645,7 +2960,7 @@ def receive_order(
         order_item.received_qty = order_item.quantity
 
     order.status = 'received'
-    order.received_at = dt.datetime.utcnow()
+    order.received_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
 
     return {"ok": True, "order_number": order.order_number, "status": order.status}

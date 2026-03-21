@@ -3501,10 +3501,10 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
             )
             page = context.new_page()
 
-            base_url = "https://dealer.hesselbeintire.com"
+            base_url = "https://b2b.dktire.com"
 
             # Navigate to login page
-            page.goto(f"{base_url}/login", timeout=30000)
+            page.goto(f"{base_url}/auth-signin", timeout=30000)
             page.wait_for_load_state("networkidle")
 
             # Fill login form - try common field selectors
@@ -3533,7 +3533,7 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 page.wait_for_load_state("networkidle")
 
                 # Check if login was successful (not still on login page)
-                if "/login" not in page.url.lower():
+                if "/auth-signin" not in page.url.lower():
                     login_success = True
 
             except PlaywrightTimeout:
@@ -3624,10 +3624,10 @@ def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_
             )
             page = context.new_page()
 
-            base_url = "https://www.tirelink.com"
+            base_url = "https://bzowheelandtire.com"
 
             # Navigate to login page
-            page.goto(f"{base_url}/dealer/login", timeout=30000)
+            page.goto(f"{base_url}/login", timeout=30000)
             page.wait_for_load_state("networkidle")
 
             # Fill login form - try common field selectors
@@ -3664,7 +3664,7 @@ def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_
 
             if login_success:
                 # Navigate to orders page
-                page.goto(f"{base_url}/dealer/orders", timeout=30000)
+                page.goto(f"{base_url}/orders", timeout=30000)
                 page.wait_for_load_state("networkidle")
 
                 # Take screenshot if requested

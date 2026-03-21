@@ -26,9 +26,9 @@ services:
       - key: QB_ENVIRONMENT
         value: "production"
       - key: QB_REDIRECT_URI
-        sync: false
+        value: "https://rm-api-kab0.onrender.com/quickbooks/callback"
       - key: FRONTEND_URL
-        sync: false
+        value: "https://rm-api-kab0.onrender.com"
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

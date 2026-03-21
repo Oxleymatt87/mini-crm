@@ -2288,8 +2288,8 @@ def import_quickbooks_items(
     updated = 0
     for qb_item in qb_items:
         qb_id = qb_item.get('Id')
-        sku = qb_item.get('Sku') or qb_item.get('Name', f'QB-{qb_id}')
-        name = qb_item.get('Name', 'Unknown')
+        sku = (qb_item.get('Sku') or qb_item.get('Name', f'QB-{qb_id}'))[:100]
+        name = qb_item.get('Name', 'Unknown')[:255]
 
         # Check if already imported
         existing = db.query(InventoryItem).filter(

@@ -2350,20 +2350,16 @@ def sync_inventory_to_quickbooks(
 
     qb_item_data = {
         "Name": item.name[:100],  # QB limit
-        "Type": "Inventory",
+        "Type": "NonInventory",
         "Sku": item.sku,
-        "Description": item.description,
-        "QtyOnHand": item.quantity,
-        "TrackQtyOnHand": True,
-        "InvStartDate": dt.date.today().isoformat(),
+        "Description": item.description or "",
+        "IncomeAccountRef": {"value": "7", "name": "Sales"},
+        "ExpenseAccountRef": {"value": "9", "name": "Cost of Goods Sold"},
     }
     if item.cost:
         qb_item_data["PurchaseCost"] = item.cost
     if item.price:
         qb_item_data["UnitPrice"] = item.price
-
-    # Need income and expense accounts for inventory items
-    # This is a simplified version - real implementation needs account refs
     resp = requests.post(
         f"{get_qb_api_base()}/v3/company/{realm_id}/item",
         headers={
@@ -2383,6 +2379,111 @@ def sync_inventory_to_quickbooks(
     db.commit()
 
     return {"ok": True, "qb_item_id": item.qb_item_id}
+
+
+# =============================================================================
+# FIREBASE INVENTORY SYNC
+# =============================================================================
+
+FIREBASE_API_KEY = "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E"
+FIREBASE_PROJECT_ID = "inventory-setup-b3f20"
+
+
+@app.post("/firebase/sync-inventory")
+def sync_firebase_inventory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sync inventory from Firebase Oxley Tire app."""
+    # Authenticate with Firebase
+    auth_resp = requests.post(
+        f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}",
+        json={
+            "email": "moxley@oxleytireinc.com",
+            "password": "Silver28!!",
+            "returnSecureToken": True
+        },
+        timeout=30
+    )
+    if auth_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Firebase auth failed: {auth_resp.text}")
+
+    id_token = auth_resp.json().get("idToken")
+
+    # Fetch inventory from Firestore
+    firestore_resp = requests.get(
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/inventory",
+        headers={"Authorization": f"Bearer {id_token}"},
+        timeout=30
+    )
+    if firestore_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Firestore fetch failed: {firestore_resp.text}")
+
+    docs = firestore_resp.json().get("documents", [])
+    imported = 0
+    updated = 0
+
+    for doc in docs:
+        fields = doc.get("fields", {})
+        firebase_id = doc.get("name", "").split("/")[-1]
+
+        # Extract fields (Firestore uses typed values)
+        def get_val(f, default=None):
+            if f not in fields:
+                return default
+            v = fields[f]
+            if "stringValue" in v:
+                return v["stringValue"]
+            if "integerValue" in v:
+                return int(v["integerValue"])
+            if "doubleValue" in v:
+                return float(v["doubleValue"])
+            if "booleanValue" in v:
+                return v["booleanValue"]
+            return default
+
+        sku = get_val("sku") or get_val("partNumber") or firebase_id
+        name = get_val("name") or get_val("description") or sku
+        qty = get_val("quantity", 0) or get_val("qtyOnHand", 0)
+        cost = get_val("cost") or get_val("unitCost")
+        price = get_val("price") or get_val("sellPrice")
+
+        # Check if exists by SKU
+        existing = db.query(InventoryItem).filter(
+            InventoryItem.owner_id == current_user.id,
+            InventoryItem.sku == sku[:100]
+        ).first()
+
+        if existing:
+            existing.name = name[:255]
+            existing.quantity = int(qty) if qty else existing.quantity
+            if cost:
+                existing.cost = float(cost)
+            if price:
+                existing.price = float(price)
+            existing.category = get_val("category") or get_val("type") or existing.category
+            existing.brand = get_val("brand") or existing.brand
+            existing.size = get_val("size") or existing.size
+            updated += 1
+        else:
+            item = InventoryItem(
+                owner_id=current_user.id,
+                sku=sku[:100],
+                name=name[:255],
+                description=get_val("description"),
+                category=get_val("category") or get_val("type"),
+                brand=get_val("brand"),
+                size=get_val("size"),
+                quantity=int(qty) if qty else 0,
+                cost=float(cost) if cost else None,
+                price=float(price) if price else None,
+                location=get_val("location") or get_val("zone"),
+            )
+            db.add(item)
+            imported += 1
+
+    db.commit()
+    return {"imported": imported, "updated": updated, "total_firebase_docs": len(docs)}
 
 
 # =============================================================================

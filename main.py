@@ -2673,14 +2673,11 @@ def delete_order(
     return {"ok": True}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
 
-# === ADDED: Version + Bulk QBO Sync ===
+# === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-21-v4"}
+    return {"version": "2026-03-21-v5"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -2722,3 +2719,9 @@ def bulk_qb_sync(
             results.append({"name": item.name, "ok": False, "error": str(e)[:200]})
     ok_count = sum(1 for r in results if r["ok"])
     return {"total": len(results), "synced": ok_count, "failed": len(results) - ok_count, "details": results}
+
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

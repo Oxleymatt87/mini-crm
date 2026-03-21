@@ -591,6 +591,55 @@ class PurchaseOrderOut(BaseModel):
 
 # App setup
 app = FastAPI(title="Mini CRM Backend", version="1.0")
+
+APP_VERSION = "2026-03-21-v3"
+
+@app.get("/version")
+def get_version():
+    return {"version": APP_VERSION}
+
+@app.post("/inventory/bulk-qb-sync")
+def bulk_qb_sync(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+    items = db.query(InventoryItem).filter(
+        InventoryItem.owner_id == current_user.id,
+        InventoryItem.is_active == True,
+        InventoryItem.qb_item_id == None
+    ).all()
+    results = []
+    for item in items:
+        qb_data = {
+            "Name": item.name[:100],
+            "Type": "NonInventory",
+            "Sku": item.sku or "",
+            "Description": (item.description or item.name)[:4000],
+            "IncomeAccountRef": {"value": "7", "name": "Sales"},
+            "ExpenseAccountRef": {"value": "9", "name": "Cost of Goods Sold"},
+        }
+        if item.cost: qb_data["PurchaseCost"] = item.cost
+        if item.price: qb_data["UnitPrice"] = item.price
+        try:
+            resp = requests.post(
+                f"{QB_API_BASE}/v3/company/{realm_id}/item",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json", "Content-Type": "application/json"},
+                json=qb_data, timeout=30
+            )
+            if resp.status_code in (200, 201):
+                qb_result = resp.json().get("Item", {})
+                item.qb_item_id = qb_result.get("Id")
+                db.commit()
+                results.append({"name": item.name, "ok": True, "qb_id": item.qb_item_id})
+            else:
+                results.append({"name": item.name, "ok": False, "error": resp.text[:200]})
+        except Exception as e:
+            results.append({"name": item.name, "ok": False, "error": str(e)[:200]})
+    ok_count = sum(1 for r in results if r["ok"])
+    return {"total": len(results), "synced": ok_count, "failed": len(results) - ok_count, "details": results}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -2173,61 +2222,6 @@ def sync_inventory_to_quickbooks(
     db.commit()
 
     return {"ok": True, "qb_item_id": item.qb_item_id}
-
-
-
-
-@app.post("/inventory/bulk-sync-qb")
-def bulk_sync_inventory_to_qb(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Bulk sync all inventory items to QuickBooks as NonInventory."""
-    access_token, realm_id = get_qb_access_token(current_user.id, db)
-    items = db.query(InventoryItem).filter(
-        InventoryItem.owner_id == current_user.id,
-        InventoryItem.is_active == True,
-        InventoryItem.qb_item_id == None
-    ).all()
-
-    results = []
-    for item in items:
-        qb_data = {
-            "Name": item.name[:100],
-            "Type": "NonInventory",
-            "Sku": item.sku or "",
-            "Description": (item.description or item.name)[:4000],
-            "IncomeAccountRef": {"value": "7", "name": "Sales"},
-            "ExpenseAccountRef": {"value": "9", "name": "Cost of Goods Sold"},
-        }
-        if item.cost:
-            qb_data["PurchaseCost"] = item.cost
-        if item.price:
-            qb_data["UnitPrice"] = item.price
-
-        try:
-            resp = requests.post(
-                f"{QB_API_BASE}/v3/company/{realm_id}/item",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-                json=qb_data,
-                timeout=30
-            )
-            if resp.status_code in (200, 201):
-                qb_result = resp.json().get("Item", {})
-                item.qb_item_id = qb_result.get("Id")
-                db.commit()
-                results.append({"name": item.name, "ok": True, "qb_id": item.qb_item_id})
-            else:
-                results.append({"name": item.name, "ok": False, "error": resp.text[:200]})
-        except Exception as e:
-            results.append({"name": item.name, "ok": False, "error": str(e)[:200]})
-
-    ok_count = sum(1 for r in results if r["ok"])
-    return {"total": len(results), "synced": ok_count, "failed": len(results) - ok_count, "details": results}
 
 
 # =============================================================================

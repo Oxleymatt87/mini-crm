@@ -1,9 +1,8 @@
 services:
   - type: web
     name: mini-crm-api
-    runtime: python
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: JWT_SECRET
         generateValue: true
@@ -35,8 +34,6 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         value: "https://mini-crm-api-kab0.onrender.com/google/callback"
-      - key: PYTHON_VERSION
-        value: "3.11.0"
     healthCheckPath: /health
     autoDeploy: true
 

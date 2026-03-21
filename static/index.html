@@ -351,6 +351,16 @@
                         <div class="stat-label">Low Stock</div>
                     </div>
                 </div>
+                <div class="card" style="margin-top: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: 600; color: #d4a12a;">Supplier Portals</div>
+                            <div style="font-size: 12px; color: #888; margin-top: 4px;">Scan for new orders</div>
+                        </div>
+                        <button class="btn btn-small" id="check-portals-btn" onclick="checkSupplierPortals()">Check Supplier Portals</button>
+                    </div>
+                    <div id="portal-results" class="hidden" style="margin-top: 16px;"></div>
+                </div>
                 <div id="qb-dashboard-status"></div>
             </div>
 
@@ -1082,6 +1092,82 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        async function checkSupplierPortals() {
+            const btn = document.getElementById('check-portals-btn');
+            const resultsDiv = document.getElementById('portal-results');
+
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            resultsDiv.classList.remove('hidden');
+            resultsDiv.innerHTML = '<div style="color: #888;">Scanning supplier portals for new orders...</div>';
+
+            try {
+                const results = await api('/suppliers/check-portals', { method: 'POST' });
+
+                if (!results || results.length === 0) {
+                    resultsDiv.innerHTML = '<div style="color: #888;">No suppliers with portal credentials configured.</div>';
+                    return;
+                }
+
+                let html = '';
+                let totalNew = 0;
+                let totalFound = 0;
+
+                for (const result of results) {
+                    totalFound += result.orders_found;
+                    totalNew += result.new_orders.length;
+
+                    const statusColor = result.errors.length > 0 ? '#ff6b6b' : (result.new_orders.length > 0 ? '#4ade80' : '#888');
+
+                    html += `<div style="padding: 12px; background: #222; border-radius: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: 600; color: #d4a12a;">${escapeHtml(result.supplier_name)}</span>
+                            <span style="font-size: 12px; color: ${statusColor};">
+                                ${result.orders_found} orders found
+                            </span>
+                        </div>`;
+
+                    if (result.new_orders.length > 0) {
+                        html += `<div style="margin-top: 8px; font-size: 13px; color: #4ade80;">
+                            <strong>New orders auto-received:</strong>
+                            <ul style="margin: 4px 0 0 16px;">`;
+                        for (const order of result.new_orders) {
+                            html += `<li>${escapeHtml(order.order_number)} (${order.items_count} items)</li>`;
+                        }
+                        html += '</ul></div>';
+                    }
+
+                    if (result.already_received.length > 0) {
+                        html += `<div style="margin-top: 8px; font-size: 12px; color: #888;">
+                            Already received: ${result.already_received.join(', ')}
+                        </div>`;
+                    }
+
+                    if (result.errors.length > 0) {
+                        html += `<div style="margin-top: 8px; font-size: 12px; color: #ff6b6b;">
+                            Errors: ${result.errors.join('; ')}
+                        </div>`;
+                    }
+
+                    html += '</div>';
+                }
+
+                // Summary header
+                const summaryHtml = `<div style="margin-bottom: 12px; padding: 12px; background: #1a2a1a; border: 1px solid #2d4a2d; border-radius: 8px;">
+                    <strong style="color: #4ade80;">${totalNew} new orders auto-received</strong>
+                    <span style="color: #888;"> from ${totalFound} total orders found</span>
+                </div>`;
+
+                resultsDiv.innerHTML = summaryHtml + html;
+
+            } catch (e) {
+                resultsDiv.innerHTML = `<div style="color: #ff6b6b;">Error: ${escapeHtml(e.message)}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Check Supplier Portals';
+            }
         }
 
         // Check if returning from QB OAuth

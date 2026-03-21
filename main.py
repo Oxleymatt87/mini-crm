@@ -475,6 +475,7 @@ class InventoryItemUpdate(BaseModel):
     price: Optional[float] = None
     location: Optional[str] = None
     is_active: Optional[bool] = None
+    qb_item_id: Optional[str] = None
 
 
 class InventoryItemOut(BaseModel):
@@ -2992,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-21-v5"}
+    return {"version": "2026-03-21-v6"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(

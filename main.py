@@ -2248,7 +2248,7 @@ def list_quickbooks_items(
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
         },
-        params={'query': 'SELECT * FROM Item WHERE Type = \'Inventory\' MAXRESULTS 500'},
+        params={'query': 'SELECT * FROM Item MAXRESULTS 500'},
         timeout=30
     )
 
@@ -2265,7 +2265,7 @@ def import_quickbooks_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Import QuickBooks inventory items."""
+    """Import QuickBooks items (all types)."""
     access_token, realm_id = get_qb_access_token(current_user.id, db)
 
     resp = requests.get(
@@ -2274,7 +2274,7 @@ def import_quickbooks_items(
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json',
         },
-        params={'query': 'SELECT * FROM Item WHERE Type = \'Inventory\' MAXRESULTS 500'},
+        params={'query': 'SELECT * FROM Item MAXRESULTS 500'},
         timeout=30
     )
 

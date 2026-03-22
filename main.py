@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v12"}
+    return {"version": "2026-03-22-v13"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3619,18 +3619,15 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
             if user_resp.status_code == 200:
                 user_data = user_resp.json()
                 if isinstance(user_data, dict):
-                    ship_from = user_data.get("ship_from", user_data.get("default_ship_from", user_data.get("location", "")))
-                    if not ship_from:
-                        locations = user_data.get("locations", user_data.get("ship_from_list", []))
-                        if isinstance(locations, list) and locations:
-                            ship_from = locations[0] if isinstance(locations[0], str) else locations[0].get("id", locations[0].get("code", ""))
-                errors.append(f"User details: {str(user_data)[:2000]}")
+                    # Extract ship_to UUID from user details
+                    ship_to_list = user_data.get("ship_to", [])
+                    if isinstance(ship_to_list, list) and ship_to_list:
+                        first = ship_to_list[0]
+                        ship_from = first.get("value", "") if isinstance(first, dict) else str(first)
 
             # Get invoice list with required params
             inv_params = {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"}
-            errors.append(f"Invoice params: {inv_params}")
             inv_resp = requests.get(f"{api_base}/order/get-invoice-list", headers=api_headers, params=inv_params, timeout=30)
-            errors.append(f"Invoice response: {inv_resp.status_code} {inv_resp.text[:500]}")
             if inv_resp.status_code == 200:
                 invoice_data = inv_resp.json()
                 inv_list = invoice_data if isinstance(invoice_data, list) else invoice_data.get("data", invoice_data.get("invoices", []))

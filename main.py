@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v7"}
+    return {"version": "2026-03-22-v8"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3724,7 +3724,9 @@ def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_
                     "total": total,
                     "status": "completed",
                     "supplier": "BZO Wheels/TireLink",
-                    "line_items": line_items
+                    "line_items": line_items,
+                    "debug_detail_status": getattr(details_resp, 'status_code', 'no_response') if 'details_resp' in dir() else 'not_fetched',
+                    "debug_items_found": len(line_items)
                 })
 
     except Exception as e:
@@ -3949,6 +3951,8 @@ def check_supplier_portals(
                 })
             elif line_items:
                 result.errors.append(f"Failed to create movements for #{order_number} ({len(line_items)} items parsed)")
+            else:
+                result.errors.append(f"No line items parsed for #{order_number} (detail_status={order.get('debug_detail_status','?')}, raw_items={order.get('debug_items_found',0)})")
 
         results.append(result)
 

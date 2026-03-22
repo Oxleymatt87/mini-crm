@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v13"}
+    return {"version": "2026-03-22-v14"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3625,9 +3625,31 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                         first = ship_to_list[0]
                         ship_from = first.get("value", "") if isinstance(first, dict) else str(first)
 
-            # Get invoice list with required params
-            inv_params = {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"}
-            inv_resp = requests.get(f"{api_base}/order/get-invoice-list", headers=api_headers, params=inv_params, timeout=30)
+            # Try multiple param combos for invoice list
+            param_combos = [
+                {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+                {"ship_from": ship_from, "fromDate": "2025-01-01", "toDate": "2026-12-31"},
+                {"shipFrom": ship_from, "fromDate": "2025-01-01", "toDate": "2026-12-31"},
+                {"ship_to": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+            ]
+            inv_resp = None
+            for combo in param_combos:
+                # Try as query string in URL (like the JS does)
+                qs = "&".join(f"{k}={v}" for k,v in combo.items())
+                test_resp = requests.get(f"{api_base}/order/get-invoice-list?{qs}", headers=api_headers, timeout=30)
+                errors.append(f"Tried {combo}: {test_resp.status_code} {test_resp.text[:200]}")
+                if test_resp.status_code == 200:
+                    inv_resp = test_resp
+                    break
+            if not inv_resp:
+                # Try open orders instead
+                for combo in param_combos:
+                    qs = "&".join(f"{k}={v}" for k,v in combo.items())
+                    test_resp = requests.get(f"{api_base}/order/get-open-orders-list?{qs}", headers=api_headers, timeout=30)
+                    errors.append(f"Open orders {combo}: {test_resp.status_code} {test_resp.text[:200]}")
+                    if test_resp.status_code == 200:
+                        inv_resp = test_resp
+                        break
             if inv_resp.status_code == 200:
                 invoice_data = inv_resp.json()
                 inv_list = invoice_data if isinstance(invoice_data, list) else invoice_data.get("data", invoice_data.get("invoices", []))

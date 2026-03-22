@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v17"}
+    return {"version": "2026-03-22-v18"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3580,7 +3580,51 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
             except PlaywrightTimeout:
                 errors.append("Hesselbein login form timeout")
 
-            # Extract auth token from localStorage
+            # If logged in, navigate to invoice and order pages in THIS session
+            if login_success:
+                import time as _time2
+                
+                # Capture API responses
+                api_responses = []
+                def handle_response(response):
+                    if "api-b2b.dktire.com" in response.url and response.status == 200:
+                        try:
+                            body = response.text()
+                            api_responses.append({"url": response.url, "status": response.status, "body": body})
+                        except:
+                            pass
+                page.on("response", handle_response)
+                
+                # Navigate to invoice page
+                try:
+                    page.goto("https://b2b.dktire.com/shop/invoice", timeout=60000)
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    _time2.sleep(5)
+                    page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
+                    inv_text = page.evaluate("() => document.body.innerText")
+                    errors.append(f"Invoice page URL: {page.url}")
+                    errors.append(f"Invoice text: {inv_text[:800]}")
+                except Exception as nav_e:
+                    errors.append(f"Invoice nav error: {str(nav_e)}")
+                
+                # Navigate to order history
+                try:
+                    page.goto("https://b2b.dktire.com/shop/orderhistory", timeout=60000)
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    _time2.sleep(5)
+                    page.screenshot(path="/app/static/screenshots/hesselbein_orders.png", full_page=True)
+                    hist_text = page.evaluate("() => document.body.innerText")
+                    errors.append(f"History page URL: {page.url}")
+                    errors.append(f"History text: {hist_text[:800]}")
+                except Exception as nav_e:
+                    errors.append(f"History nav error: {str(nav_e)}")
+                
+                # Log API responses captured
+                for ar in api_responses:
+                    if "invoice" in ar["url"].lower() or "order" in ar["url"].lower():
+                        errors.append(f"API: {ar['url'][:100]} -> {ar['body'][:500]}")
+
+            # Extract token for future use
             access_token = None
             token_type = None
             if login_success:
@@ -3594,18 +3638,13 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 except Exception as e:
                     errors.append(f"Token extraction error: {str(e)}")
 
-            try:
-                page.screenshot(path="/app/static/screenshots/hesselbein_login.png", full_page=True)
-            except:
-                pass
-
             browser.close()
 
     except Exception as e:
         errors.append(f"Playwright error: {str(e)}")
 
-    # Use Playwright to navigate to invoice pages and capture API responses
-    if access_token:
+    # Token extracted for potential future API use
+    if False and access_token:
         try:
             # Re-launch browser with the token, navigate to invoice page
             with sync_playwright() as p2:

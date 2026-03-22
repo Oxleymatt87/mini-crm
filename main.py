@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v20"}
+    return {"version": "2026-03-22-v21"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3595,55 +3595,56 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                             pass
                 page.on("response", handle_response)
                 
-                # Click hamburger menu to find navigation
+                # Use JS to navigate within React SPA
                 try:
-                    # Click hamburger menu icon
-                    for sel in ['button.hamburger', '.navbar-toggler', '[class*="hamburger"]', 'button[aria-label*="menu"]', '.menu-toggle', '#menu-toggle', 'svg.feather-menu', 'button:has(svg)', '.header-item']:
-                        try:
-                            loc = page.locator(sel).first
-                            if loc.is_visible(timeout=2000):
-                                loc.click()
-                                _time2.sleep(2)
-                                errors.append(f"Clicked menu: {sel}")
-                                break
-                        except:
-                            continue
+                    # Force React router navigation via window.location.hash or pushState
+                    page.evaluate("() => window.location.hash = '/shop/invoice'")
+                    _time2.sleep(3)
                     
-                    # Screenshot the menu
-                    page.screenshot(path="/app/static/screenshots/hesselbein_menu.png", full_page=True)
+                    # If hash routing didn't work, try history.pushState
+                    if '/shop/invoice' not in page.url:
+                        page.evaluate("() => { window.history.pushState({}, '', '/shop/invoice'); window.dispatchEvent(new PopStateEvent('popstate')); }")
+                        _time2.sleep(5)
                     
-                    # Get all visible links/text
-                    menu_text = page.evaluate("() => document.body.innerText")
-                    errors.append(f"Menu text: {menu_text[:1500]}")
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                    page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
+                    errors.append(f"After JS nav: URL={page.url}")
+                    inv_text = page.evaluate("() => document.body.innerText")
+                    errors.append(f"Invoice text: {inv_text[:800]}")
                     
-                    # Find and list all links
-                    links = page.evaluate("""() => {
-                        return Array.from(document.querySelectorAll('a')).map(a => ({
-                            text: a.innerText.trim(),
-                            href: a.href,
-                            visible: a.offsetParent !== null
-                        })).filter(l => l.visible && l.text)
-                    }""")
-                    for link in links:
-                        if any(w in link.get('text','').lower() for w in ['invoice', 'order', 'history', 'statement', 'shop']):
-                            errors.append(f"Link: {link['text']} -> {link['href']}")
-                    
-                    # Try clicking invoice link directly
-                    for text in ['Invoice', 'Invoices', 'Order History', 'Orders']:
-                        try:
-                            loc = page.locator(f'a:has-text("{text}")').first
-                            if loc.is_visible(timeout=2000):
-                                loc.click()
-                                _time2.sleep(5)
-                                page.wait_for_load_state("networkidle", timeout=15000)
-                                page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
-                                inv_text = page.evaluate("() => document.body.innerText")
-                                errors.append(f"After clicking {text}: URL={page.url}")
-                                errors.append(f"Invoice text: {inv_text[:800]}")
-                                break
-                        except:
-                            continue
-                            
+                    # If still on dashboard, try clicking the hamburger properly
+                    if 'dashboard' in page.url:
+                        # Click the ≡ icon
+                        page.click('div.navbar-header button, .vertical-menu-btn, [data-bs-toggle="collapse"]', timeout=5000)
+                        _time2.sleep(2)
+                        page.screenshot(path="/app/static/screenshots/hesselbein_sidebar.png", full_page=True)
+                        
+                        # List ALL links including hidden sidebar
+                        all_links = page.evaluate("""() => {
+                            return Array.from(document.querySelectorAll('a')).map(a => ({
+                                text: a.innerText.trim().substring(0, 50),
+                                href: a.getAttribute('href') || '',
+                                classes: a.className.substring(0, 50)
+                            })).filter(l => l.href && l.href.startsWith('/'))
+                        }""")
+                        errors.append(f"All internal links: {str(all_links)[:1000]}")
+                        
+                        # Click any invoice/order link
+                        for link in all_links:
+                            if any(w in link.get('text','').lower() or w in link.get('href','').lower() for w in ['invoice', 'order', 'history']):
+                                errors.append(f"Found nav link: {link}")
+                                try:
+                                    page.click(f"a[href='{link['href']}']")
+                                    _time2.sleep(5)
+                                    page.wait_for_load_state("networkidle", timeout=15000)
+                                    page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
+                                    inv_text = page.evaluate("() => document.body.innerText")
+                                    errors.append(f"After nav click: URL={page.url}")
+                                    errors.append(f"Page text: {inv_text[:800]}")
+                                    break
+                                except:
+                                    continue
+
                 except Exception as nav_e:
                     errors.append(f"Navigation error: {str(nav_e)}")
                 

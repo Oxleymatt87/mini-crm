@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-21-v6"}
+    return {"version": "2026-03-22-v7"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3695,29 +3695,23 @@ def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_
                     )
 
                     if details_resp.status_code == 200:
-                        details_soup = BeautifulSoup(details_resp.text, 'lxml')
-
-                        # Parse line items: SKU, size, description (brand+model), qty, unit price, FET blank, FET, total
-                        for item_row in details_soup.find_all('tr'):
-                            item_cells = item_row.find_all('td')
-                            if len(item_cells) >= 8:
-                                sku = item_cells[0].get_text(strip=True)
-                                size = item_cells[1].get_text(strip=True)
-                                description = item_cells[2].get_text(strip=True)
-                                item_qty = item_cells[3].get_text(strip=True)
-                                unit_price = item_cells[4].get_text(strip=True)
-                                fet = item_cells[6].get_text(strip=True)
-                                item_total = item_cells[7].get_text(strip=True)
-
-                                if sku:  # Skip header rows
+                        # Use regex to parse line items - more reliable than BeautifulSoup for this HTML
+                        import re as _re
+                        detail_rows = _re.findall(r'<tr[^>]*>(.*?)</tr>', details_resp.text, _re.S)
+                        for drow in detail_rows:
+                            dcells = _re.findall(r'<td[^>]*>(.*?)</td>', drow, _re.S)
+                            if len(dcells) >= 8:
+                                cell_texts = [_re.sub(r'<[^>]+>', '', c).strip() for c in dcells]
+                                # Skip non-data rows (Email, Invoice, Date, Type, etc.)
+                                if cell_texts[0] and not any(cell_texts[0].startswith(x) for x in ['Email', 'Invoice', 'Date', 'Type', 'Purchase', 'Order', 'Total', 'Sales', 'Totals']):
                                     line_items.append({
-                                        "sku": sku,
-                                        "size": size,
-                                        "description": description,
-                                        "quantity": item_qty,
-                                        "unit_price": unit_price,
-                                        "fet": fet,
-                                        "total": item_total
+                                        "sku": cell_texts[0],
+                                        "size": cell_texts[1],
+                                        "description": cell_texts[2],
+                                        "quantity": cell_texts[3],
+                                        "unit_price": cell_texts[4],
+                                        "fet": cell_texts[6],
+                                        "total": cell_texts[7]
                                     })
                 except Exception as e:
                     errors.append(f"Error fetching details for order {order_number}: {str(e)}")
@@ -3954,7 +3948,7 @@ def check_supplier_portals(
                     "status": "auto-received"
                 })
             elif line_items:
-                result.errors.append(f"Failed to create movements for {order_number}")
+                result.errors.append(f"Failed to create movements for #{order_number} ({len(line_items)} items parsed)")
 
         results.append(result)
 

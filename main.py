@@ -3684,26 +3684,31 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
             for inv in inv_list:
                 if not isinstance(inv, dict):
                     continue
-                order_num = str(inv.get("invoice_number", inv.get("order_number", inv.get("so_number", inv.get("id", "")))))
-                if not order_num:
+                order_num = str(inv.get("invoice_id", inv.get("invoice_number", inv.get("order_number", inv.get("sales_id", inv.get("id", ""))))))
+                if not order_num or order_num == "None":
                     continue
+                # Skip returns unless negative qty tracking needed later
+                order_type = inv.get("order_type", "")
                 line_items = []
-                items_data = inv.get("items", inv.get("line_items", inv.get("details", inv.get("order_lines", []))))
+                items_data = inv.get("line_items", inv.get("items", inv.get("details", inv.get("order_lines", []))))
                 if isinstance(items_data, list):
                     for item in items_data:
                         if isinstance(item, dict):
                             line_items.append({
-                                "sku": item.get("sku", item.get("item_code", item.get("part_number", ""))),
-                                "size": item.get("size", item.get("tire_size", "")),
-                                "description": item.get("description", item.get("name", item.get("item_description", ""))),
-                                "quantity": str(item.get("quantity", item.get("qty", item.get("ordered_qty", 0)))),
-                                "unit_price": str(item.get("unit_price", item.get("price", item.get("net_price", 0)))),
-                                "fet": str(item.get("fet", item.get("excise_tax", item.get("federal_excise_tax", 0)))),
-                                "total": str(item.get("total", item.get("amount", item.get("line_total", 0))))
+                                "sku": item.get("item_id", item.get("sku", item.get("item_code", item.get("part_number", "")))),
+                                "size": item.get("size_description", item.get("size", item.get("tire_size", ""))),
+                                "description": item.get("item_description", item.get("description", item.get("name", ""))),
+                                "quantity": str(item.get("qty", item.get("quantity", item.get("ordered_qty", 0)))),
+                                "unit_price": str(item.get("unit_price", item.get("net_price", item.get("price", 0)))),
+                                "fet": str(item.get("fet_amount", item.get("fet", item.get("excise_tax", 0)))),
+                                "total": str(item.get("line_total", item.get("total", item.get("amount", 0))))
                             })
                 orders.append({
                     "order_number": order_num,
-                    "date": inv.get("date", inv.get("invoice_date", inv.get("order_date", ""))),
+                    "date": inv.get("invoice_date", inv.get("date", inv.get("order_date", ""))),
+                    "type": order_type,
+                    "total": inv.get("order_total", 0),
+                    "customer_po": inv.get("customer_po", ""),
                     "status": "completed",
                     "supplier": "Hesselbein Tire",
                     "line_items": line_items

@@ -3543,7 +3543,7 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 # Get user details to extract ship_to UUID
                 ship_to_uuid = None
                 try:
-                    # Intercept the user-details API response or call it directly
+                    # Call user-details API to get ship_to UUID
                     user_details_resp = page.evaluate('''async () => {
                         const resp = await fetch('/api/user-details');
                         return resp.json();
@@ -3569,6 +3569,25 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                             }} catch (e) {{}}
                         }}
                     }}''')
+
+                    # Set up route interception to fix ship_to=undefined in API calls
+                    def handle_route(route):
+                        url = route.request.url
+                        # Replace ship_to=undefined with correct UUID in API calls
+                        if 'ship_to=undefined' in url:
+                            fixed_url = url.replace('ship_to=undefined', f'ship_to={ship_to_uuid}')
+                            route.continue_(url=fixed_url)
+                        elif 'get-site-list-by-shipto' in url and 'ship_to=' not in url:
+                            # Add ship_to param if missing
+                            separator = '&' if '?' in url else '?'
+                            fixed_url = f"{url}{separator}ship_to={ship_to_uuid}"
+                            route.continue_(url=fixed_url)
+                        else:
+                            route.continue_()
+
+                    # Intercept API calls to inject correct ship_to
+                    page.route("**/api/**", handle_route)
+                    page.route("**/get-site-list-by-shipto**", handle_route)
 
                 # Navigate to invoices page (not orders)
                 page.goto(f"{base_url}/invoices", timeout=30000)

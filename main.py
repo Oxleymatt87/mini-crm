@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v19"}
+    return {"version": "2026-03-22-v20"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3595,29 +3595,57 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                             pass
                 page.on("response", handle_response)
                 
-                # Navigate to invoice page
+                # Click hamburger menu to find navigation
                 try:
-                    page.goto("https://b2b.dktire.com/shop/invoice", timeout=60000)
-                    page.wait_for_load_state("networkidle", timeout=30000)
-                    _time2.sleep(5)
-                    page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
-                    inv_text = page.evaluate("() => document.body.innerText")
-                    errors.append(f"Invoice page URL: {page.url}")
-                    errors.append(f"Invoice text: {inv_text[:800]}")
+                    # Click hamburger menu icon
+                    for sel in ['button.hamburger', '.navbar-toggler', '[class*="hamburger"]', 'button[aria-label*="menu"]', '.menu-toggle', '#menu-toggle', 'svg.feather-menu', 'button:has(svg)', '.header-item']:
+                        try:
+                            loc = page.locator(sel).first
+                            if loc.is_visible(timeout=2000):
+                                loc.click()
+                                _time2.sleep(2)
+                                errors.append(f"Clicked menu: {sel}")
+                                break
+                        except:
+                            continue
+                    
+                    # Screenshot the menu
+                    page.screenshot(path="/app/static/screenshots/hesselbein_menu.png", full_page=True)
+                    
+                    # Get all visible links/text
+                    menu_text = page.evaluate("() => document.body.innerText")
+                    errors.append(f"Menu text: {menu_text[:1500]}")
+                    
+                    # Find and list all links
+                    links = page.evaluate("""() => {
+                        return Array.from(document.querySelectorAll('a')).map(a => ({
+                            text: a.innerText.trim(),
+                            href: a.href,
+                            visible: a.offsetParent !== null
+                        })).filter(l => l.visible && l.text)
+                    }""")
+                    for link in links:
+                        if any(w in link.get('text','').lower() for w in ['invoice', 'order', 'history', 'statement', 'shop']):
+                            errors.append(f"Link: {link['text']} -> {link['href']}")
+                    
+                    # Try clicking invoice link directly
+                    for text in ['Invoice', 'Invoices', 'Order History', 'Orders']:
+                        try:
+                            loc = page.locator(f'a:has-text("{text}")').first
+                            if loc.is_visible(timeout=2000):
+                                loc.click()
+                                _time2.sleep(5)
+                                page.wait_for_load_state("networkidle", timeout=15000)
+                                page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
+                                inv_text = page.evaluate("() => document.body.innerText")
+                                errors.append(f"After clicking {text}: URL={page.url}")
+                                errors.append(f"Invoice text: {inv_text[:800]}")
+                                break
+                        except:
+                            continue
+                            
                 except Exception as nav_e:
-                    errors.append(f"Invoice nav error: {str(nav_e)}")
-                
-                # Navigate to order history
-                try:
-                    page.goto("https://b2b.dktire.com/shop/orderhistory", timeout=60000)
-                    page.wait_for_load_state("networkidle", timeout=30000)
-                    _time2.sleep(5)
-                    page.screenshot(path="/app/static/screenshots/hesselbein_orders.png", full_page=True)
-                    hist_text = page.evaluate("() => document.body.innerText")
-                    errors.append(f"History page URL: {page.url}")
-                    errors.append(f"History text: {hist_text[:800]}")
-                except Exception as nav_e:
-                    errors.append(f"History nav error: {str(nav_e)}")
+                    errors.append(f"Navigation error: {str(nav_e)}")
                 
                 # Log API responses captured
                 for ar in api_responses:

@@ -3073,9 +3073,9 @@ def get_firebase_auth_token() -> str:
 
 
 def get_firebase_movements(id_token: str) -> Dict[str, dict]:
-    """Fetch all movements from Firestore and return as dict keyed by PO number."""
+    """Fetch all movements from Firestore and return set of PO numbers found in notes."""
     movements_resp = requests.get(
-        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/movements",
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/movements?pageSize=500",
         headers={"Authorization": f"Bearer {id_token}"},
         timeout=30
     )
@@ -3084,9 +3084,12 @@ def get_firebase_movements(id_token: str) -> Dict[str, dict]:
         docs = movements_resp.json().get("documents", [])
         for doc in docs:
             fields = doc.get("fields", {})
-            po_number = fields.get("poNumber", {}).get("stringValue", "")
-            if po_number:
-                movements[po_number] = fields
+            notes = fields.get("notes", {}).get("stringValue", "")
+            # Extract order numbers from notes like "Auto-received from BZO #24147"
+            import re as _re
+            po_matches = _re.findall(r"#(\d{4,6})", notes)
+            for po in po_matches:
+                movements[po] = fields
     return movements
 
 
@@ -3869,29 +3872,89 @@ def check_supplier_portals(
                 result.already_received.append(order_number)
                 continue
 
-            # Create receive movement in Firebase
-            movement_data = {
-                "poNumber": order_number,
-                "supplier": supplier.name,
-                "type": "receive",
-                "status": "completed",
-                "date": order.get("date") or dt.datetime.now().isoformat(),
-                "items": order.get("line_items", []),
-                "createdAt": dt.datetime.now().isoformat(),
-                "autoReceived": True
-            }
+            # Create one receive movement per line item in Firebase
+            line_items = order.get("line_items", [])
+            items_created = 0
+            for li in line_items:
+                desc = li.get("description", "")
+                size = li.get("size", "")
+                
+                # Parse brand and model from description
+                # e.g. "ROYALBLACK 11R22.5 SL101 16PR AP 146/143M"
+                # e.g. "Atlas PARALLER M/T [101] [Q] [10]"
+                brand = ""
+                model = ""
+                desc_upper = desc.upper()
+                brand_map = {
+                    "ROYALBLACK": "Royal Black", "ROYAL BLACK": "Royal Black",
+                    "AMULET": "Amulet", "ATLAS": "Atlas", "HILLROCK": "Hill Rock",
+                    "GOODTRIP": "Good Trip", "LANVIGATOR": "Lanvigator",
+                    "HAULANDER": "Haulander", "TBB": "TBB", "SYNERGY": "Synergy",
+                }
+                for key, val in brand_map.items():
+                    if key in desc_upper:
+                        brand = val
+                        break
+                
+                model_map = ["SL101", "SL102", "DL301", "AM201", "AV211", "TL001", 
+                            "AT505", "AD507", "AA610", "AA612", "AD170", "AD515",
+                            "HRD1", "GTL20", "DP209", "SP500", "RR99"]
+                for m in model_map:
+                    if m.upper() in desc_upper:
+                        model = m
+                        break
+                
+                # Parse qty and cost from strings
+                raw_qty = li.get("quantity", "0")
+                try:
+                    qty = int(str(raw_qty).replace(",", "").strip())
+                except:
+                    qty = 0
+                
+                raw_cost = li.get("unit_price", "0")
+                try:
+                    cost = float(str(raw_cost).replace("$", "").replace(",", "").strip())
+                except:
+                    cost = 0.0
+                    
+                raw_fet = li.get("fet", "0")
+                try:
+                    fet = float(str(raw_fet).replace("$", "").replace(",", "").strip())
+                except:
+                    fet = 0.0
 
-            try:
-                if create_firebase_movement(firebase_token, movement_data):
-                    result.new_orders.append({
-                        "order_number": order_number,
-                        "items_count": len(order.get("line_items", [])),
-                        "status": "auto-received"
-                    })
-                else:
-                    result.errors.append(f"Failed to create movement for {order_number}")
-            except Exception as e:
-                result.errors.append(f"Error creating movement for {order_number}: {str(e)}")
+                # Build SKU matching Firebase format
+                sku = f"{brand}|{model}|{size}|all position|new".lower().strip()
+
+                movement_data = {
+                    "userId": "uSOqxJc3BigB2R6SWAaiXrb4sLj1",
+                    "userEmail": "moxley@oxleytireinc.com",
+                    "brand": brand,
+                    "model": model,
+                    "size": size,
+                    "position": "All Position",
+                    "condition": "New",
+                    "zone": "",
+                    "qty": qty,
+                    "source": "receive",
+                    "notes": f"Auto-received from {supplier.name} #{order_number}",
+                    "sku": sku,
+                }
+
+                try:
+                    if create_firebase_movement(firebase_token, movement_data):
+                        items_created += 1
+                except Exception as e:
+                    result.errors.append(f"Movement error {order_number}/{size}: {str(e)[:80]}")
+
+            if items_created > 0:
+                result.new_orders.append({
+                    "order_number": order_number,
+                    "items_count": items_created,
+                    "status": "auto-received"
+                })
+            elif line_items:
+                result.errors.append(f"Failed to create movements for {order_number}")
 
         results.append(result)
 

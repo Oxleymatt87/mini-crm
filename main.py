@@ -3540,8 +3540,38 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 errors.append("Hesselbein login form timeout")
 
             if login_success:
-                # Navigate to orders page
-                page.goto(f"{base_url}/orders", timeout=30000)
+                # Get user details to extract ship_to UUID
+                ship_to_uuid = None
+                try:
+                    # Intercept the user-details API response or call it directly
+                    user_details_resp = page.evaluate('''async () => {
+                        const resp = await fetch('/api/user-details');
+                        return resp.json();
+                    }''')
+                    if user_details_resp and 'ship_to' in user_details_resp:
+                        ship_to_uuid = user_details_resp['ship_to']
+                except Exception:
+                    # Fallback: use known UUID from user-details
+                    ship_to_uuid = "83373a2b-d442-41e6-8d65-531240a0ecb4"
+
+                # Inject ship_to into localStorage before navigating
+                if ship_to_uuid:
+                    page.evaluate(f'''() => {{
+                        localStorage.setItem('ship_to', '{ship_to_uuid}');
+                        localStorage.setItem('selectedShipTo', '{ship_to_uuid}');
+                        // Also try to set in Redux persist if present
+                        const persist = localStorage.getItem('persist:root');
+                        if (persist) {{
+                            try {{
+                                const parsed = JSON.parse(persist);
+                                parsed.shipTo = JSON.stringify('{ship_to_uuid}');
+                                localStorage.setItem('persist:root', JSON.stringify(parsed));
+                            }} catch (e) {{}}
+                        }}
+                    }}''')
+
+                # Navigate to invoices page (not orders)
+                page.goto(f"{base_url}/invoices", timeout=30000)
                 page.wait_for_load_state("networkidle")
 
                 # Take screenshot if requested
@@ -3552,8 +3582,9 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 content = page.content()
                 soup = BeautifulSoup(content, 'lxml')
 
-                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
+                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order|invoice|row', re.I)):
                     text = row.get_text()
+                    # Match invoice numbers like INV-12345, INV#12345, or plain 6+ digit numbers
                     po_match = re.search(r'(INV[-#]?\s*\d+|\d{6,})', text)
                     if po_match:
                         orders.append({

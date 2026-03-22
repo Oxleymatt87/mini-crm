@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v15"}
+    return {"version": "2026-03-22-v16"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3604,112 +3604,82 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
     except Exception as e:
         errors.append(f"Playwright error: {str(e)}")
 
-    # If we have a token, use the REST API directly
+    # Use Playwright to navigate to invoice pages and capture API responses
     if access_token:
         try:
-            api_headers = {
-                "Authorization": f"{token_type} {access_token}",
-                "Content-Type": "application/json",
-                "Timezone": "America/Chicago"
-            }
+            # Re-launch browser with the token, navigate to invoice page
+            with sync_playwright() as p2:
+                browser2 = p2.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+                context2 = browser2.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                page2 = context2.new_page()
+                
+                # Set the auth token in localStorage before navigating
+                page2.goto("https://b2b.dktire.com/auth-signin", timeout=30000)
+                page2.wait_for_load_state("domcontentloaded")
+                import json as _json2
+                auth_obj = _json2.dumps({"access_token": access_token, "token_type": token_type})
+                page2.evaluate(f"() => localStorage.setItem('authUser', '{auth_obj}')")
+                
+                # Capture API responses
+                api_responses = []
+                def handle_response(response):
+                    if "api-b2b.dktire.com" in response.url and response.status == 200:
+                        try:
+                            body = response.text()
+                            api_responses.append({"url": response.url, "body": body[:5000]})
+                        except:
+                            pass
+                page2.on("response", handle_response)
+                
+                # Navigate to invoices page
+                import time as _time2
+                page2.goto("https://b2b.dktire.com/order-invoices", timeout=60000)
+                page2.wait_for_load_state("networkidle", timeout=30000)
+                _time2.sleep(5)
+                
+                # Take screenshot
+                try:
+                    page2.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
+                except:
+                    pass
+                
+                # Get page content
+                content = page2.content()
+                visible_text = page2.evaluate("() => document.body.innerText")
+                
+                # Log what we captured
+                errors.append(f"Invoices page URL: {page2.url}")
+                errors.append(f"API responses captured: {len(api_responses)}")
+                for ar in api_responses[:5]:
+                    errors.append(f"API: {ar['url'][:100]} -> {ar['body'][:300]}")
+                errors.append(f"Page text: {visible_text[:500]}")
+                
+                # Parse any order/invoice data from the page
+                import re as _re2
+                # Look for invoice numbers, dates, amounts in the visible text
+                invoice_matches = _re2.findall(r'(INV[-\s]?\d+|\d{6,})', visible_text)
+                if invoice_matches:
+                    errors.append(f"Invoice numbers found: {invoice_matches[:20]}")
+                
+                # Also try navigating to order history
+                page2.goto("https://b2b.dktire.com/order-history", timeout=60000)
+                page2.wait_for_load_state("networkidle", timeout=30000)
+                _time2.sleep(5)
+                
+                history_text = page2.evaluate("() => document.body.innerText")
+                errors.append(f"History page text: {history_text[:500]}")
+                
+                for ar in api_responses[len(api_responses):]:
+                    errors.append(f"History API: {ar['url'][:100]} -> {ar['body'][:300]}")
+                
+                browser2.close()
+        except Exception as e2:
+            errors.append(f"Playwright navigation error: {str(e2)}")
 
-            # Get user details for ship_from
-            user_resp = requests.get(f"{api_base}/master/user-details", headers=api_headers, timeout=30)
-            ship_from = ""
-            if user_resp.status_code == 200:
-                user_data = user_resp.json()
-                if isinstance(user_data, dict):
-                    ship_to_list = user_data.get("ship_to", [])
-                    if isinstance(ship_to_list, list) and ship_to_list:
-                        first = ship_to_list[0]
-                        ship_from = first.get("value", "") if isinstance(first, dict) else str(first)
-
-            # Try every combination of endpoints, date formats, and param styles
-            import datetime as _dt
-            today = _dt.date.today().isoformat()
-            date_formats = [
-                ("2026-01-01", today),
-                ("01/01/2026", _dt.date.today().strftime("%m/%d/%Y")),
-                ("2025-01-01", "2026-12-31"),
-                ("01-01-2026", _dt.date.today().strftime("%m-%d-%Y")),
-            ]
-            endpoints = [
-                "/order/get-invoice-list",
-                "/order/get-open-invoice-list",
-                "/order/get-open-orders-list",
-                "/order/get-order-history-by-date",
-            ]
-            inv_resp = None
-            for ep in endpoints:
-                if inv_resp:
-                    break
-                for fd, td in date_formats:
-                    if inv_resp:
-                        break
-                    qs = f"ship_from={ship_from}&from_date={fd}&to_date={td}"
-                    try:
-                        test_resp = requests.get(f"{api_base}{ep}?{qs}", headers=api_headers, timeout=15)
-                        if test_resp.status_code == 200:
-                            resp_data = test_resp.json()
-                            # Check if we got actual data
-                            if resp_data and (isinstance(resp_data, list) or (isinstance(resp_data, dict) and resp_data.get("data"))):
-                                inv_resp = test_resp
-                                errors.append(f"SUCCESS: {ep} with dates {fd} to {td}")
-                                break
-                        elif test_resp.status_code != 422:
-                            errors.append(f"{ep} ({fd}): {test_resp.status_code}")
-                    except:
-                        pass
-            if inv_resp and inv_resp.status_code == 200:
-                invoice_data = inv_resp.json()
-                inv_list = invoice_data if isinstance(invoice_data, list) else invoice_data.get("data", invoice_data.get("invoices", []))
-                for inv in inv_list:
-                    if isinstance(inv, dict):
-                        order_num = inv.get("invoice_number", inv.get("order_number", inv.get("id", "")))
-                        line_items = []
-                        items = inv.get("items", inv.get("line_items", inv.get("details", [])))
-                        if isinstance(items, list):
-                            for item in items:
-                                if isinstance(item, dict):
-                                    line_items.append({
-                                        "sku": item.get("sku", item.get("item_code", "")),
-                                        "size": item.get("size", ""),
-                                        "description": item.get("description", item.get("name", "")),
-                                        "quantity": str(item.get("quantity", item.get("qty", 0))),
-                                        "unit_price": str(item.get("unit_price", item.get("price", 0))),
-                                        "fet": str(item.get("fet", item.get("excise_tax", 0))),
-                                        "total": str(item.get("total", item.get("amount", 0)))
-                                    })
-                        orders.append({
-                            "order_number": str(order_num),
-                            "date": inv.get("date", inv.get("invoice_date", "")),
-                            "status": "completed",
-                            "supplier": "Hesselbein Tire",
-                            "line_items": line_items
-                        })
-            else:
-                errors.append(f"Invoice API returned {inv_resp.status_code}: {inv_resp.text[:200]}")
-
-            # Skip separate history call - already tried all endpoints above
-            hist_resp = type("R", (), {"status_code": 0, "json": lambda: {}})()
-            if hist_resp.status_code == 200:
-                hist_data = hist_resp.json()
-                hist_list = hist_data if isinstance(hist_data, list) else hist_data.get("data", hist_data.get("orders", []))
-                existing_nums = {o["order_number"] for o in orders}
-                for h in hist_list:
-                    if isinstance(h, dict):
-                        onum = str(h.get("order_number", h.get("id", "")))
-                        if onum and onum not in existing_nums:
-                            orders.append({
-                                "order_number": onum,
-                                "date": h.get("date", h.get("order_date", "")),
-                                "status": h.get("status", "completed"),
-                                "supplier": "Hesselbein Tire",
-                                "line_items": []
-                            })
-
-        except Exception as e:
-            errors.append(f"Hesselbein API error: {str(e)}")
+    if access_token:
+        _unused = True  # placeholder to keep indentation
     elif login_success:
         errors.append("Login succeeded but could not extract auth token from localStorage")
 

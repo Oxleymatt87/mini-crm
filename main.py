@@ -3611,82 +3611,124 @@ def scrape_south_gateway_portal(portal_url: str, username: str, password: str) -
 
 
 def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_path: str = None) -> Dict[str, Any]:
-    """Scrape BZO Wheels/TireLink portal using Playwright for JS-rendered content."""
+    """Scrape BZO Wheels/TireLink portal using plain requests (TireGuru backend)."""
     orders = []
     errors = []
     login_success = False
 
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            page = context.new_page()
+        # Step 1: GET bzowheelandtire.com to extract hidden fields
+        login_page = session.get("https://bzowheelandtire.com", timeout=30)
+        soup = BeautifulSoup(login_page.text, 'lxml')
 
-            base_url = "https://bzowheelandtire.com"
+        server_field = soup.find('input', {'name': 'server'})
+        from_field = soup.find('input', {'name': 'from'})
 
-            # Navigate to login page
-            page.goto(f"{base_url}/login", timeout=30000)
-            page.wait_for_load_state("networkidle")
+        server_value = server_field.get('value', '') if server_field else ''
+        from_value = from_field.get('value', '') if from_field else ''
 
-            # Fill login form - try common field selectors
-            try:
-                # Try various selectors for dealer_id/username field
-                account_selectors = ['input[name="dealer_id"]', 'input[name="username"]', 'input[name="email"]', '#dealer_id', '#username', 'input[type="text"]']
-                for selector in account_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.fill(selector, username)
-                        break
+        if not server_value:
+            errors.append("Could not extract server field from BZO login page")
+            return {"orders": orders, "errors": errors, "login_success": False}
 
-                # Fill password
-                password_selectors = ['input[name="password"]', 'input[type="password"]', '#password']
-                for selector in password_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.fill(selector, password)
-                        break
+        # Step 2: POST to TireGuru checkLogin.php
+        login_data = {
+            'server': server_value,
+            'from': from_value,
+            'username': username,
+            'password': password
+        }
 
-                # Submit form
-                submit_selectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Login")', 'button:has-text("Sign In")']
-                for selector in submit_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.click(selector)
-                        break
+        login_resp = session.post(
+            "https://companylinkhere.tireguru.net/checkLogin.php",
+            data=login_data,
+            timeout=30,
+            allow_redirects=True
+        )
 
-                page.wait_for_load_state("networkidle")
+        # Check login success - should redirect to dashboard or not show login error
+        if login_resp.status_code == 200 and 'invalid' not in login_resp.text.lower() and 'error' not in login_resp.text.lower():
+            login_success = True
 
-                # Check if login was successful (not still on login page)
-                if "/login" not in page.url.lower():
-                    login_success = True
+        if not login_success:
+            errors.append("BZO login failed - invalid credentials or server error")
+            return {"orders": orders, "errors": errors, "login_success": False}
 
-            except PlaywrightTimeout:
-                errors.append("BZO/TireLink login form timeout")
+        # Step 3: GET /reports/complete to get order list
+        orders_resp = session.get(
+            "https://companylinkhere.tireguru.net/reports/complete",
+            timeout=30
+        )
 
-            if login_success:
-                # Navigate to orders page
-                page.goto(f"{base_url}/orders", timeout=30000)
-                page.wait_for_load_state("networkidle")
+        if orders_resp.status_code != 200:
+            errors.append(f"Failed to fetch orders page: {orders_resp.status_code}")
+            return {"orders": orders, "errors": errors, "login_success": login_success}
 
-                # Take screenshot if requested
-                if screenshot_path:
-                    page.screenshot(path=screenshot_path, full_page=True)
+        orders_soup = BeautifulSoup(orders_resp.text, 'lxml')
 
-                # Parse the page content
-                content = page.content()
-                soup = BeautifulSoup(content, 'lxml')
+        # Parse orders table - each tr has data-index and cells: order#, blank, date, type, qty, total
+        for row in orders_soup.find_all('tr', attrs={'data-index': True}):
+            data_index = row.get('data-index')
+            cells = row.find_all('td')
 
-                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
-                    text = row.get_text()
-                    po_match = re.search(r'(ORD[-#]?\s*\d+|\d{6,})', text)
-                    if po_match:
-                        orders.append({
-                            "order_number": po_match.group(1),
-                            "status": "shipped" if 'ship' in text.lower() else "pending",
-                            "supplier": "BZO Wheels/TireLink",
-                            "line_items": []
-                        })
+            if len(cells) >= 6:
+                order_number = cells[0].get_text(strip=True)
+                order_date = cells[2].get_text(strip=True)
+                order_type = cells[3].get_text(strip=True)
+                qty = cells[4].get_text(strip=True)
+                total = cells[5].get_text(strip=True)
 
-            browser.close()
+                # Step 4: GET order details for line items
+                line_items = []
+                try:
+                    details_resp = session.get(
+                        f"https://companylinkhere.tireguru.net/reports/complete/{data_index}/details",
+                        timeout=30
+                    )
+
+                    if details_resp.status_code == 200:
+                        details_soup = BeautifulSoup(details_resp.text, 'lxml')
+
+                        # Parse line items: SKU, size, description (brand+model), qty, unit price, FET blank, FET, total
+                        for item_row in details_soup.find_all('tr'):
+                            item_cells = item_row.find_all('td')
+                            if len(item_cells) >= 8:
+                                sku = item_cells[0].get_text(strip=True)
+                                size = item_cells[1].get_text(strip=True)
+                                description = item_cells[2].get_text(strip=True)
+                                item_qty = item_cells[3].get_text(strip=True)
+                                unit_price = item_cells[4].get_text(strip=True)
+                                fet = item_cells[6].get_text(strip=True)
+                                item_total = item_cells[7].get_text(strip=True)
+
+                                if sku:  # Skip header rows
+                                    line_items.append({
+                                        "sku": sku,
+                                        "size": size,
+                                        "description": description,
+                                        "quantity": item_qty,
+                                        "unit_price": unit_price,
+                                        "fet": fet,
+                                        "total": item_total
+                                    })
+                except Exception as e:
+                    errors.append(f"Error fetching details for order {order_number}: {str(e)}")
+
+                orders.append({
+                    "order_number": order_number,
+                    "date": order_date,
+                    "type": order_type,
+                    "quantity": qty,
+                    "total": total,
+                    "status": "completed",
+                    "supplier": "BZO Wheels/TireLink",
+                    "line_items": line_items
+                })
 
     except Exception as e:
         errors.append(f"BZO scraping error: {str(e)}")

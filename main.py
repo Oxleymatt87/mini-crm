@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v18"}
+    return {"version": "2026-03-22-v19"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3643,8 +3643,8 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
     except Exception as e:
         errors.append(f"Playwright error: {str(e)}")
 
-    # Token extracted for potential future API use
-    if False and access_token:
+    # Use token to call API directly
+    if access_token:
         try:
             # Re-launch browser with the token, navigate to invoice page
             with sync_playwright() as p2:

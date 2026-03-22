@@ -3488,135 +3488,232 @@ def scrape_km_tire_portal(portal_url: str, username: str, password: str) -> Dict
 
 
 def scrape_hesselbein_portal(portal_url: str, username: str, password: str, screenshot_path: str = None) -> Dict[str, Any]:
-    """Scrape Hesselbein Tire dealer portal using Playwright for JS-rendered content."""
+    """Scrape Hesselbein (DKTire) portal. Playwright login + direct API calls."""
     orders = []
     errors = []
     login_success = False
+    api_base = "https://api-b2b.dktire.com"
+    access_token = None
+    token_type = None
 
+    # Step 1: Playwright login to get auth token
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
             context = browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = context.new_page()
+            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
 
-            base_url = "https://b2b.dktire.com"
+            import time as _time
+            _time.sleep(3)
 
-            # Navigate to login page
-            page.goto(f"{base_url}/auth-signin", timeout=30000)
-            page.wait_for_load_state("networkidle")
-
-            # Fill login form - try common field selectors
-            try:
-                # Try various selectors for account/username field
-                account_selectors = ['input[name="account"]', 'input[name="username"]', 'input[name="email"]', '#account', '#username', 'input[type="text"]']
-                for selector in account_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.fill(selector, username)
-                        break
-
-                # Fill password
-                password_selectors = ['input[name="password"]', 'input[type="password"]', '#password']
-                for selector in password_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.fill(selector, password)
-                        break
-
-                # Submit form
-                submit_selectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Login")', 'button:has-text("Sign In")']
-                for selector in submit_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.click(selector)
-                        break
-
-                page.wait_for_load_state("networkidle")
-
-                # Check if login was successful (not still on login page)
-                if "/auth-signin" not in page.url.lower():
-                    login_success = True
-
-            except PlaywrightTimeout:
-                errors.append("Hesselbein login form timeout")
-
-            if login_success:
-                # Get user details to extract ship_to UUID
-                ship_to_uuid = None
+            # Fill username
+            for sel in ['input[type="text"]', 'input[name="username"]', 'input[name="account"]']:
                 try:
-                    # Call user-details API to get ship_to UUID
-                    user_details_resp = page.evaluate('''async () => {
-                        const resp = await fetch('/api/user-details');
-                        return resp.json();
-                    }''')
-                    if user_details_resp and 'ship_to' in user_details_resp:
-                        ship_to_uuid = user_details_resp['ship_to']
-                except Exception:
-                    # Fallback: use known UUID from user-details
-                    ship_to_uuid = "83373a2b-d442-41e6-8d65-531240a0ecb4"
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(username)
+                        break
+                except:
+                    continue
 
-                # Inject ship_to into localStorage before navigating
-                if ship_to_uuid:
-                    page.evaluate(f'''() => {{
-                        localStorage.setItem('ship_to', '{ship_to_uuid}');
-                        localStorage.setItem('selectedShipTo', '{ship_to_uuid}');
-                        // Also try to set in Redux persist if present
-                        const persist = localStorage.getItem('persist:root');
-                        if (persist) {{
-                            try {{
-                                const parsed = JSON.parse(persist);
-                                parsed.shipTo = JSON.stringify('{ship_to_uuid}');
-                                localStorage.setItem('persist:root', JSON.stringify(parsed));
-                            }} catch (e) {{}}
-                        }}
-                    }}''')
+            # Fill password
+            for sel in ['input[type="password"]', 'input[name="password"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(password)
+                        break
+                except:
+                    continue
 
-                    # Set up route interception to fix ship_to=undefined in API calls
-                    def handle_route(route):
-                        url = route.request.url
-                        # Replace ship_to=undefined with correct UUID in API calls
-                        if 'ship_to=undefined' in url:
-                            fixed_url = url.replace('ship_to=undefined', f'ship_to={ship_to_uuid}')
-                            route.continue_(url=fixed_url)
-                        elif 'get-site-list-by-shipto' in url and 'ship_to=' not in url:
-                            # Add ship_to param if missing
-                            separator = '&' if '?' in url else '?'
-                            fixed_url = f"{url}{separator}ship_to={ship_to_uuid}"
-                            route.continue_(url=fixed_url)
-                        else:
-                            route.continue_()
+            # Click submit
+            for sel in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")', '.btn-primary']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.click()
+                        break
+                except:
+                    continue
 
-                    # Intercept API calls to inject correct ship_to
-                    page.route("**/api/**", handle_route)
-                    page.route("**/get-site-list-by-shipto**", handle_route)
+            _time.sleep(5)
+            page.wait_for_load_state("networkidle", timeout=30000)
 
-                # Navigate to invoices page
-                page.goto(f"{base_url}/shop/invoice", timeout=30000)
-                page.wait_for_load_state("networkidle")
+            # Extract token from localStorage
+            try:
+                auth_json = page.evaluate("() => localStorage.getItem('authUser')")
+                if auth_json:
+                    import json as _json
+                    auth_data = _json.loads(auth_json)
+                    access_token = auth_data.get("access_token")
+                    token_type = auth_data.get("token_type", "Bearer")
+                    if access_token:
+                        login_success = True
+            except Exception as e:
+                errors.append(f"Token extraction: {str(e)}")
 
-                # Take screenshot if requested
-                if screenshot_path:
+            if screenshot_path:
+                try:
                     page.screenshot(path=screenshot_path, full_page=True)
-
-                # Parse the page content
-                content = page.content()
-                soup = BeautifulSoup(content, 'lxml')
-
-                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order|invoice|row', re.I)):
-                    text = row.get_text()
-                    # Match invoice numbers like INV-12345, INV#12345, or plain 6+ digit numbers
-                    po_match = re.search(r'(INV[-#]?\s*\d+|\d{6,})', text)
-                    if po_match:
-                        orders.append({
-                            "order_number": po_match.group(1),
-                            "status": "shipped" if 'ship' in text.lower() else "pending",
-                            "supplier": "Hesselbein Tire",
-                            "line_items": []
-                        })
+                except:
+                    pass
 
             browser.close()
 
     except Exception as e:
-        errors.append(f"Hesselbein scraping error: {str(e)}")
+        errors.append(f"Playwright error: {str(e)}")
+
+    if not access_token:
+        errors.append("Could not get auth token")
+        return {"orders": orders, "errors": errors, "login_success": login_success}
+
+    # Step 2: Direct API calls with the token
+    api_headers = {
+        "Authorization": f"{token_type} {access_token}",
+        "Content-Type": "application/json",
+        "Timezone": "America/Chicago"
+    }
+
+    try:
+        # Get user details for ship_to UUID
+        user_resp = requests.get(f"{api_base}/master/user-details", headers=api_headers, timeout=30)
+        ship_to_uuid = ""
+        if user_resp.status_code == 200:
+            ud = user_resp.json()
+            ship_to_list = ud.get("ship_to", [])
+            if isinstance(ship_to_list, list) and ship_to_list:
+                ship_to_uuid = ship_to_list[0].get("value", "") if isinstance(ship_to_list[0], dict) else str(ship_to_list[0])
+
+        if not ship_to_uuid:
+            ship_to_uuid = "83373a2b-d442-41e6-8d65-531240a0ecb4"
+
+        # Get site list for this ship_to
+        site_resp = requests.get(f"{api_base}/order/get-site-list-by-shipto", headers=api_headers, params={"ship_to": ship_to_uuid}, timeout=30)
+        site_id = ""
+        if site_resp.status_code == 200:
+            sites = site_resp.json()
+            if isinstance(sites, list) and sites:
+                site_id = sites[0].get("value", sites[0].get("id", "")) if isinstance(sites[0], dict) else str(sites[0])
+
+        # Try invoice list with ship_from = ship_to UUID (common pattern)
+        ship_from_options = [ship_to_uuid]
+        if site_id:
+            ship_from_options.insert(0, site_id)
+
+        invoice_data = None
+        for sf in ship_from_options:
+            inv_resp = requests.get(
+                f"{api_base}/order/get-invoice-list",
+                headers=api_headers,
+                params={"ship_from": sf, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+                timeout=30
+            )
+            if inv_resp.status_code == 200:
+                invoice_data = inv_resp.json()
+                break
+            errors.append(f"Invoices ship_from={sf}: {inv_resp.status_code} {inv_resp.text[:200]}")
+
+        # Try open orders too
+        if not invoice_data:
+            for sf in ship_from_options:
+                oo_resp = requests.get(
+                    f"{api_base}/order/get-open-orders-list",
+                    headers=api_headers,
+                    params={"ship_from": sf, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+                    timeout=30
+                )
+                if oo_resp.status_code == 200:
+                    invoice_data = oo_resp.json()
+                    break
+
+        # Try order history
+        if not invoice_data:
+            for sf in ship_from_options:
+                oh_resp = requests.get(
+                    f"{api_base}/order/get-order-history-by-date",
+                    headers=api_headers,
+                    params={"ship_from": sf, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+                    timeout=30
+                )
+                if oh_resp.status_code == 200:
+                    invoice_data = oh_resp.json()
+                    break
+                errors.append(f"History ship_from={sf}: {oh_resp.status_code} {oh_resp.text[:200]}")
+
+        # Try open invoices
+        if not invoice_data:
+            for sf in ship_from_options:
+                oi_resp = requests.get(
+                    f"{api_base}/order/get-open-invoice-list",
+                    headers=api_headers,
+                    params={"ship_from": sf, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+                    timeout=30
+                )
+                if oi_resp.status_code == 200:
+                    invoice_data = oi_resp.json()
+                    break
+
+        # Try using open orders with program variant
+        if not invoice_data:
+            for sf in ship_from_options:
+                pgm_resp = requests.get(
+                    f"{api_base}/order/get-open-orders-list-pgm",
+                    headers=api_headers,
+                    params={"ship_from": sf, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+                    timeout=30
+                )
+                if pgm_resp.status_code == 200:
+                    invoice_data = pgm_resp.json()
+                    break
+
+        # Parse whatever data we got
+        if invoice_data:
+            if isinstance(invoice_data, dict):
+                inv_list = invoice_data.get("data", invoice_data.get("invoices", invoice_data.get("orders", invoice_data.get("results", []))))
+                if not isinstance(inv_list, list):
+                    inv_list = [invoice_data] if invoice_data else []
+            elif isinstance(invoice_data, list):
+                inv_list = invoice_data
+            else:
+                inv_list = []
+
+            for inv in inv_list:
+                if not isinstance(inv, dict):
+                    continue
+                order_num = str(inv.get("invoice_number", inv.get("order_number", inv.get("so_number", inv.get("id", "")))))
+                if not order_num:
+                    continue
+                line_items = []
+                items_data = inv.get("items", inv.get("line_items", inv.get("details", inv.get("order_lines", []))))
+                if isinstance(items_data, list):
+                    for item in items_data:
+                        if isinstance(item, dict):
+                            line_items.append({
+                                "sku": item.get("sku", item.get("item_code", item.get("part_number", ""))),
+                                "size": item.get("size", item.get("tire_size", "")),
+                                "description": item.get("description", item.get("name", item.get("item_description", ""))),
+                                "quantity": str(item.get("quantity", item.get("qty", item.get("ordered_qty", 0)))),
+                                "unit_price": str(item.get("unit_price", item.get("price", item.get("net_price", 0)))),
+                                "fet": str(item.get("fet", item.get("excise_tax", item.get("federal_excise_tax", 0)))),
+                                "total": str(item.get("total", item.get("amount", item.get("line_total", 0))))
+                            })
+                orders.append({
+                    "order_number": order_num,
+                    "date": inv.get("date", inv.get("invoice_date", inv.get("order_date", ""))),
+                    "status": "completed",
+                    "supplier": "Hesselbein Tire",
+                    "line_items": line_items
+                })
+            errors.append(f"Parsed {len(inv_list)} records from API")
+        else:
+            errors.append("No invoice data returned from any API endpoint")
+
+    except Exception as e:
+        errors.append(f"API error: {str(e)}")
 
     return {"orders": orders, "errors": errors, "login_success": login_success}
 

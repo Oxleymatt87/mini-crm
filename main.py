@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v21"}
+    return {"version": "2026-03-21-v6"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3073,9 +3073,9 @@ def get_firebase_auth_token() -> str:
 
 
 def get_firebase_movements(id_token: str) -> Dict[str, dict]:
-    """Fetch all movements from Firestore and return set of PO numbers found in notes."""
+    """Fetch all movements from Firestore and return as dict keyed by PO number."""
     movements_resp = requests.get(
-        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/movements?pageSize=500",
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/movements",
         headers={"Authorization": f"Bearer {id_token}"},
         timeout=30
     )
@@ -3084,12 +3084,9 @@ def get_firebase_movements(id_token: str) -> Dict[str, dict]:
         docs = movements_resp.json().get("documents", [])
         for doc in docs:
             fields = doc.get("fields", {})
-            notes = fields.get("notes", {}).get("stringValue", "")
-            # Extract order numbers from notes like "Auto-received from BZO #24147"
-            import re as _re
-            po_matches = _re.findall(r"#(\d{4,6})", notes)
-            for po in po_matches:
-                movements[po] = fields
+            po_number = fields.get("poNumber", {}).get("stringValue", "")
+            if po_number:
+                movements[po_number] = fields
     return movements
 
 
@@ -3491,265 +3488,135 @@ def scrape_km_tire_portal(portal_url: str, username: str, password: str) -> Dict
 
 
 def scrape_hesselbein_portal(portal_url: str, username: str, password: str, screenshot_path: str = None) -> Dict[str, Any]:
-    """Scrape Hesselbein Tire (DKTire) dealer portal. Uses Playwright for login, then REST API for data."""
+    """Scrape Hesselbein Tire dealer portal using Playwright for JS-rendered content."""
     orders = []
     errors = []
     login_success = False
-    api_base = "https://api-b2b.dktire.com"
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+            browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
             page = context.new_page()
 
+            base_url = "https://b2b.dktire.com"
+
             # Navigate to login page
-            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
+            page.goto(f"{base_url}/auth-signin", timeout=30000)
+            page.wait_for_load_state("networkidle")
 
-            # Wait for React to render the form
-            import time as _time
-            _time.sleep(3)
-
-            # Fill login form
+            # Fill login form - try common field selectors
             try:
-                # The React app renders input fields - try multiple selectors
-                filled_user = False
-                filled_pass = False
+                # Try various selectors for account/username field
+                account_selectors = ['input[name="account"]', 'input[name="username"]', 'input[name="email"]', '#account', '#username', 'input[type="text"]']
+                for selector in account_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, username)
+                        break
 
-                for selector in ['input[type="text"]', 'input[name="account"]', 'input[name="username"]', 'input[name="email"]', 'input[placeholder*="Account"]', 'input[placeholder*="account"]', 'input[placeholder*="Customer"]', 'input[placeholder*="Username"]', 'input[placeholder*="Email"]']:
-                    try:
-                        loc = page.locator(selector).first
-                        if loc.is_visible(timeout=2000):
-                            loc.fill(username)
-                            filled_user = True
-                            break
-                    except:
-                        continue
+                # Fill password
+                password_selectors = ['input[name="password"]', 'input[type="password"]', '#password']
+                for selector in password_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, password)
+                        break
 
-                for selector in ['input[type="password"]', 'input[name="password"]', 'input[placeholder*="Password"]', 'input[placeholder*="password"]']:
-                    try:
-                        loc = page.locator(selector).first
-                        if loc.is_visible(timeout=2000):
-                            loc.fill(password)
-                            filled_pass = True
-                            break
-                    except:
-                        continue
+                # Submit form
+                submit_selectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Login")', 'button:has-text("Sign In")']
+                for selector in submit_selectors:
+                    if page.locator(selector).count() > 0:
+                        page.click(selector)
+                        break
 
-                if not filled_user:
-                    errors.append("Could not find username field")
-                if not filled_pass:
-                    errors.append("Could not find password field")
+                page.wait_for_load_state("networkidle")
 
-                if filled_user and filled_pass:
-                    # Click submit
-                    clicked = False
-                    for selector in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")', 'button:has-text("Log In")', '.btn-primary']:
-                        try:
-                            loc = page.locator(selector).first
-                            if loc.is_visible(timeout=2000):
-                                loc.click()
-                                clicked = True
-                                break
-                        except:
-                            continue
-
-                    if not clicked:
-                        errors.append("Could not find submit button")
-                    else:
-                        # Wait for navigation/login to complete
-                        _time.sleep(5)
-                        page.wait_for_load_state("networkidle", timeout=30000)
-
-                        # Check login success
-                        current_url = page.url
-                        if "/auth-signin" not in current_url:
-                            login_success = True
-                        else:
-                            # SPA might not redirect - check localStorage for token
-                            auth_data = page.evaluate("() => localStorage.getItem('authUser')")
-                            if auth_data:
-                                login_success = True
-                            else:
-                                visible_text = page.evaluate("() => document.body.innerText")
-                                errors.append(f"Login unclear - URL={current_url}, text preview: {visible_text[:500]}")
+                # Check if login was successful (not still on login page)
+                if "/auth-signin" not in page.url.lower():
+                    login_success = True
 
             except PlaywrightTimeout:
                 errors.append("Hesselbein login form timeout")
 
-            # If logged in, navigate to invoice and order pages in THIS session
             if login_success:
-                import time as _time2
-                
-                # Capture API responses
-                api_responses = []
-                def handle_response(response):
-                    if "api-b2b.dktire.com" in response.url and response.status == 200:
-                        try:
-                            body = response.text()
-                            api_responses.append({"url": response.url, "status": response.status, "body": body})
-                        except:
-                            pass
-                page.on("response", handle_response)
-                
-                # Use JS to navigate within React SPA
+                # Get user details to extract ship_to UUID
+                ship_to_uuid = None
                 try:
-                    # Force React router navigation via window.location.hash or pushState
-                    page.evaluate("() => window.location.hash = '/shop/invoice'")
-                    _time2.sleep(3)
-                    
-                    # If hash routing didn't work, try history.pushState
-                    if '/shop/invoice' not in page.url:
-                        page.evaluate("() => { window.history.pushState({}, '', '/shop/invoice'); window.dispatchEvent(new PopStateEvent('popstate')); }")
-                        _time2.sleep(5)
-                    
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                    page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
-                    errors.append(f"After JS nav: URL={page.url}")
-                    inv_text = page.evaluate("() => document.body.innerText")
-                    errors.append(f"Invoice text: {inv_text[:800]}")
-                    
-                    # If still on dashboard, try clicking the hamburger properly
-                    if 'dashboard' in page.url:
-                        # Click the ≡ icon
-                        page.click('div.navbar-header button, .vertical-menu-btn, [data-bs-toggle="collapse"]', timeout=5000)
-                        _time2.sleep(2)
-                        page.screenshot(path="/app/static/screenshots/hesselbein_sidebar.png", full_page=True)
-                        
-                        # List ALL links including hidden sidebar
-                        all_links = page.evaluate("""() => {
-                            return Array.from(document.querySelectorAll('a')).map(a => ({
-                                text: a.innerText.trim().substring(0, 50),
-                                href: a.getAttribute('href') || '',
-                                classes: a.className.substring(0, 50)
-                            })).filter(l => l.href && l.href.startsWith('/'))
-                        }""")
-                        errors.append(f"All internal links: {str(all_links)[:1000]}")
-                        
-                        # Click any invoice/order link
-                        for link in all_links:
-                            if any(w in link.get('text','').lower() or w in link.get('href','').lower() for w in ['invoice', 'order', 'history']):
-                                errors.append(f"Found nav link: {link}")
-                                try:
-                                    page.click(f"a[href='{link['href']}']")
-                                    _time2.sleep(5)
-                                    page.wait_for_load_state("networkidle", timeout=15000)
-                                    page.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
-                                    inv_text = page.evaluate("() => document.body.innerText")
-                                    errors.append(f"After nav click: URL={page.url}")
-                                    errors.append(f"Page text: {inv_text[:800]}")
-                                    break
-                                except:
-                                    continue
+                    # Call user-details API to get ship_to UUID
+                    user_details_resp = page.evaluate('''async () => {
+                        const resp = await fetch('/api/user-details');
+                        return resp.json();
+                    }''')
+                    if user_details_resp and 'ship_to' in user_details_resp:
+                        ship_to_uuid = user_details_resp['ship_to']
+                except Exception:
+                    # Fallback: use known UUID from user-details
+                    ship_to_uuid = "83373a2b-d442-41e6-8d65-531240a0ecb4"
 
-                except Exception as nav_e:
-                    errors.append(f"Navigation error: {str(nav_e)}")
-                
-                # Log API responses captured
-                for ar in api_responses:
-                    if "invoice" in ar["url"].lower() or "order" in ar["url"].lower():
-                        errors.append(f"API: {ar['url'][:100]} -> {ar['body'][:500]}")
+                # Inject ship_to into localStorage before navigating
+                if ship_to_uuid:
+                    page.evaluate(f'''() => {{
+                        localStorage.setItem('ship_to', '{ship_to_uuid}');
+                        localStorage.setItem('selectedShipTo', '{ship_to_uuid}');
+                        // Also try to set in Redux persist if present
+                        const persist = localStorage.getItem('persist:root');
+                        if (persist) {{
+                            try {{
+                                const parsed = JSON.parse(persist);
+                                parsed.shipTo = JSON.stringify('{ship_to_uuid}');
+                                localStorage.setItem('persist:root', JSON.stringify(parsed));
+                            }} catch (e) {{}}
+                        }}
+                    }}''')
 
-            # Extract token for future use
-            access_token = None
-            token_type = None
-            if login_success:
-                try:
-                    auth_json = page.evaluate("() => localStorage.getItem('authUser')")
-                    if auth_json:
-                        import json as _json
-                        auth_data = _json.loads(auth_json)
-                        access_token = auth_data.get("access_token")
-                        token_type = auth_data.get("token_type", "Bearer")
-                except Exception as e:
-                    errors.append(f"Token extraction error: {str(e)}")
+                    # Set up route interception to fix ship_to=undefined in API calls
+                    def handle_route(route):
+                        url = route.request.url
+                        # Replace ship_to=undefined with correct UUID in API calls
+                        if 'ship_to=undefined' in url:
+                            fixed_url = url.replace('ship_to=undefined', f'ship_to={ship_to_uuid}')
+                            route.continue_(url=fixed_url)
+                        elif 'get-site-list-by-shipto' in url and 'ship_to=' not in url:
+                            # Add ship_to param if missing
+                            separator = '&' if '?' in url else '?'
+                            fixed_url = f"{url}{separator}ship_to={ship_to_uuid}"
+                            route.continue_(url=fixed_url)
+                        else:
+                            route.continue_()
+
+                    # Intercept API calls to inject correct ship_to
+                    page.route("**/api/**", handle_route)
+                    page.route("**/get-site-list-by-shipto**", handle_route)
+
+                # Navigate to invoices page
+                page.goto(f"{base_url}/shop/invoice", timeout=30000)
+                page.wait_for_load_state("networkidle")
+
+                # Take screenshot if requested
+                if screenshot_path:
+                    page.screenshot(path=screenshot_path, full_page=True)
+
+                # Parse the page content
+                content = page.content()
+                soup = BeautifulSoup(content, 'lxml')
+
+                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order|invoice|row', re.I)):
+                    text = row.get_text()
+                    # Match invoice numbers like INV-12345, INV#12345, or plain 6+ digit numbers
+                    po_match = re.search(r'(INV[-#]?\s*\d+|\d{6,})', text)
+                    if po_match:
+                        orders.append({
+                            "order_number": po_match.group(1),
+                            "status": "shipped" if 'ship' in text.lower() else "pending",
+                            "supplier": "Hesselbein Tire",
+                            "line_items": []
+                        })
 
             browser.close()
 
     except Exception as e:
-        errors.append(f"Playwright error: {str(e)}")
-
-    # Use token to call API directly
-    if access_token:
-        try:
-            # Re-launch browser with the token, navigate to invoice page
-            with sync_playwright() as p2:
-                browser2 = p2.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
-                context2 = browser2.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                page2 = context2.new_page()
-                
-                # Set the auth token in localStorage before navigating
-                page2.goto("https://b2b.dktire.com/auth-signin", timeout=30000)
-                page2.wait_for_load_state("domcontentloaded")
-                import json as _json2
-                auth_obj = _json2.dumps({"access_token": access_token, "token_type": token_type})
-                page2.evaluate(f"() => localStorage.setItem('authUser', '{auth_obj}')")
-                
-                # Capture API responses
-                api_responses = []
-                def handle_response(response):
-                    if "api-b2b.dktire.com" in response.url and response.status == 200:
-                        try:
-                            body = response.text()
-                            api_responses.append({"url": response.url, "body": body[:5000]})
-                        except:
-                            pass
-                page2.on("response", handle_response)
-                
-                # Navigate to invoices page
-                import time as _time2
-                page2.goto("https://b2b.dktire.com/shop/invoice", timeout=60000)
-                page2.wait_for_load_state("networkidle", timeout=30000)
-                _time2.sleep(5)
-                
-                # Take screenshot
-                try:
-                    page2.screenshot(path="/app/static/screenshots/hesselbein_shop_invoice.png", full_page=True)
-                except:
-                    pass
-                
-                # Get page content
-                content = page2.content()
-                visible_text = page2.evaluate("() => document.body.innerText")
-                
-                # Log what we captured
-                errors.append(f"Invoices page URL: {page2.url}")
-                errors.append(f"API responses captured: {len(api_responses)}")
-                for ar in api_responses[:5]:
-                    errors.append(f"API: {ar['url'][:100]} -> {ar['body'][:300]}")
-                errors.append(f"Page text: {visible_text[:500]}")
-                
-                # Parse any order/invoice data from the page
-                import re as _re2
-                # Look for invoice numbers, dates, amounts in the visible text
-                invoice_matches = _re2.findall(r'(INV[-\s]?\d+|\d{6,})', visible_text)
-                if invoice_matches:
-                    errors.append(f"Invoice numbers found: {invoice_matches[:20]}")
-                
-                # Also try navigating to order history
-                page2.goto("https://b2b.dktire.com/shop/orderhistory", timeout=60000)
-                page2.wait_for_load_state("networkidle", timeout=30000)
-                _time2.sleep(5)
-                
-                history_text = page2.evaluate("() => document.body.innerText")
-                errors.append(f"History page text: {history_text[:500]}")
-                
-                for ar in api_responses[len(api_responses):]:
-                    errors.append(f"History API: {ar['url'][:100]} -> {ar['body'][:300]}")
-                
-                browser2.close()
-        except Exception as e2:
-            errors.append(f"Playwright navigation error: {str(e2)}")
-
-    if access_token:
-        _unused = True  # placeholder to keep indentation
-    elif login_success:
-        errors.append("Login succeeded but could not extract auth token from localStorage")
+        errors.append(f"Hesselbein scraping error: {str(e)}")
 
     return {"orders": orders, "errors": errors, "login_success": login_success}
 
@@ -3875,23 +3742,29 @@ def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_
                     )
 
                     if details_resp.status_code == 200:
-                        # Use regex to parse line items - more reliable than BeautifulSoup for this HTML
-                        import re as _re
-                        detail_rows = _re.findall(r'<tr[^>]*>(.*?)</tr>', details_resp.text, _re.S)
-                        for drow in detail_rows:
-                            dcells = _re.findall(r'<td[^>]*>(.*?)</td>', drow, _re.S)
-                            if len(dcells) >= 8:
-                                cell_texts = [_re.sub(r'<[^>]+>', '', c).strip() for c in dcells]
-                                # Skip non-data rows (Email, Invoice, Date, Type, etc.)
-                                if cell_texts[0] and not any(cell_texts[0].startswith(x) for x in ['Email', 'Invoice', 'Date', 'Type', 'Purchase', 'Order', 'Total', 'Sales', 'Totals']):
+                        details_soup = BeautifulSoup(details_resp.text, 'lxml')
+
+                        # Parse line items: SKU, size, description (brand+model), qty, unit price, FET blank, FET, total
+                        for item_row in details_soup.find_all('tr'):
+                            item_cells = item_row.find_all('td')
+                            if len(item_cells) >= 8:
+                                sku = item_cells[0].get_text(strip=True)
+                                size = item_cells[1].get_text(strip=True)
+                                description = item_cells[2].get_text(strip=True)
+                                item_qty = item_cells[3].get_text(strip=True)
+                                unit_price = item_cells[4].get_text(strip=True)
+                                fet = item_cells[6].get_text(strip=True)
+                                item_total = item_cells[7].get_text(strip=True)
+
+                                if sku:  # Skip header rows
                                     line_items.append({
-                                        "sku": cell_texts[0],
-                                        "size": cell_texts[1],
-                                        "description": cell_texts[2],
-                                        "quantity": cell_texts[3],
-                                        "unit_price": cell_texts[4],
-                                        "fet": cell_texts[6],
-                                        "total": cell_texts[7]
+                                        "sku": sku,
+                                        "size": size,
+                                        "description": description,
+                                        "quantity": item_qty,
+                                        "unit_price": unit_price,
+                                        "fet": fet,
+                                        "total": item_total
                                     })
                 except Exception as e:
                     errors.append(f"Error fetching details for order {order_number}: {str(e)}")
@@ -3904,9 +3777,7 @@ def scrape_bzo_portal(portal_url: str, username: str, password: str, screenshot_
                     "total": total,
                     "status": "completed",
                     "supplier": "BZO Wheels/TireLink",
-                    "line_items": line_items,
-                    "debug_detail_status": getattr(details_resp, 'status_code', 'no_response') if 'details_resp' in dir() else 'not_fetched',
-                    "debug_items_found": len(line_items)
+                    "line_items": line_items
                 })
 
     except Exception as e:
@@ -4048,91 +3919,29 @@ def check_supplier_portals(
                 result.already_received.append(order_number)
                 continue
 
-            # Create one receive movement per line item in Firebase
-            line_items = order.get("line_items", [])
-            items_created = 0
-            for li in line_items:
-                desc = li.get("description", "")
-                size = li.get("size", "")
-                
-                # Parse brand and model from description
-                # e.g. "ROYALBLACK 11R22.5 SL101 16PR AP 146/143M"
-                # e.g. "Atlas PARALLER M/T [101] [Q] [10]"
-                brand = ""
-                model = ""
-                desc_upper = desc.upper()
-                brand_map = {
-                    "ROYALBLACK": "Royal Black", "ROYAL BLACK": "Royal Black",
-                    "AMULET": "Amulet", "ATLAS": "Atlas", "HILLROCK": "Hill Rock",
-                    "GOODTRIP": "Good Trip", "LANVIGATOR": "Lanvigator",
-                    "HAULANDER": "Haulander", "TBB": "TBB", "SYNERGY": "Synergy",
-                }
-                for key, val in brand_map.items():
-                    if key in desc_upper:
-                        brand = val
-                        break
-                
-                model_map = ["SL101", "SL102", "DL301", "AM201", "AV211", "TL001", 
-                            "AT505", "AD507", "AA610", "AA612", "AD170", "AD515",
-                            "HRD1", "GTL20", "DP209", "SP500", "RR99"]
-                for m in model_map:
-                    if m.upper() in desc_upper:
-                        model = m
-                        break
-                
-                # Parse qty and cost from strings
-                raw_qty = li.get("quantity", "0")
-                try:
-                    qty = int(str(raw_qty).replace(",", "").strip())
-                except:
-                    qty = 0
-                
-                raw_cost = li.get("unit_price", "0")
-                try:
-                    cost = float(str(raw_cost).replace("$", "").replace(",", "").strip())
-                except:
-                    cost = 0.0
-                    
-                raw_fet = li.get("fet", "0")
-                try:
-                    fet = float(str(raw_fet).replace("$", "").replace(",", "").strip())
-                except:
-                    fet = 0.0
+            # Create receive movement in Firebase
+            movement_data = {
+                "poNumber": order_number,
+                "supplier": supplier.name,
+                "type": "receive",
+                "status": "completed",
+                "date": order.get("date") or dt.datetime.now().isoformat(),
+                "items": order.get("line_items", []),
+                "createdAt": dt.datetime.now().isoformat(),
+                "autoReceived": True
+            }
 
-                # Build SKU matching Firebase format
-                sku = f"{brand}|{model}|{size}|all position|new".lower().strip()
-
-                movement_data = {
-                    "userId": "uSOqxJc3BigB2R6SWAaiXrb4sLj1",
-                    "userEmail": "moxley@oxleytireinc.com",
-                    "brand": brand,
-                    "model": model,
-                    "size": size,
-                    "position": "All Position",
-                    "condition": "New",
-                    "zone": "",
-                    "qty": qty,
-                    "source": "receive",
-                    "notes": f"Auto-received from {supplier.name} #{order_number}",
-                    "sku": sku,
-                }
-
-                try:
-                    if create_firebase_movement(firebase_token, movement_data):
-                        items_created += 1
-                except Exception as e:
-                    result.errors.append(f"Movement error {order_number}/{size}: {str(e)[:80]}")
-
-            if items_created > 0:
-                result.new_orders.append({
-                    "order_number": order_number,
-                    "items_count": items_created,
-                    "status": "auto-received"
-                })
-            elif line_items:
-                result.errors.append(f"Failed to create movements for #{order_number} ({len(line_items)} items parsed)")
-            else:
-                result.errors.append(f"No line items parsed for #{order_number} (detail_status={order.get('debug_detail_status','?')}, raw_items={order.get('debug_items_found',0)})")
+            try:
+                if create_firebase_movement(firebase_token, movement_data):
+                    result.new_orders.append({
+                        "order_number": order_number,
+                        "items_count": len(order.get("line_items", [])),
+                        "status": "auto-received"
+                    })
+                else:
+                    result.errors.append(f"Failed to create movement for {order_number}")
+            except Exception as e:
+                result.errors.append(f"Error creating movement for {order_number}: {str(e)}")
 
         results.append(result)
 

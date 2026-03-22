@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v10"}
+    return {"version": "2026-03-22-v11"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3613,8 +3613,22 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 "Timezone": "America/Chicago"
             }
 
-            # Get invoice list
-            inv_resp = requests.get(f"{api_base}/order/get-invoice-list", headers=api_headers, timeout=30)
+            # First get user details to find ship_from location
+            user_resp = requests.get(f"{api_base}/master/user-details", headers=api_headers, timeout=30)
+            ship_from = ""
+            if user_resp.status_code == 200:
+                user_data = user_resp.json()
+                if isinstance(user_data, dict):
+                    ship_from = user_data.get("ship_from", user_data.get("default_ship_from", user_data.get("location", "")))
+                    if not ship_from:
+                        locations = user_data.get("locations", user_data.get("ship_from_list", []))
+                        if isinstance(locations, list) and locations:
+                            ship_from = locations[0] if isinstance(locations[0], str) else locations[0].get("id", locations[0].get("code", ""))
+                errors.append(f"User details: {str(user_data)[:300]}")
+
+            # Get invoice list with required params
+            inv_params = {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"}
+            inv_resp = requests.get(f"{api_base}/order/get-invoice-list", headers=api_headers, params=inv_params, timeout=30)
             if inv_resp.status_code == 200:
                 invoice_data = inv_resp.json()
                 inv_list = invoice_data if isinstance(invoice_data, list) else invoice_data.get("data", invoice_data.get("invoices", []))
@@ -3646,7 +3660,8 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 errors.append(f"Invoice API returned {inv_resp.status_code}: {inv_resp.text[:200]}")
 
             # Also try order history
-            hist_resp = requests.get(f"{api_base}/order/get-order-history-by-date", headers=api_headers, timeout=30, params={"start_date": "2025-01-01", "end_date": "2026-12-31"})
+            hist_params = {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"}
+            hist_resp = requests.get(f"{api_base}/order/get-order-history-by-date", headers=api_headers, timeout=30, params=hist_params)
             if hist_resp.status_code == 200:
                 hist_data = hist_resp.json()
                 hist_list = hist_data if isinstance(hist_data, list) else hist_data.get("data", hist_data.get("orders", []))

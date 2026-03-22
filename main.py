@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v9"}
+    return {"version": "2026-03-22-v10"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3569,15 +3569,13 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                         if "/auth-signin" not in current_url:
                             login_success = True
                         else:
-                            # Maybe login failed - check for error messages
-                            page_text = page.content()
-                            if "invalid" in page_text.lower() or "error" in page_text.lower() or "incorrect" in page_text.lower():
-                                errors.append("Login failed - invalid credentials")
+                            # SPA might not redirect - check localStorage for token
+                            auth_data = page.evaluate("() => localStorage.getItem('authUser')")
+                            if auth_data:
+                                login_success = True
                             else:
-                                # Try extracting token even if URL didn't change (SPA might not change URL)
-                                auth_data = page.evaluate("() => localStorage.getItem('authUser')")
-                                if auth_data:
-                                    login_success = True
+                                visible_text = page.evaluate("() => document.body.innerText")
+                                errors.append(f"Login unclear - URL={current_url}, text preview: {visible_text[:500]}")
 
             except PlaywrightTimeout:
                 errors.append("Hesselbein login form timeout")
@@ -3596,11 +3594,10 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 except Exception as e:
                     errors.append(f"Token extraction error: {str(e)}")
 
-            if screenshot_path:
-                try:
-                    page.screenshot(path=screenshot_path, full_page=True)
-                except:
-                    pass
+            try:
+                page.screenshot(path="/app/static/screenshots/hesselbein_login.png", full_page=True)
+            except:
+                pass
 
             browser.close()
 

@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v16"}
+    return {"version": "2026-03-22-v17"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3635,13 +3635,13 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 
                 # Navigate to invoices page
                 import time as _time2
-                page2.goto("https://b2b.dktire.com/order-invoices", timeout=60000)
+                page2.goto("https://b2b.dktire.com/shop/invoice", timeout=60000)
                 page2.wait_for_load_state("networkidle", timeout=30000)
                 _time2.sleep(5)
                 
                 # Take screenshot
                 try:
-                    page2.screenshot(path="/app/static/screenshots/hesselbein_invoices.png", full_page=True)
+                    page2.screenshot(path="/app/static/screenshots/hesselbein_shop_invoice.png", full_page=True)
                 except:
                     pass
                 
@@ -3664,7 +3664,7 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                     errors.append(f"Invoice numbers found: {invoice_matches[:20]}")
                 
                 # Also try navigating to order history
-                page2.goto("https://b2b.dktire.com/order-history", timeout=60000)
+                page2.goto("https://b2b.dktire.com/shop/orderhistory", timeout=60000)
                 page2.wait_for_load_state("networkidle", timeout=30000)
                 _time2.sleep(5)
                 

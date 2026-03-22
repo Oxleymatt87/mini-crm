@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v14"}
+    return {"version": "2026-03-22-v15"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3613,44 +3613,54 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                 "Timezone": "America/Chicago"
             }
 
-            # First get user details to find ship_from location
+            # Get user details for ship_from
             user_resp = requests.get(f"{api_base}/master/user-details", headers=api_headers, timeout=30)
             ship_from = ""
             if user_resp.status_code == 200:
                 user_data = user_resp.json()
                 if isinstance(user_data, dict):
-                    # Extract ship_to UUID from user details
                     ship_to_list = user_data.get("ship_to", [])
                     if isinstance(ship_to_list, list) and ship_to_list:
                         first = ship_to_list[0]
                         ship_from = first.get("value", "") if isinstance(first, dict) else str(first)
 
-            # Try multiple param combos for invoice list
-            param_combos = [
-                {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"},
-                {"ship_from": ship_from, "fromDate": "2025-01-01", "toDate": "2026-12-31"},
-                {"shipFrom": ship_from, "fromDate": "2025-01-01", "toDate": "2026-12-31"},
-                {"ship_to": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"},
+            # Try every combination of endpoints, date formats, and param styles
+            import datetime as _dt
+            today = _dt.date.today().isoformat()
+            date_formats = [
+                ("2026-01-01", today),
+                ("01/01/2026", _dt.date.today().strftime("%m/%d/%Y")),
+                ("2025-01-01", "2026-12-31"),
+                ("01-01-2026", _dt.date.today().strftime("%m-%d-%Y")),
+            ]
+            endpoints = [
+                "/order/get-invoice-list",
+                "/order/get-open-invoice-list",
+                "/order/get-open-orders-list",
+                "/order/get-order-history-by-date",
             ]
             inv_resp = None
-            for combo in param_combos:
-                # Try as query string in URL (like the JS does)
-                qs = "&".join(f"{k}={v}" for k,v in combo.items())
-                test_resp = requests.get(f"{api_base}/order/get-invoice-list?{qs}", headers=api_headers, timeout=30)
-                errors.append(f"Tried {combo}: {test_resp.status_code} {test_resp.text[:200]}")
-                if test_resp.status_code == 200:
-                    inv_resp = test_resp
+            for ep in endpoints:
+                if inv_resp:
                     break
-            if not inv_resp:
-                # Try open orders instead
-                for combo in param_combos:
-                    qs = "&".join(f"{k}={v}" for k,v in combo.items())
-                    test_resp = requests.get(f"{api_base}/order/get-open-orders-list?{qs}", headers=api_headers, timeout=30)
-                    errors.append(f"Open orders {combo}: {test_resp.status_code} {test_resp.text[:200]}")
-                    if test_resp.status_code == 200:
-                        inv_resp = test_resp
+                for fd, td in date_formats:
+                    if inv_resp:
                         break
-            if inv_resp.status_code == 200:
+                    qs = f"ship_from={ship_from}&from_date={fd}&to_date={td}"
+                    try:
+                        test_resp = requests.get(f"{api_base}{ep}?{qs}", headers=api_headers, timeout=15)
+                        if test_resp.status_code == 200:
+                            resp_data = test_resp.json()
+                            # Check if we got actual data
+                            if resp_data and (isinstance(resp_data, list) or (isinstance(resp_data, dict) and resp_data.get("data"))):
+                                inv_resp = test_resp
+                                errors.append(f"SUCCESS: {ep} with dates {fd} to {td}")
+                                break
+                        elif test_resp.status_code != 422:
+                            errors.append(f"{ep} ({fd}): {test_resp.status_code}")
+                    except:
+                        pass
+            if inv_resp and inv_resp.status_code == 200:
                 invoice_data = inv_resp.json()
                 inv_list = invoice_data if isinstance(invoice_data, list) else invoice_data.get("data", invoice_data.get("invoices", []))
                 for inv in inv_list:
@@ -3680,9 +3690,8 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
             else:
                 errors.append(f"Invoice API returned {inv_resp.status_code}: {inv_resp.text[:200]}")
 
-            # Also try order history
-            hist_params = {"ship_from": ship_from, "from_date": "2025-01-01", "to_date": "2026-12-31"}
-            hist_resp = requests.get(f"{api_base}/order/get-order-history-by-date", headers=api_headers, timeout=30, params=hist_params)
+            # Skip separate history call - already tried all endpoints above
+            hist_resp = type("R", (), {"status_code": 0, "json": lambda: {}})()
             if hist_resp.status_code == 200:
                 hist_data = hist_resp.json()
                 hist_list = hist_data if isinstance(hist_data, list) else hist_data.get("data", hist_data.get("orders", []))

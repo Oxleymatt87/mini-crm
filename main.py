@@ -3708,6 +3708,13 @@ def scrape_hesselbein_portal(portal_url: str, username: str, password: str, scre
                     "supplier": "Hesselbein Tire",
                     "line_items": line_items
                 })
+            # Debug: show raw data structure
+            if inv_list:
+                import json as _json
+                for sample in inv_list[:2]:
+                    if isinstance(sample, dict):
+                        errors.append(f"Sample keys: {list(sample.keys())}")
+                        errors.append(f"Sample: {str(sample)[:500]}")
             errors.append(f"Parsed {len(inv_list)} records from API")
         else:
             errors.append("No invoice data returned from any API endpoint")

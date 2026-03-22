@@ -2993,7 +2993,7 @@ def delete_order(
 # === Version + Bulk QBO Sync ===
 @app.get("/version")
 def get_version():
-    return {"version": "2026-03-22-v8"}
+    return {"version": "2026-03-22-v9"}
 
 @app.post("/inventory/bulk-qb-sync")
 def bulk_qb_sync(
@@ -3491,85 +3491,185 @@ def scrape_km_tire_portal(portal_url: str, username: str, password: str) -> Dict
 
 
 def scrape_hesselbein_portal(portal_url: str, username: str, password: str, screenshot_path: str = None) -> Dict[str, Any]:
-    """Scrape Hesselbein Tire dealer portal using Playwright for JS-rendered content."""
+    """Scrape Hesselbein Tire (DKTire) dealer portal. Uses Playwright for login, then REST API for data."""
     orders = []
     errors = []
     login_success = False
+    api_base = "https://api-b2b.dktire.com"
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
             context = browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = context.new_page()
 
-            base_url = "https://b2b.dktire.com"
-
             # Navigate to login page
-            page.goto(f"{base_url}/auth-signin", timeout=30000)
-            page.wait_for_load_state("networkidle")
+            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
 
-            # Fill login form - try common field selectors
+            # Wait for React to render the form
+            import time as _time
+            _time.sleep(3)
+
+            # Fill login form
             try:
-                # Try various selectors for account/username field
-                account_selectors = ['input[name="account"]', 'input[name="username"]', 'input[name="email"]', '#account', '#username', 'input[type="text"]']
-                for selector in account_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.fill(selector, username)
-                        break
+                # The React app renders input fields - try multiple selectors
+                filled_user = False
+                filled_pass = False
 
-                # Fill password
-                password_selectors = ['input[name="password"]', 'input[type="password"]', '#password']
-                for selector in password_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.fill(selector, password)
-                        break
+                for selector in ['input[type="text"]', 'input[name="account"]', 'input[name="username"]', 'input[name="email"]', 'input[placeholder*="Account"]', 'input[placeholder*="account"]', 'input[placeholder*="Customer"]', 'input[placeholder*="Username"]', 'input[placeholder*="Email"]']:
+                    try:
+                        loc = page.locator(selector).first
+                        if loc.is_visible(timeout=2000):
+                            loc.fill(username)
+                            filled_user = True
+                            break
+                    except:
+                        continue
 
-                # Submit form
-                submit_selectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Login")', 'button:has-text("Sign In")']
-                for selector in submit_selectors:
-                    if page.locator(selector).count() > 0:
-                        page.click(selector)
-                        break
+                for selector in ['input[type="password"]', 'input[name="password"]', 'input[placeholder*="Password"]', 'input[placeholder*="password"]']:
+                    try:
+                        loc = page.locator(selector).first
+                        if loc.is_visible(timeout=2000):
+                            loc.fill(password)
+                            filled_pass = True
+                            break
+                    except:
+                        continue
 
-                page.wait_for_load_state("networkidle")
+                if not filled_user:
+                    errors.append("Could not find username field")
+                if not filled_pass:
+                    errors.append("Could not find password field")
 
-                # Check if login was successful (not still on login page)
-                if "/auth-signin" not in page.url.lower():
-                    login_success = True
+                if filled_user and filled_pass:
+                    # Click submit
+                    clicked = False
+                    for selector in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")', 'button:has-text("Log In")', '.btn-primary']:
+                        try:
+                            loc = page.locator(selector).first
+                            if loc.is_visible(timeout=2000):
+                                loc.click()
+                                clicked = True
+                                break
+                        except:
+                            continue
+
+                    if not clicked:
+                        errors.append("Could not find submit button")
+                    else:
+                        # Wait for navigation/login to complete
+                        _time.sleep(5)
+                        page.wait_for_load_state("networkidle", timeout=30000)
+
+                        # Check login success
+                        current_url = page.url
+                        if "/auth-signin" not in current_url:
+                            login_success = True
+                        else:
+                            # Maybe login failed - check for error messages
+                            page_text = page.content()
+                            if "invalid" in page_text.lower() or "error" in page_text.lower() or "incorrect" in page_text.lower():
+                                errors.append("Login failed - invalid credentials")
+                            else:
+                                # Try extracting token even if URL didn't change (SPA might not change URL)
+                                auth_data = page.evaluate("() => localStorage.getItem('authUser')")
+                                if auth_data:
+                                    login_success = True
 
             except PlaywrightTimeout:
                 errors.append("Hesselbein login form timeout")
 
+            # Extract auth token from localStorage
+            access_token = None
+            token_type = None
             if login_success:
-                # Navigate to orders page
-                page.goto(f"{base_url}/orders", timeout=30000)
-                page.wait_for_load_state("networkidle")
+                try:
+                    auth_json = page.evaluate("() => localStorage.getItem('authUser')")
+                    if auth_json:
+                        import json as _json
+                        auth_data = _json.loads(auth_json)
+                        access_token = auth_data.get("access_token")
+                        token_type = auth_data.get("token_type", "Bearer")
+                except Exception as e:
+                    errors.append(f"Token extraction error: {str(e)}")
 
-                # Take screenshot if requested
-                if screenshot_path:
+            if screenshot_path:
+                try:
                     page.screenshot(path=screenshot_path, full_page=True)
-
-                # Parse the page content
-                content = page.content()
-                soup = BeautifulSoup(content, 'lxml')
-
-                for row in soup.find_all(['tr', 'div'], class_=re.compile(r'order', re.I)):
-                    text = row.get_text()
-                    po_match = re.search(r'(INV[-#]?\s*\d+|\d{6,})', text)
-                    if po_match:
-                        orders.append({
-                            "order_number": po_match.group(1),
-                            "status": "shipped" if 'ship' in text.lower() else "pending",
-                            "supplier": "Hesselbein Tire",
-                            "line_items": []
-                        })
+                except:
+                    pass
 
             browser.close()
 
     except Exception as e:
-        errors.append(f"Hesselbein scraping error: {str(e)}")
+        errors.append(f"Playwright error: {str(e)}")
+
+    # If we have a token, use the REST API directly
+    if access_token:
+        try:
+            api_headers = {
+                "Authorization": f"{token_type} {access_token}",
+                "Content-Type": "application/json",
+                "Timezone": "America/Chicago"
+            }
+
+            # Get invoice list
+            inv_resp = requests.get(f"{api_base}/order/get-invoice-list", headers=api_headers, timeout=30)
+            if inv_resp.status_code == 200:
+                invoice_data = inv_resp.json()
+                inv_list = invoice_data if isinstance(invoice_data, list) else invoice_data.get("data", invoice_data.get("invoices", []))
+                for inv in inv_list:
+                    if isinstance(inv, dict):
+                        order_num = inv.get("invoice_number", inv.get("order_number", inv.get("id", "")))
+                        line_items = []
+                        items = inv.get("items", inv.get("line_items", inv.get("details", [])))
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict):
+                                    line_items.append({
+                                        "sku": item.get("sku", item.get("item_code", "")),
+                                        "size": item.get("size", ""),
+                                        "description": item.get("description", item.get("name", "")),
+                                        "quantity": str(item.get("quantity", item.get("qty", 0))),
+                                        "unit_price": str(item.get("unit_price", item.get("price", 0))),
+                                        "fet": str(item.get("fet", item.get("excise_tax", 0))),
+                                        "total": str(item.get("total", item.get("amount", 0)))
+                                    })
+                        orders.append({
+                            "order_number": str(order_num),
+                            "date": inv.get("date", inv.get("invoice_date", "")),
+                            "status": "completed",
+                            "supplier": "Hesselbein Tire",
+                            "line_items": line_items
+                        })
+            else:
+                errors.append(f"Invoice API returned {inv_resp.status_code}: {inv_resp.text[:200]}")
+
+            # Also try order history
+            hist_resp = requests.get(f"{api_base}/order/get-order-history-by-date", headers=api_headers, timeout=30, params={"start_date": "2025-01-01", "end_date": "2026-12-31"})
+            if hist_resp.status_code == 200:
+                hist_data = hist_resp.json()
+                hist_list = hist_data if isinstance(hist_data, list) else hist_data.get("data", hist_data.get("orders", []))
+                existing_nums = {o["order_number"] for o in orders}
+                for h in hist_list:
+                    if isinstance(h, dict):
+                        onum = str(h.get("order_number", h.get("id", "")))
+                        if onum and onum not in existing_nums:
+                            orders.append({
+                                "order_number": onum,
+                                "date": h.get("date", h.get("order_date", "")),
+                                "status": h.get("status", "completed"),
+                                "supplier": "Hesselbein Tire",
+                                "line_items": []
+                            })
+
+        except Exception as e:
+            errors.append(f"Hesselbein API error: {str(e)}")
+    elif login_success:
+        errors.append("Login succeeded but could not extract auth token from localStorage")
 
     return {"orders": orders, "errors": errors, "login_success": login_success}
 

@@ -4113,7 +4113,7 @@ def _parse_firestore_map_items(fields: dict) -> list:
     return line_items
 
 
-@app.get("/orders/firebase-history")
+@app.get("/movements/history")
 def get_firebase_order_history(
     supplier: Optional[str] = Query(None),
     order_type: Optional[str] = Query(None),
@@ -4518,6 +4518,10 @@ class CreateInvoiceRequest(BaseModel):
     line_items: List[InvoiceLineItemIn]
     memo: Optional[str] = None
 
+# Force Pydantic v2 to resolve forward refs under `from __future__ import annotations`
+InvoiceLineItemIn.model_rebuild()
+CreateInvoiceRequest.model_rebuild()
+
 
 @app.get("/quickbooks/invoices")
 def list_qb_invoices(
@@ -4639,11 +4643,12 @@ def create_qb_invoice(
                 inv_item.quantity = max(0, inv_item.quantity - li.quantity)
                 txn = InventoryTransaction(
                     item_id=inv_item.id,
-                    transaction_type="sale",
+                    owner_id=current_user.id,
+                    transaction_type="sell",
                     quantity=-li.quantity,
                     unit_cost=li.unit_price,
+                    reference=f"INV-{doc_number}",
                     notes=f"QBO Invoice #{doc_number} - {req.customer_name}",
-                    created_by=current_user.id
                 )
                 db.add(txn)
                 deducted_items.append({

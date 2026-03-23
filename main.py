@@ -4579,7 +4579,7 @@ def list_qb_invoices(
     resp = requests.get(
         f"{get_qb_api_base()}/v3/company/{realm_id}/query",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-        params={"query": f"SELECT * FROM Invoice MAXRESULTS {max_results} ORDERBY MetaData.LastUpdatedTime DESC"},
+        params={"query": f"SELECT * FROM Invoice MAXRESULTS {max_results} ORDER BY MetaData.LastUpdatedTime DESC"},
         timeout=30
     )
 

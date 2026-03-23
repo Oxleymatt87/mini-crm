@@ -2160,6 +2160,50 @@ def delete_inventory_item(
     return {"ok": True}
 
 
+@app.post("/inventory/deduplicate")
+def deduplicate_inventory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove duplicate CRM inventory items that share brand+name+size.
+    Keeps the item that has a qb_item_id; if neither or both do, keeps the
+    lower primary-key (original) row. Returns counts of removed duplicates."""
+    from collections import defaultdict
+
+    items = db.query(InventoryItem).filter(
+        InventoryItem.owner_id == current_user.id
+    ).order_by(InventoryItem.id).all()
+
+    # Group by normalised (brand, name, size)
+    groups: dict = defaultdict(list)
+    for it in items:
+        key = (
+            (it.brand or "").strip().lower(),
+            (it.name or "").strip().lower(),
+            (it.size or "").strip().lower(),
+        )
+        groups[key].append(it)
+
+    removed = []
+    kept = []
+
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        # Pick winner: prefer item with qb_item_id, then lowest id
+        winner = next((it for it in group if it.qb_item_id), group[0])
+        losers = [it for it in group if it.id != winner.id]
+        for loser in losers:
+            removed.append({"id": loser.id, "sku": loser.sku, "name": loser.name,
+                            "had_qb_id": bool(loser.qb_item_id)})
+            db.delete(loser)
+        kept.append({"id": winner.id, "sku": winner.sku, "name": winner.name,
+                     "qb_item_id": winner.qb_item_id})
+
+    db.commit()
+    return {"removed": len(removed), "details_removed": removed, "kept_count": len(kept)}
+
+
 # Inventory Transactions
 @app.post("/inventory/{item_id}/transactions", response_model=InventoryTransactionOut)
 def create_inventory_transaction(
@@ -2303,6 +2347,124 @@ def list_quickbooks_items(
     data = resp.json()
     items = data.get('QueryResponse', {}).get('Item', [])
     return {"items": items}
+
+
+@app.post("/quickbooks/rematch-items")
+def rematch_qbo_items(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Re-match CRM inventory items to real QBO item IDs by fuzzy brand+name/size match.
+    For CRM items with no QBO match, create them in QBO and store the new ID.
+    Returns counts of matched, created, and failed items."""
+    import difflib
+
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    # 1. Pull all QBO items (up to 500)
+    resp = requests.get(
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        params={"query": "SELECT * FROM Item MAXRESULTS 500"},
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"QBO API error: {resp.text[:300]}")
+
+    qbo_items = resp.json().get("QueryResponse", {}).get("Item", [])
+
+    # Build lookup keys: normalised name → qbo item
+    def _norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+    qbo_by_name: dict[str, dict] = {}
+    for qi in qbo_items:
+        key = _norm(qi.get("Name", ""))
+        if key:
+            qbo_by_name[key] = qi
+
+    qbo_names = list(qbo_by_name.keys())
+
+    crm_items = db.query(InventoryItem).filter(
+        InventoryItem.owner_id == current_user.id,
+        InventoryItem.is_active == True,
+    ).all()
+
+    matched = 0
+    created = 0
+    failed = 0
+    details = []
+
+    for item in crm_items:
+        # Build a search key from brand + size or brand + name
+        candidate_keys = []
+        if item.brand and item.size:
+            candidate_keys.append(_norm(f"{item.brand} {item.size}"))
+        if item.brand and item.name:
+            candidate_keys.append(_norm(f"{item.brand} {item.name}"))
+        candidate_keys.append(_norm(item.name))
+
+        best_match = None
+        best_score = 0.0
+        for ck in candidate_keys:
+            hits = difflib.get_close_matches(ck, qbo_names, n=1, cutoff=0.65)
+            if hits:
+                score = difflib.SequenceMatcher(None, ck, hits[0]).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_match = qbo_by_name[hits[0]]
+
+        if best_match:
+            old_id = item.qb_item_id
+            item.qb_item_id = best_match["Id"]
+            db.commit()
+            matched += 1
+            details.append({"sku": item.sku, "name": item.name, "action": "matched",
+                            "qb_id": item.qb_item_id, "qb_name": best_match.get("Name"), "score": round(best_score, 3)})
+        else:
+            # Create in QBO
+            qb_data = {
+                "Name": item.name[:100],
+                "Type": "NonInventory",
+                "IncomeAccountRef": {"value": "7", "name": "Sales"},
+                "ExpenseAccountRef": {"value": "9", "name": "Cost of Goods Sold"},
+            }
+            if item.sku:
+                qb_data["Sku"] = item.sku
+            if item.description:
+                qb_data["Description"] = item.description[:4000]
+            if item.cost:
+                qb_data["PurchaseCost"] = item.cost
+            if item.price:
+                qb_data["UnitPrice"] = item.price
+            try:
+                cr = requests.post(
+                    f"{get_qb_api_base()}/v3/company/{realm_id}/item",
+                    headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json",
+                             "Content-Type": "application/json"},
+                    json=qb_data, timeout=30,
+                )
+                if cr.status_code in (200, 201):
+                    new_id = cr.json().get("Item", {}).get("Id")
+                    item.qb_item_id = new_id
+                    db.commit()
+                    created += 1
+                    details.append({"sku": item.sku, "name": item.name, "action": "created", "qb_id": new_id})
+                else:
+                    failed += 1
+                    details.append({"sku": item.sku, "name": item.name, "action": "failed", "error": cr.text[:200]})
+            except Exception as exc:
+                failed += 1
+                details.append({"sku": item.sku, "name": item.name, "action": "failed", "error": str(exc)[:200]})
+
+    return {
+        "total_crm": len(crm_items),
+        "total_qbo": len(qbo_items),
+        "matched": matched,
+        "created": created,
+        "failed": failed,
+        "details": details,
+    }
 
 
 @app.post("/quickbooks/import-items")
@@ -4570,6 +4732,135 @@ def _scrape_hesselbein_catalog(supplier: Supplier, password: str, search: Option
     return tires
 
 
+def _scrape_atd_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
+    """Login to ATD (atd.com) dealer portal and return tire catalog.
+    ATD's dealer ordering site lives at ordering.atd.com and uses a JSON product API.
+    Falls back to empty list with no exception so the refresh cycle continues."""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/html, */*",
+    })
+    tires = []
+    try:
+        # Step 1: GET login page to extract CSRF / form fields
+        base = "https://ordering.atd.com"
+        login_page = session.get(f"{base}/login", timeout=30, allow_redirects=True)
+        soup = BeautifulSoup(login_page.text, "lxml")
+
+        csrf_input = soup.find("input", {"name": re.compile(r"csrf|_token|authenticity", re.I)})
+        login_data: dict = {
+            "username": supplier.portal_username,
+            "password": password,
+        }
+        if csrf_input:
+            login_data[csrf_input["name"]] = csrf_input.get("value", "")
+
+        login_resp = session.post(f"{base}/login", data=login_data, timeout=30, allow_redirects=True)
+
+        # Step 2: Try known ATD product-search JSON endpoints
+        search_term = search or "tire"
+        for endpoint, params in [
+            (f"{base}/api/products/search", {"q": search_term, "category": "tires", "pageSize": 200}),
+            (f"{base}/api/catalog/tires", {"search": search_term, "limit": 200}),
+            (f"{base}/product/search.json", {"query": search_term, "type": "tire"}),
+        ]:
+            try:
+                r = session.get(endpoint, params=params, timeout=30)
+                if r.status_code == 200:
+                    data = r.json()
+                    raw = data if isinstance(data, list) else data.get(
+                        "products", data.get("items", data.get("results", [])))
+                    for item in raw:
+                        if not isinstance(item, dict):
+                            continue
+                        tires.append({
+                            "sku": str(item.get("sku", item.get("partNumber", item.get("id", "")))),
+                            "size": str(item.get("size", item.get("tireSize", ""))),
+                            "description": str(item.get("name", item.get("description", ""))),
+                            "brand": str(item.get("brand", item.get("brandName", ""))),
+                            "price": str(item.get("price", item.get("netPrice", item.get("unitPrice", "")))),
+                            "availability": str(item.get("qty", item.get("availability", item.get("stock", "")))),
+                        })
+                    if tires:
+                        break
+            except Exception:
+                continue
+    except Exception:
+        pass  # Return whatever we have; don't crash the refresh cycle
+    return tires
+
+
+def _scrape_km_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
+    """Login to K&M Tire (kmtire.com) dealer portal and return tire catalog.
+    K&M uses a PHP/Laravel backend with session-based auth.
+    Falls back to empty list with no exception so the refresh cycle continues."""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    })
+    tires = []
+    try:
+        base = "https://www.kmtire.com"
+        # Step 1: GET login page for CSRF token
+        login_page = session.get(f"{base}/login", timeout=30)
+        soup = BeautifulSoup(login_page.text, "lxml")
+
+        csrf_input = soup.find("input", {"name": re.compile(r"_token|csrf", re.I)})
+        csrf_val = csrf_input.get("value", "") if csrf_input else ""
+
+        login_resp = session.post(
+            f"{base}/login",
+            data={"email": supplier.portal_username, "password": password, "_token": csrf_val},
+            timeout=30,
+            allow_redirects=True,
+        )
+
+        # Step 2: Search for tires
+        search_term = search or "tire"
+        for endpoint, params in [
+            (f"{base}/api/products", {"search": search_term, "category": "tires", "per_page": 200}),
+            (f"{base}/catalog/search", {"q": search_term, "type": "tires"}),
+            (f"{base}/products.json", {"search": search_term}),
+        ]:
+            try:
+                r = session.get(endpoint, params=params, timeout=30)
+                if r.status_code == 200:
+                    data = r.json()
+                    raw = data if isinstance(data, list) else data.get(
+                        "data", data.get("products", data.get("items", [])))
+                    for item in raw:
+                        if not isinstance(item, dict):
+                            continue
+                        tires.append({
+                            "sku": str(item.get("sku", item.get("part_number", item.get("id", "")))),
+                            "size": str(item.get("size", item.get("tire_size", ""))),
+                            "description": str(item.get("name", item.get("description", ""))),
+                            "brand": str(item.get("brand", item.get("brand_name", ""))),
+                            "price": str(item.get("price", item.get("net_price", item.get("unit_price", "")))),
+                            "availability": str(item.get("qty", item.get("availability", item.get("stock", "")))),
+                        })
+                    if tires:
+                        break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return tires
+
+
+def _scrape_south_gateway_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
+    """Stub: South Gateway catalog scraper. Returns empty list until portal structure is confirmed."""
+    return []
+
+
+def _scrape_mekaniq_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
+    """Stub: Mekaniq catalog scraper. Returns empty list until portal structure is confirmed."""
+    return []
+
+
 def _upsert_supplier_catalog(db: Session, supplier_id: int, owner_id: int, entries: list) -> None:
     """Delete-then-insert all catalog entries for a supplier with a shared timestamp."""
     now = dt.datetime.utcnow()
@@ -4595,7 +4886,7 @@ _cron_last_run_date: Optional[dt.date] = None
 
 
 def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
-    """Scrape BZO + Hesselbein and upsert into supplier_catalog.
+    """Scrape BZO, Hesselbein, ATD, K&M, South Gateway, and Mekaniq and upsert into supplier_catalog.
     Pass owner_id to scope to one user; None refreshes all users.
     Acquires a lock so concurrent calls are a no-op."""
     if not _refresh_lock.acquire(blocking=False):
@@ -4607,6 +4898,10 @@ def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
             for name_pattern, key, scrape_fn in [
                 ("%BZO%", "bzo", _scrape_bzo_catalog),
                 ("%hesselbein%", "hesselbein", _scrape_hesselbein_catalog),
+                ("%ATD%", "atd", _scrape_atd_catalog),
+                ("%K&M%", "km", _scrape_km_catalog),
+                ("%South Gateway%", "south_gateway", _scrape_south_gateway_catalog),
+                ("%Mekaniq%", "mekaniq", _scrape_mekaniq_catalog),
             ]:
                 q = db.query(Supplier).filter(
                     Supplier.name.ilike(name_pattern),

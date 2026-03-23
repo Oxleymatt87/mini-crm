@@ -2236,6 +2236,25 @@ def get_inventory_stats(
     }
 
 
+@app.get("/inventory/stats/sales-rank")
+def get_inventory_sales_rank(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Return total qty sold per inventory item (sum of sell transactions)."""
+    from sqlalchemy import func as sqlfunc
+    rows = (
+        db.query(InventoryTransaction.item_id, sqlfunc.sum(InventoryTransaction.quantity).label("total"))
+        .filter(
+            InventoryTransaction.owner_id == current_user.id,
+            InventoryTransaction.transaction_type == "sell",
+        )
+        .group_by(InventoryTransaction.item_id)
+        .all()
+    )
+    return {str(row.item_id): abs(int(row.total or 0)) for row in rows}
+
+
 # QuickBooks Inventory Sync
 @app.get("/quickbooks/items")
 def list_quickbooks_items(
@@ -4307,7 +4326,7 @@ def hesselbein_auto_receive(
 # SUPPLIER STOCK - Live inventory lookup
 # =============================================================================
 
-@app.get("/suppliers/bzo-stock")
+@app.get("/stock/bzo")
 def get_bzo_stock(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
@@ -4407,7 +4426,7 @@ def get_bzo_stock(
         raise HTTPException(status_code=500, detail=f"BZO stock error: {str(e)}")
 
 
-@app.get("/suppliers/hesselbein-stock")
+@app.get("/stock/hesselbein")
 def get_hesselbein_stock(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),

@@ -4074,6 +4074,630 @@ def check_single_supplier_portal(
     raise HTTPException(status_code=404, detail="Supplier not found")
 
 
+# =============================================================================
+# ORDERS HISTORY - Firebase movements
+# =============================================================================
+
+def _parse_firestore_val(v, default=None):
+    """Parse a single Firestore typed value."""
+    if not isinstance(v, dict):
+        return default
+    if "stringValue" in v:
+        return v["stringValue"]
+    if "integerValue" in v:
+        return int(v["integerValue"])
+    if "doubleValue" in v:
+        return float(v["doubleValue"])
+    if "booleanValue" in v:
+        return v["booleanValue"]
+    return default
+
+
+def _parse_firestore_map_items(fields: dict) -> list:
+    """Parse line items from a Firestore document's arrayValue field."""
+    items_field = fields.get("items", {})
+    line_items = []
+    if "arrayValue" in items_field:
+        for item_val in items_field["arrayValue"].get("values", []):
+            if "mapValue" in item_val:
+                f = item_val["mapValue"]["fields"]
+                line_items.append({
+                    "sku": _parse_firestore_val(f.get("sku"), ""),
+                    "size": _parse_firestore_val(f.get("size"), ""),
+                    "description": _parse_firestore_val(f.get("description"), ""),
+                    "quantity": _parse_firestore_val(f.get("quantity"), ""),
+                    "unit_price": _parse_firestore_val(f.get("unit_price"), ""),
+                    "fet": _parse_firestore_val(f.get("fet"), ""),
+                    "total": _parse_firestore_val(f.get("total"), ""),
+                })
+    return line_items
+
+
+@app.get("/orders/firebase-history")
+def get_firebase_order_history(
+    supplier: Optional[str] = Query(None),
+    order_type: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user)
+):
+    """Get order history from Firebase movements (BZO + Hesselbein)."""
+    try:
+        firebase_token = get_firebase_auth_token()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase auth failed: {str(e)}")
+
+    try:
+        resp = requests.get(
+            f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/movements",
+            headers={"Authorization": f"Bearer {firebase_token}"},
+            params={"pageSize": 300},
+            timeout=30
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firestore fetch failed: {str(e)}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Firestore error: {resp.text[:200]}")
+
+    docs = resp.json().get("documents", [])
+    orders = []
+
+    for doc in docs:
+        fields = doc.get("fields", {})
+        po_number = _parse_firestore_val(fields.get("poNumber"), "")
+        supplier_name = _parse_firestore_val(fields.get("supplier"), "")
+        order_type_val = _parse_firestore_val(fields.get("type"), "receive")
+        date_val = _parse_firestore_val(fields.get("date"), "")
+        total_val = _parse_firestore_val(fields.get("total"), "")
+        customer_po = _parse_firestore_val(fields.get("customerPo"), "") or \
+                      _parse_firestore_val(fields.get("customer_po"), "")
+        auto_recv = _parse_firestore_val(fields.get("autoReceived"), False)
+
+        if supplier and supplier.lower() not in supplier_name.lower():
+            continue
+        if order_type and order_type.lower() not in order_type_val.lower():
+            continue
+
+        line_items = _parse_firestore_map_items(fields)
+
+        orders.append({
+            "po_number": po_number,
+            "supplier": supplier_name,
+            "type": order_type_val,
+            "date": date_val,
+            "total": total_val,
+            "customer_po": customer_po,
+            "items_count": len(line_items),
+            "line_items": line_items,
+            "auto_received": auto_recv,
+        })
+
+    orders.sort(key=lambda x: x.get("date", ""), reverse=True)
+    return {"orders": orders, "total": len(orders)}
+
+
+# =============================================================================
+# HESSELBEIN AUTO-RECEIVE
+# =============================================================================
+
+@app.post("/suppliers/hesselbein/auto-receive")
+def hesselbein_auto_receive(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Auto-receive all Hesselbein orders into Firebase that aren't already there."""
+    supplier = db.query(Supplier).filter(
+        Supplier.owner_id == current_user.id,
+        Supplier.name.ilike("%hesselbein%")
+    ).first()
+
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Hesselbein supplier not found. Add it in suppliers.")
+
+    if not supplier.portal_username or not supplier.portal_password_encrypted:
+        raise HTTPException(status_code=400, detail="Hesselbein portal credentials not set.")
+
+    try:
+        password = _simple_decrypt(supplier.portal_password_encrypted)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not decrypt Hesselbein portal password.")
+
+    try:
+        firebase_token = get_firebase_auth_token()
+        existing_movements = get_firebase_movements(firebase_token)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase auth failed: {str(e)}")
+
+    scrape_result = scrape_hesselbein_portal("", supplier.portal_username, password)
+    orders = scrape_result.get("orders", [])
+    errors = scrape_result.get("errors", [])
+
+    new_count = 0
+    already_count = 0
+    failed = []
+
+    for order in orders:
+        order_number = order.get("order_number", "")
+        if not order_number:
+            continue
+        if order_number in existing_movements:
+            already_count += 1
+            continue
+
+        movement_data = {
+            "poNumber": order_number,
+            "supplier": "Hesselbein Tire",
+            "type": "receive",
+            "status": "completed",
+            "date": order.get("date") or dt.datetime.now().isoformat(),
+            "total": str(order.get("total", "")),
+            "customerPo": order.get("customer_po", ""),
+            "orderType": order.get("type", ""),
+            "items": order.get("line_items", []),
+            "createdAt": dt.datetime.now().isoformat(),
+            "autoReceived": True,
+        }
+
+        try:
+            ok = create_firebase_movement(firebase_token, movement_data)
+            if ok:
+                new_count += 1
+            else:
+                failed.append(order_number)
+        except Exception as e:
+            failed.append(f"{order_number}: {str(e)[:50]}")
+
+    return {
+        "orders_found": len(orders),
+        "new_received": new_count,
+        "already_received": already_count,
+        "failed": len(failed),
+        "failed_list": failed[:20],
+        "scrape_errors": errors[:10],
+        "login_success": scrape_result.get("login_success", False),
+    }
+
+
+# =============================================================================
+# SUPPLIER STOCK - Live inventory lookup
+# =============================================================================
+
+@app.get("/suppliers/bzo-stock")
+def get_bzo_stock(
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get live tire inventory from BZO TireGuru portal."""
+    supplier = db.query(Supplier).filter(
+        Supplier.owner_id == current_user.id,
+        Supplier.name.ilike("%BZO%")
+    ).first()
+
+    if not supplier or not supplier.portal_username or not supplier.portal_password_encrypted:
+        raise HTTPException(status_code=404, detail="BZO supplier not configured with portal credentials.")
+
+    try:
+        password = _simple_decrypt(supplier.portal_password_encrypted)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not decrypt BZO portal password.")
+
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+
+    try:
+        login_page = session.get("https://bzowheelandtire.com", timeout=30)
+        soup = BeautifulSoup(login_page.text, 'lxml')
+        server_field = soup.find('input', {'name': 'server'})
+        from_field = soup.find('input', {'name': 'from'})
+        server_value = server_field.get('value', '') if server_field else ''
+        from_value = from_field.get('value', '') if from_field else ''
+
+        if not server_value:
+            raise HTTPException(status_code=400, detail="Could not extract BZO server field from login page.")
+
+        login_resp = session.post(
+            "https://companylinkhere.tireguru.net/checkLogin.php",
+            data={'server': server_value, 'from': from_value,
+                  'username': supplier.portal_username, 'password': password},
+            timeout=30, allow_redirects=True
+        )
+
+        if 'invalid' in login_resp.text.lower() or login_resp.status_code >= 400:
+            raise HTTPException(status_code=401, detail="BZO login failed - invalid credentials.")
+
+        params = {}
+        if search:
+            params['search'] = search
+
+        tires_resp = session.get(
+            "https://companylinkhere.tireguru.net/lookup/tires",
+            params=params, timeout=30
+        )
+
+        tires = []
+        if tires_resp.status_code == 200:
+            content_type = tires_resp.headers.get('Content-Type', '')
+            if 'json' in content_type:
+                data = tires_resp.json()
+                if isinstance(data, list):
+                    tires = data
+                elif isinstance(data, dict):
+                    tires = data.get("tires", data.get("items", data.get("data", [])))
+            else:
+                tire_soup = BeautifulSoup(tires_resp.text, 'lxml')
+                for row in tire_soup.find_all('tr', attrs={'data-index': True}):
+                    cells = row.find_all('td')
+                    if len(cells) >= 4:
+                        tires.append({
+                            "sku": cells[0].get_text(strip=True),
+                            "size": cells[1].get_text(strip=True),
+                            "description": cells[2].get_text(strip=True),
+                            "price": cells[3].get_text(strip=True),
+                            "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
+                            "brand": cells[5].get_text(strip=True) if len(cells) > 5 else "",
+                        })
+                if not tires:
+                    for row in tire_soup.find_all('tr'):
+                        cells = row.find_all('td')
+                        if len(cells) >= 4:
+                            first = cells[0].get_text(strip=True)
+                            if first and first.lower() not in ('sku', 'item', '#', ''):
+                                tires.append({
+                                    "sku": first,
+                                    "size": cells[1].get_text(strip=True) if len(cells) > 1 else "",
+                                    "description": cells[2].get_text(strip=True) if len(cells) > 2 else "",
+                                    "price": cells[3].get_text(strip=True) if len(cells) > 3 else "",
+                                    "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
+                                    "brand": "",
+                                })
+
+        return {"supplier": "BZO", "tires": tires, "total": len(tires)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"BZO stock error: {str(e)}")
+
+
+@app.get("/suppliers/hesselbein-stock")
+def get_hesselbein_stock(
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get live tire inventory from Hesselbein DKTire API."""
+    supplier = db.query(Supplier).filter(
+        Supplier.owner_id == current_user.id,
+        Supplier.name.ilike("%hesselbein%")
+    ).first()
+
+    if not supplier or not supplier.portal_username or not supplier.portal_password_encrypted:
+        raise HTTPException(status_code=404, detail="Hesselbein supplier not configured with portal credentials.")
+
+    try:
+        password = _simple_decrypt(supplier.portal_password_encrypted)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not decrypt Hesselbein portal password.")
+
+    access_token = None
+    token_type = "Bearer"
+    errors = []
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            import time as _time
+            _time.sleep(3)
+
+            for sel in ['input[type="text"]', 'input[name="username"]', 'input[name="account"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(supplier.portal_username)
+                        break
+                except:
+                    continue
+
+            for sel in ['input[type="password"]', 'input[name="password"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(password)
+                        break
+                except:
+                    continue
+
+            for sel in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.click()
+                        break
+                except:
+                    continue
+
+            _time.sleep(5)
+            page.wait_for_load_state("networkidle", timeout=30000)
+
+            try:
+                import json as _json
+                auth_json = page.evaluate("() => localStorage.getItem('authUser')")
+                if auth_json:
+                    auth_data = _json.loads(auth_json)
+                    access_token = auth_data.get("access_token")
+                    token_type = auth_data.get("token_type", "Bearer")
+            except Exception as e:
+                errors.append(f"Token extraction: {str(e)}")
+
+            browser.close()
+    except Exception as e:
+        errors.append(f"Playwright error: {str(e)}")
+
+    if not access_token:
+        raise HTTPException(status_code=401, detail=f"Hesselbein login failed. Errors: {errors}")
+
+    api_headers = {
+        "Authorization": f"{token_type} {access_token}",
+        "Content-Type": "application/json",
+        "Timezone": "America/Chicago"
+    }
+    api_base = "https://api-b2b.dktire.com"
+
+    user_resp = requests.get(f"{api_base}/master/user-details", headers=api_headers, timeout=30)
+    ship_to_uuid = "83373a2b-d442-41e6-8d65-531240a0ecb4"
+    if user_resp.status_code == 200:
+        ud = user_resp.json()
+        ship_to_list = ud.get("ship_to", [])
+        if isinstance(ship_to_list, list) and ship_to_list:
+            first = ship_to_list[0]
+            ship_to_uuid = (first.get("value", "") if isinstance(first, dict) else str(first)) or ship_to_uuid
+
+    tires = []
+    search_params = {"ship_to": ship_to_uuid}
+    if search:
+        search_params["search"] = search
+        search_params["query"] = search
+
+    for endpoint in ["/product/search", "/product/tire-search", "/product/list", "/master/product-list"]:
+        try:
+            r = requests.get(f"{api_base}{endpoint}", headers=api_headers, params=search_params, timeout=30)
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, list):
+                    raw_list = data
+                elif isinstance(data, dict):
+                    raw_list = data.get("data", data.get("products", data.get("items", data.get("results", []))))
+                else:
+                    raw_list = []
+
+                for item in raw_list:
+                    if not isinstance(item, dict):
+                        continue
+                    tires.append({
+                        "sku": item.get("item_id", item.get("sku", item.get("id", ""))),
+                        "size": item.get("size_description", item.get("size", item.get("tire_size", ""))),
+                        "description": item.get("item_description", item.get("description", item.get("name", ""))),
+                        "brand": item.get("brand", item.get("brand_name", "")),
+                        "price": str(item.get("net_price", item.get("price", item.get("unit_price", "")))),
+                        "availability": str(item.get("qty_available", item.get("availability", item.get("stock", "")))),
+                    })
+                if tires:
+                    break
+        except Exception:
+            continue
+
+    return {"supplier": "Hesselbein", "tires": tires, "total": len(tires), "errors": errors}
+
+
+# =============================================================================
+# QUICKBOOKS INVOICES
+# =============================================================================
+
+class InvoiceLineItemIn(BaseModel):
+    qb_item_id: str
+    inventory_item_id: Optional[int] = None
+    description: str = ""
+    quantity: int
+    unit_price: float
+    fet_per_unit: float = 0.0
+
+
+class CreateInvoiceRequest(BaseModel):
+    customer_ref: str  # QBO customer Id
+    customer_name: str = ""
+    line_items: List[InvoiceLineItemIn]
+    memo: Optional[str] = None
+
+
+@app.get("/quickbooks/invoices")
+def list_qb_invoices(
+    max_results: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List recent invoices from QuickBooks."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    resp = requests.get(
+        f"{get_qb_api_base()}/v3/company/{realm_id}/query",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        params={"query": f"SELECT * FROM Invoice MAXRESULTS {max_results} ORDERBY MetaData.LastUpdatedTime DESC"},
+        timeout=30
+    )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks API error: {resp.text[:300]}")
+
+    invoices = resp.json().get("QueryResponse", {}).get("Invoice", [])
+
+    result = []
+    for inv in invoices:
+        result.append({
+            "id": inv.get("Id"),
+            "doc_number": inv.get("DocNumber", ""),
+            "date": inv.get("TxnDate", ""),
+            "due_date": inv.get("DueDate", ""),
+            "customer_name": inv.get("CustomerRef", {}).get("name", ""),
+            "customer_ref": inv.get("CustomerRef", {}).get("value", ""),
+            "total": inv.get("TotalAmt", 0),
+            "balance": inv.get("Balance", 0),
+            "status": "Paid" if (inv.get("Balance", 0) == 0 and inv.get("TotalAmt", 0) > 0) else "Open",
+            "memo": inv.get("CustomerMemo", {}).get("value", "") if isinstance(inv.get("CustomerMemo"), dict) else "",
+            "line_count": len(inv.get("Line", [])),
+        })
+
+    return {"invoices": result, "total": len(result)}
+
+
+@app.post("/quickbooks/invoices/create")
+def create_qb_invoice(
+    req: CreateInvoiceRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a QuickBooks invoice, deduct CRM inventory, log Firebase sale movement."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+
+    # Build QBO invoice payload
+    lines = []
+    total_amount = 0.0
+    total_fet = 0.0
+
+    for li in req.line_items:
+        line_total = li.quantity * li.unit_price
+        total_amount += line_total
+        total_fet += li.quantity * li.fet_per_unit
+
+        lines.append({
+            "Amount": round(line_total, 2),
+            "DetailType": "SalesItemLineDetail",
+            "Description": li.description or "",
+            "SalesItemLineDetail": {
+                "ItemRef": {"value": li.qb_item_id},
+                "Qty": li.quantity,
+                "UnitPrice": li.unit_price,
+            }
+        })
+
+    # Add FET line item if any
+    if total_fet > 0:
+        lines.append({
+            "Amount": round(total_fet, 2),
+            "DetailType": "SalesItemLineDetail",
+            "Description": "Federal Excise Tax (FET)",
+            "SalesItemLineDetail": {
+                "ItemRef": {"value": "7"},  # Income account item
+                "Qty": 1,
+                "UnitPrice": round(total_fet, 2),
+            }
+        })
+
+    invoice_payload = {
+        "CustomerRef": {"value": req.customer_ref},
+        "Line": lines,
+    }
+    if req.memo:
+        invoice_payload["CustomerMemo"] = {"value": req.memo}
+
+    resp = requests.post(
+        f"{get_qb_api_base()}/v3/company/{realm_id}/invoice",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        json=invoice_payload,
+        timeout=30
+    )
+
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=resp.status_code, detail=f"QuickBooks invoice error: {resp.text[:400]}")
+
+    qb_invoice = resp.json().get("Invoice", {})
+    invoice_id = qb_invoice.get("Id", "")
+    doc_number = qb_invoice.get("DocNumber", invoice_id)
+
+    # Deduct inventory quantities
+    deducted_items = []
+    for li in req.line_items:
+        if li.inventory_item_id:
+            inv_item = db.query(InventoryItem).filter(
+                InventoryItem.id == li.inventory_item_id,
+                InventoryItem.owner_id == current_user.id
+            ).first()
+            if inv_item:
+                inv_item.quantity = max(0, inv_item.quantity - li.quantity)
+                txn = InventoryTransaction(
+                    item_id=inv_item.id,
+                    transaction_type="sale",
+                    quantity=-li.quantity,
+                    unit_cost=li.unit_price,
+                    notes=f"QBO Invoice #{doc_number} - {req.customer_name}",
+                    created_by=current_user.id
+                )
+                db.add(txn)
+                deducted_items.append({
+                    "sku": inv_item.sku,
+                    "name": inv_item.name,
+                    "qty_deducted": li.quantity,
+                    "new_qty": inv_item.quantity,
+                })
+    db.commit()
+
+    # Create Firebase sale movement
+    firebase_line_items = [
+        {
+            "sku": li.qb_item_id,
+            "description": li.description,
+            "quantity": str(li.quantity),
+            "unit_price": str(li.unit_price),
+            "fet": str(li.fet_per_unit),
+            "total": str(round(li.quantity * li.unit_price, 2)),
+        }
+        for li in req.line_items
+    ]
+
+    try:
+        firebase_token = get_firebase_auth_token()
+        movement_data = {
+            "poNumber": f"INV-{doc_number}",
+            "supplier": f"Sale to {req.customer_name or req.customer_ref}",
+            "type": "sale",
+            "status": "completed",
+            "date": dt.datetime.now().isoformat(),
+            "total": str(round(total_amount + total_fet, 2)),
+            "customerRef": req.customer_ref,
+            "customerName": req.customer_name,
+            "qbInvoiceId": invoice_id,
+            "qbDocNumber": doc_number,
+            "items": firebase_line_items,
+            "createdAt": dt.datetime.now().isoformat(),
+            "autoReceived": False,
+        }
+        create_firebase_movement(firebase_token, movement_data)
+    except Exception:
+        pass  # Firebase movement is best-effort; don't fail the invoice
+
+    return {
+        "ok": True,
+        "invoice_id": invoice_id,
+        "doc_number": doc_number,
+        "total": total_amount + total_fet,
+        "deducted_items": deducted_items,
+        "qb_invoice": qb_invoice,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)

@@ -484,11 +484,14 @@
             <div id="tab-invoice" class="hidden">
                 <div class="card" style="margin-bottom: 12px;">
                     <div style="font-weight:600; color:#d4a12a; margin-bottom:12px;">Create Invoice</div>
-                    <div class="form-group">
+                    <div class="form-group" style="position:relative;">
                         <label>Customer</label>
-                        <select id="inv-customer-select" style="width:100%; padding:10px; background:#222; border:1px solid #333; border-radius:8px; color:#f5f5f5;">
-                            <option value="">-- Select Customer --</option>
-                        </select>
+                        <input type="text" id="inv-customer-input" placeholder="Type customer name to search..." autocomplete="off"
+                            style="width:100%; padding:10px; background:#222; border:1px solid #333; border-radius:8px; color:#f5f5f5; box-sizing:border-box;"
+                            oninput="filterCustomers(this.value)" onfocus="filterCustomers(this.value)">
+                        <div id="inv-customer-dropdown" style="display:none; position:absolute; top:100%; left:0; right:0; background:#1a1a1a; border:1px solid #444; border-radius:0 0 8px 8px; max-height:220px; overflow-y:auto; z-index:100;"></div>
+                        <input type="hidden" id="inv-customer-id" value="">
+                        <div id="inv-customer-selected" style="display:none; margin-top:4px; font-size:12px; color:#4ade80;"></div>
                     </div>
                     <div class="form-group">
                         <label>Memo / Notes</label>
@@ -1281,37 +1284,38 @@
                 <table class="orders-table">
                 <thead><tr>
                     <th>Date</th><th>Order #</th><th>Supplier</th>
-                    <th>Cust PO</th><th>Items</th><th>Total</th>
+                    <th>Type</th><th>Tires</th>
                 </tr></thead><tbody>`;
 
             orders.forEach((o, i) => {
                 const supplierLower = (o.supplier || '').toLowerCase();
                 const badgeClass = supplierLower.includes('bzo') ? 'badge-bzo' :
                                    supplierLower.includes('hesselbein') ? 'badge-hess' :
-                                   o.type === 'sale' ? 'badge-sale' : 'badge-bzo';
+                                   o.type === 'sell' ? 'badge-sale' : 'badge-bzo';
                 const dateStr = o.date ? o.date.substring(0, 10) : '-';
                 const hasItems = o.line_items && o.line_items.length > 0;
+                const totalQty = (o.line_items || []).reduce((s, li) => s + (parseInt(li.quantity) || 1), 0);
 
                 html += `<tr class="orders-row-expand" onclick="toggleOrderDetail(${i})">
                     <td>${escapeHtml(dateStr)}</td>
                     <td><span style="color:#d4a12a; font-weight:600;">${escapeHtml(o.po_number || '-')}</span></td>
                     <td><span class="badge ${badgeClass}">${escapeHtml(o.supplier || '-')}</span></td>
-                    <td style="color:#aaa;">${escapeHtml(o.customer_po || '-')}</td>
-                    <td style="color:#888;">${o.items_count || o.line_items?.length || '-'}</td>
-                    <td style="color:#4ade80;">${o.total ? '$' + escapeHtml(String(o.total)) : '-'}</td>
+                    <td style="color:#aaa;">${escapeHtml(o.type || '-')}</td>
+                    <td style="color:#888;">${totalQty} (${o.items_count || o.line_items?.length || 0} lines) ▾</td>
                 </tr>`;
 
                 if (hasItems) {
-                    html += `<tr><td colspan="6" style="padding:0;">
+                    html += `<tr><td colspan="5" style="padding:0;">
                         <div class="line-items-detail" id="order-detail-${i}">`;
                     o.line_items.forEach(li => {
+                        const desc = [li.brand, li.model, li.size].filter(Boolean).join(' ');
+                        const cond = li.condition ? ` · ${li.condition}` : '';
+                        const pos  = li.position  ? ` · ${li.position}`  : '';
                         html += `<div class="line-item-row">
                             <span style="color:#d4a12a; min-width:70px;">${escapeHtml(li.sku || '')}</span>
                             <span style="min-width:80px;">${escapeHtml(li.size || '')}</span>
-                            <span style="flex:1;">${escapeHtml(li.description || '')}</span>
-                            <span style="min-width:30px;">x${escapeHtml(String(li.quantity || ''))}</span>
-                            <span style="color:#4ade80; min-width:60px;">$${escapeHtml(String(li.unit_price || ''))}</span>
-                            ${li.fet ? `<span style="color:#888;">FET:$${escapeHtml(String(li.fet))}</span>` : ''}
+                            <span style="flex:1;">${escapeHtml(desc)}${escapeHtml(cond + pos)}</span>
+                            <span style="min-width:30px; color:#4ade80;">x${escapeHtml(String(li.quantity || '1'))}</span>
                         </div>`;
                     });
                     html += `</div></td></tr>`;
@@ -1439,23 +1443,86 @@
         let invoiceLines = [];
 
         async function loadQBCustomers() {
-            const sel = document.getElementById('inv-customer-select');
-            if (sel.options.length > 1) return; // already loaded
-
+            if (qbCustomers.length) return; // already loaded
             try {
                 const data = await api('/quickbooks/customers');
-                qbCustomers = data.customers || [];
-                sel.innerHTML = '<option value="">-- Select Customer --</option>';
-                qbCustomers.forEach(c => {
-                    const opt = document.createElement('option');
-                    opt.value = c.Id;
-                    opt.textContent = c.DisplayName || `${c.GivenName || ''} ${c.FamilyName || ''}`.trim();
-                    sel.appendChild(opt);
-                });
+                qbCustomers = (data.customers || []).map(c => ({
+                    id: c.Id,
+                    name: c.DisplayName || `${c.GivenName || ''} ${c.FamilyName || ''}`.trim()
+                }));
                 document.getElementById('create-invoice-btn').disabled = false;
             } catch (e) {
-                sel.innerHTML = '<option value="">QuickBooks not connected</option>';
+                document.getElementById('inv-customer-input').placeholder = 'QuickBooks not connected';
             }
+        }
+
+        function filterCustomers(query) {
+            const dropdown = document.getElementById('inv-customer-dropdown');
+            if (!query || query.length < 1) { dropdown.style.display = 'none'; return; }
+            const q = query.toLowerCase();
+            const matches = qbCustomers.filter(c => c.name.toLowerCase().includes(q)).slice(0, 20);
+            if (!matches.length) { dropdown.style.display = 'none'; return; }
+            dropdown.innerHTML = matches.map(c =>
+                `<div onclick="selectCustomer('${c.id.replace(/'/g,"\\'")}','${c.name.replace(/'/g,"\\'")}')"
+                    style="padding:8px 12px; cursor:pointer; font-size:13px; border-bottom:1px solid #2a2a2a;"
+                    onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''">${escapeHtml(c.name)}</div>`
+            ).join('');
+            dropdown.style.display = 'block';
+        }
+
+        function selectCustomer(id, name) {
+            document.getElementById('inv-customer-input').value = name;
+            document.getElementById('inv-customer-id').value = id;
+            document.getElementById('inv-customer-dropdown').style.display = 'none';
+            document.getElementById('inv-customer-selected').textContent = '✓ Selected: ' + name;
+            document.getElementById('inv-customer-selected').style.display = 'block';
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#inv-customer-input') && !e.target.closest('#inv-customer-dropdown')) {
+                const dd = document.getElementById('inv-customer-dropdown');
+                if (dd) dd.style.display = 'none';
+            }
+            // Close any open item dropdowns
+            if (!e.target.closest('[id^="line-search-"]') && !e.target.closest('[id^="line-dropdown-"]')) {
+                document.querySelectorAll('[id^="line-dropdown-"]').forEach(d => d.style.display = 'none');
+            }
+        });
+
+        function filterItems(lineId, query) {
+            const dropdown = document.getElementById(`line-dropdown-${lineId}`);
+            if (!dropdown) return;
+            const q = (query || '').toLowerCase();
+            const items = inventory.filter(i => i.qb_item_id);
+            const matches = q.length < 1 ? items.slice(0, 15) :
+                items.filter(i => {
+                    const name = (i.name || '').toLowerCase();
+                    const sku  = (i.sku  || '').toLowerCase();
+                    return name.includes(q) || sku.includes(q);
+                }).slice(0, 15);
+            if (!matches.length) { dropdown.style.display = 'none'; return; }
+            dropdown.innerHTML = matches.map(i =>
+                `<div onclick="selectItem(${lineId},'${i.qb_item_id.replace(/'/g,"\\'")}',${i.id},'${escapeHtml(i.name).replace(/'/g,"\\'")}',${parseFloat(i.price)||0})"
+                    style="padding:7px 10px; cursor:pointer; font-size:12px; border-bottom:1px solid #2a2a2a;"
+                    onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''">${escapeHtml(i.name)} <span style="color:#666;">${escapeHtml(i.sku||'')}</span></div>`
+            ).join('');
+            dropdown.style.display = 'block';
+        }
+
+        function selectItem(lineId, qbItemId, invId, name, price) {
+            const line = invoiceLines.find(l => l.id === lineId);
+            if (!line) return;
+            line.qb_item_id = qbItemId;
+            line.inventory_item_id = invId;
+            line.description = name;
+            if (price && !line.unit_price) line.unit_price = price;
+            const inp = document.getElementById(`line-search-${lineId}`);
+            if (inp) inp.value = name;
+            const dd = document.getElementById(`line-dropdown-${lineId}`);
+            if (dd) dd.style.display = 'none';
+            const descEl = document.getElementById(`line-desc-${lineId}`);
+            if (descEl) { descEl.textContent = '✓ ' + name; descEl.style.color = '#4ade80'; }
+            updateInvoiceTotals();
         }
 
         function addInvoiceLineItem() {
@@ -1479,20 +1546,17 @@
 
             let html = '';
             invoiceLines.forEach(line => {
-                const itemOptions = inventory
-                    .filter(i => i.qb_item_id)
-                    .map(i => `<option value="${i.qb_item_id}" data-invid="${i.id}" data-price="${i.price || 0}" data-desc="${escapeHtml(i.name)}">${escapeHtml(i.name)} (${escapeHtml(i.sku)})</option>`)
-                    .join('');
-
+                const selectedDesc = line.description ? escapeHtml(line.description) : '';
                 html += `<div class="inv-line-item" id="line-${line.id}">
-                    <div class="inv-line-item-header">
-                        <select onchange="updateLineItem(${line.id},'qb_item_id',this.value,this)" style="flex:1; padding:8px; background:#1a1a1a; border:1px solid #333; border-radius:6px; color:#f5f5f5; font-size:13px;">
-                            <option value="">-- Select Item --</option>
-                            ${itemOptions}
-                        </select>
+                    <div class="inv-line-item-header" style="position:relative;">
+                        <input type="text" id="line-search-${line.id}" placeholder="Search item by brand/size/model..." autocomplete="off"
+                            value="${escapeHtml(line.description)}"
+                            oninput="filterItems(${line.id},this.value)" onfocus="filterItems(${line.id},this.value)"
+                            style="flex:1; padding:8px; background:#1a1a1a; border:1px solid #333; border-radius:6px; color:#f5f5f5; font-size:13px;">
+                        <div id="line-dropdown-${line.id}" style="display:none; position:absolute; top:100%; left:0; right:36px; background:#1a1a1a; border:1px solid #444; border-radius:0 0 6px 6px; max-height:180px; overflow-y:auto; z-index:200;"></div>
                         <button class="inv-line-item-remove" onclick="removeInvoiceLine(${line.id})">&times;</button>
                     </div>
-                    <div class="inv-details" style="font-size:12px; color:#888; margin-bottom:6px;" id="line-desc-${line.id}">${escapeHtml(line.description)}</div>
+                    <div class="inv-details" style="font-size:12px; color:${line.qb_item_id ? '#4ade80' : '#888'}; margin-bottom:6px;" id="line-desc-${line.id}">${selectedDesc}</div>
                     <div style="display:flex; gap:8px;">
                         <div style="flex:1;">
                             <label style="font-size:11px; color:#666;">Qty</label>
@@ -1510,7 +1574,7 @@
                                 style="width:100%; padding:8px; background:#1a1a1a; border:1px solid #333; border-radius:6px; color:#f5f5f5;">
                         </div>
                     </div>
-                    <div style="text-align:right; margin-top:6px; font-size:13px; color:#4ade80;">
+                    <div id="line-total-${line.id}" style="text-align:right; margin-top:6px; font-size:13px; color:#4ade80;">
                         Line: $${((line.quantity * line.unit_price) + (line.quantity * line.fet_per_unit)).toFixed(2)}
                     </div>
                 </div>`;
@@ -1520,24 +1584,11 @@
             updateInvoiceTotals();
         }
 
-        function updateLineItem(lineId, field, value, selectEl) {
+        function updateLineItem(lineId, field, value) {
             const line = invoiceLines.find(l => l.id === lineId);
             if (!line) return;
             line[field] = value;
-
-            if (field === 'qb_item_id' && selectEl) {
-                const opt = selectEl.options[selectEl.selectedIndex];
-                if (opt) {
-                    line.inventory_item_id = parseInt(opt.dataset.invid) || null;
-                    const autoPrice = parseFloat(opt.dataset.price) || 0;
-                    if (autoPrice && !line.unit_price) line.unit_price = autoPrice;
-                    line.description = opt.dataset.desc || '';
-                    const descEl = document.getElementById(`line-desc-${lineId}`);
-                    if (descEl) descEl.textContent = line.description;
-                }
-            }
-
-            renderInvoiceLines();
+            updateInvoiceTotals();
         }
 
         function updateInvoiceTotals() {
@@ -1545,6 +1596,8 @@
             invoiceLines.forEach(l => {
                 subtotal += l.quantity * l.unit_price;
                 fetTotal += l.quantity * l.fet_per_unit;
+                const lt = document.getElementById(`line-total-${l.id}`);
+                if (lt) lt.textContent = `Line: $${((l.quantity * l.unit_price) + (l.quantity * l.fet_per_unit)).toFixed(2)}`;
             });
             const totalsEl = document.getElementById('invoice-totals');
             totalsEl.style.display = invoiceLines.length ? 'block' : 'none';
@@ -1557,13 +1610,12 @@
             const errEl = document.getElementById('invoice-create-error');
             errEl.classList.add('hidden');
 
-            const customerRef = document.getElementById('inv-customer-select').value;
-            const customerSel = document.getElementById('inv-customer-select');
-            const customerName = customerSel.options[customerSel.selectedIndex]?.text || '';
+            const customerRef = document.getElementById('inv-customer-id').value;
+            const customerName = document.getElementById('inv-customer-input').value;
             const memo = document.getElementById('inv-memo').value;
 
             if (!customerRef) {
-                errEl.textContent = 'Please select a customer.';
+                errEl.textContent = 'Please select a customer from the dropdown.';
                 errEl.classList.remove('hidden');
                 return;
             }
@@ -1603,7 +1655,9 @@
                 alert(`Invoice #${result.doc_number} created! Total: $${result.total.toFixed(2)}`);
                 invoiceLines = [];
                 renderInvoiceLines();
-                document.getElementById('inv-customer-select').value = '';
+                document.getElementById('inv-customer-input').value = '';
+                document.getElementById('inv-customer-id').value = '';
+                document.getElementById('inv-customer-selected').style.display = 'none';
                 document.getElementById('inv-memo').value = '';
                 await loadRecentInvoices();
                 await loadInventory();

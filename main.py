@@ -4117,11 +4117,9 @@ def _parse_firestore_map_items(fields: dict) -> list:
 def get_firebase_order_history(
     supplier: Optional[str] = Query(None),
     order_type: Optional[str] = Query(None),
-    from_date: Optional[str] = Query(None),
-    to_date: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user)
 ):
-    """Get order history from Firebase movements (BZO + Hesselbein)."""
+    """Get order history from Firebase movements. Groups individual tire movements by order#."""
     try:
         firebase_token = get_firebase_auth_token()
     except Exception as e:
@@ -4131,7 +4129,7 @@ def get_firebase_order_history(
         resp = requests.get(
             f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/movements",
             headers={"Authorization": f"Bearer {firebase_token}"},
-            params={"pageSize": 300},
+            params={"pageSize": 1000},
             timeout=30
         )
     except Exception as e:
@@ -4141,40 +4139,86 @@ def get_firebase_order_history(
         raise HTTPException(status_code=400, detail=f"Firestore error: {resp.text[:200]}")
 
     docs = resp.json().get("documents", [])
-    orders = []
+
+    # Each doc is a single tire movement; group by extracted order number
+    # Actual fields: brand, model, size, qty, source, notes, zone, condition, position, sku, userId, userEmail
+    # notes example: "Auto-received from BZO Wheels/TireLink (Royal Black) #24678"
+    orders: dict = {}
 
     for doc in docs:
         fields = doc.get("fields", {})
-        po_number = _parse_firestore_val(fields.get("poNumber"), "")
-        supplier_name = _parse_firestore_val(fields.get("supplier"), "")
-        order_type_val = _parse_firestore_val(fields.get("type"), "receive")
-        date_val = _parse_firestore_val(fields.get("date"), "")
-        total_val = _parse_firestore_val(fields.get("total"), "")
-        customer_po = _parse_firestore_val(fields.get("customerPo"), "") or \
-                      _parse_firestore_val(fields.get("customer_po"), "")
-        auto_recv = _parse_firestore_val(fields.get("autoReceived"), False)
+        notes    = _parse_firestore_val(fields.get("notes"), "")
+        source   = _parse_firestore_val(fields.get("source"), "receive")
+        brand    = _parse_firestore_val(fields.get("brand"), "")
+        model    = _parse_firestore_val(fields.get("model"), "")
+        size     = _parse_firestore_val(fields.get("size"), "")
+        qty      = _parse_firestore_val(fields.get("qty"), "")
+        sku      = _parse_firestore_val(fields.get("sku"), "")
+        condition= _parse_firestore_val(fields.get("condition"), "")
+        position = _parse_firestore_val(fields.get("position"), "")
+        doc_date = doc.get("createTime", doc.get("updateTime", ""))[:10] if doc.get("createTime") else ""
 
+        # Extract order number from notes: #NNNNNN or 90-NNNNNN (Hesselbein)
+        order_num = ""
+        hess_match = re.search(r'(90-\d+)', notes)
+        bzo_match  = re.search(r'#(\d{4,6})', notes)
+        if hess_match:
+            order_num = hess_match.group(1)
+        elif bzo_match:
+            order_num = bzo_match.group(1)
+        else:
+            # Use last path segment of document name as fallback key
+            order_num = doc.get("name", "").split("/")[-1]
+
+        # Extract supplier from notes
+        supplier_name = "Unknown"
+        notes_lower = notes.lower()
+        if "bzo" in notes_lower or "tirelink" in notes_lower or "royal black" in notes_lower:
+            supplier_name = "BZO"
+        elif "hesselbein" in notes_lower or "dktire" in notes_lower:
+            supplier_name = "Hesselbein"
+        elif notes:
+            # Try to pull from "from X #" pattern
+            m = re.search(r'from (.+?) #', notes)
+            if m:
+                supplier_name = m.group(1).strip()
+
+        # Apply filters
         if supplier and supplier.lower() not in supplier_name.lower():
             continue
-        if order_type and order_type.lower() not in order_type_val.lower():
+        if order_type and order_type.lower() not in source.lower():
             continue
 
-        line_items = _parse_firestore_map_items(fields)
+        line_item = {
+            "sku": sku,
+            "brand": brand,
+            "model": model,
+            "size": size,
+            "condition": condition,
+            "position": position,
+            "quantity": str(qty),
+            "description": f"{brand} {model} {size}".strip(),
+        }
 
-        orders.append({
-            "po_number": po_number,
-            "supplier": supplier_name,
-            "type": order_type_val,
-            "date": date_val,
-            "total": total_val,
-            "customer_po": customer_po,
-            "items_count": len(line_items),
-            "line_items": line_items,
-            "auto_received": auto_recv,
-        })
+        if order_num not in orders:
+            orders[order_num] = {
+                "po_number": order_num,
+                "supplier": supplier_name,
+                "type": source,
+                "date": doc_date,
+                "notes": notes,
+                "items_count": 0,
+                "line_items": [],
+            }
 
-    orders.sort(key=lambda x: x.get("date", ""), reverse=True)
-    return {"orders": orders, "total": len(orders)}
+        orders[order_num]["line_items"].append(line_item)
+        orders[order_num]["items_count"] += 1
+        # Keep earliest date as the order date
+        if doc_date and (not orders[order_num]["date"] or doc_date < orders[order_num]["date"]):
+            orders[order_num]["date"] = doc_date
+
+    result = sorted(orders.values(), key=lambda x: x.get("date", ""), reverse=True)
+    return {"orders": result, "total": len(result)}
 
 
 # =============================================================================

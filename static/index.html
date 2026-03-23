@@ -468,20 +468,23 @@
             <!-- Supplier Stock Tab -->
             <div id="tab-stock" class="hidden">
                 <div class="card" style="margin-bottom: 12px;">
-                    <div style="font-weight:600; color:#d4a12a; margin-bottom:10px;">Search Live Inventory</div>
+                    <div style="font-weight:600; color:#d4a12a; margin-bottom:10px;">Search Supplier Catalog</div>
                     <div class="form-group" style="margin-bottom:10px;">
-                        <input type="text" id="stock-search" class="search-box" placeholder="Size (e.g. 275/55R20) or brand..." style="margin-bottom:0;">
+                        <input type="text" id="stock-search" class="search-box" placeholder="Size (e.g. 275/55R20) or brand..." style="margin-bottom:0;" oninput="clearStockResults()">
                     </div>
-                    <div style="display:flex; gap:8px;">
-                        <button class="btn btn-small" id="stock-bzo-btn" onclick="searchStock('bzo')" style="flex:1;">BZO Stock</button>
-                        <button class="btn btn-small" id="stock-hess-btn" onclick="searchStock('hesselbein')" style="flex:1; background:#1a2a3a; border:1px solid #334; color:#60a5fa;">Hesselbein Stock</button>
+                    <div style="display:flex; gap:8px; margin-bottom:8px;">
+                        <button class="btn btn-small" id="stock-bzo-btn" onclick="searchStock('bzo')" style="flex:1;">BZO Catalog</button>
+                        <button class="btn btn-small" id="stock-hess-btn" onclick="searchStock('hesselbein')" style="flex:1; background:#1a2a3a; border:1px solid #334; color:#60a5fa;">Hesselbein Catalog</button>
                     </div>
-                    <div style="font-size:12px; color:#666; margin-top:6px;">Note: Hesselbein search requires Playwright login (~30s)</div>
+                    <div style="border-top:1px solid #333; padding-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-small btn-secondary" id="stock-refresh-btn" onclick="refreshAllStock()" style="font-size:11px;">&#8635; Refresh Catalog</button>
+                        <span style="font-size:11px; color:#666;">Auto-refreshes every Monday 5 AM Central</span>
+                        <span id="stock-last-updated" style="font-size:11px; color:#888; margin-left:auto;"></span>
+                    </div>
                 </div>
-                <div id="stock-loading" class="hidden" style="text-align:center; padding:30px; color:#888;">
-                    <div style="font-size:24px; margin-bottom:8px;">&#128269;</div>
-                    <div>Fetching live inventory...</div>
-                    <div style="font-size:12px; color:#666; margin-top:4px;">This may take 30-60 seconds</div>
+                <div id="stock-loading" class="hidden" style="text-align:center; padding:20px; color:#888;">
+                    <div style="font-size:20px; margin-bottom:6px;">&#128269;</div>
+                    <div id="stock-loading-msg">Loading catalog...</div>
                 </div>
                 <div id="stock-error" class="hidden" style="color:#ff6b6b; padding:12px;"></div>
                 <div id="stock-results"></div>
@@ -1390,6 +1393,10 @@
         // SUPPLIER STOCK
         // =====================================================================
 
+        function clearStockResults() {
+            document.getElementById('stock-results').innerHTML = '';
+        }
+
         async function searchStock(supplierKey) {
             const search = document.getElementById('stock-search').value.trim();
             const loadingEl = document.getElementById('stock-loading');
@@ -1399,6 +1406,7 @@
             const hessBtn = document.getElementById('stock-hess-btn');
 
             loadingEl.classList.remove('hidden');
+            document.getElementById('stock-loading-msg').textContent = 'Loading catalog...';
             errorEl.classList.add('hidden');
             resultsEl.innerHTML = '';
             bzoBtn.disabled = true;
@@ -1421,15 +1429,51 @@
             }
         }
 
+        async function refreshAllStock() {
+            const btn = document.getElementById('stock-refresh-btn');
+            const loadingEl = document.getElementById('stock-loading');
+            btn.disabled = true;
+            btn.textContent = 'Refreshing...';
+            loadingEl.classList.remove('hidden');
+            document.getElementById('stock-loading-msg').textContent =
+                'Scraping BZO and Hesselbein portals — this takes 1-3 minutes...';
+            document.getElementById('stock-error').classList.add('hidden');
+            try {
+                const result = await api('/stock/refresh-all', { method: 'POST' });
+                const parts = Object.entries(result)
+                    .map(([k, v]) => `${k}: ${v.status === 'ok' ? v.count + ' items' : v.status}`)
+                    .join(' | ');
+                loadingEl.classList.add('hidden');
+                document.getElementById('stock-last-updated').textContent = `Last refresh: just now (${parts})`;
+            } catch (e) {
+                loadingEl.classList.add('hidden');
+                document.getElementById('stock-error').textContent = `Refresh failed: ${e.message}`;
+                document.getElementById('stock-error').classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '↻ Refresh Catalog';
+            }
+        }
+
         function renderStockResults(data, supplierKey) {
             const el = document.getElementById('stock-results');
             const tires = data.tires || [];
             const supplierLabel = supplierKey === 'bzo' ? 'BZO' : 'Hesselbein';
 
+            // Show last_updated timestamp
+            if (data.last_updated) {
+                const d = new Date(data.last_updated);
+                document.getElementById('stock-last-updated').textContent =
+                    `Catalog as of: ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+            } else {
+                document.getElementById('stock-last-updated').textContent =
+                    'Catalog empty — click ↻ Refresh to populate';
+            }
+
             if (!tires.length) {
                 el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#128690;</div>
-                    <div>No tires found for "${supplierLabel}"</div>
-                    <div style="font-size:12px; color:#666; margin-top:6px;">Try a different search term</div>
+                    <div>${search ? `No tires matching that search in ${supplierLabel} catalog` : `${supplierLabel} catalog is empty`}</div>
+                    <div style="font-size:12px; color:#666; margin-top:6px;">Click ↻ Refresh Catalog to pull fresh data</div>
                 </div>`;
                 return;
             }

@@ -307,6 +307,25 @@ class Supplier(Base):
 Index('ix_supplier_owner_name', Supplier.owner_id, Supplier.name, unique=True)
 
 
+class SupplierCatalog(Base):
+    """Cached supplier product catalog — refreshed weekly via POST /stock/refresh-all."""
+    __tablename__ = 'supplier_catalog'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey('suppliers.id', ondelete='CASCADE'), index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    sku: Mapped[str] = mapped_column(String(100))
+    brand: Mapped[Optional[str]] = mapped_column(String(100))
+    model: Mapped[Optional[str]] = mapped_column(String(255))
+    size: Mapped[Optional[str]] = mapped_column(String(50))
+    cost: Mapped[Optional[str]] = mapped_column(String(50))
+    fet: Mapped[Optional[str]] = mapped_column(String(50))
+    availability: Mapped[Optional[str]] = mapped_column(String(100))
+    last_updated: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
+Index('ix_catalog_supplier_sku', SupplierCatalog.supplier_id, SupplierCatalog.sku)
+
+
 OrderStatus = Enum('draft', 'submitted', 'confirmed', 'shipped', 'received', 'cancelled', name='order_status')
 
 
@@ -752,6 +771,10 @@ def startup():
             db.close()
         except Exception as e:
             print(f"QuickBooks auto-seed error: {e}")
+
+    # Start background cron: refresh supplier catalogs every Monday at 05:00 Central
+    threading.Thread(target=_stock_cron_thread, daemon=True, name="stock-cron").start()
+    print("Stock catalog cron thread started (runs every Monday at 05:00 Central).")
 
 
 # Routes - Health
@@ -4323,175 +4346,114 @@ def hesselbein_auto_receive(
 
 
 # =============================================================================
-# SUPPLIER STOCK - Live inventory lookup
+# SUPPLIER CATALOG — scraping helpers, upsert, cron, refresh endpoint
 # =============================================================================
 
-@app.get("/stock/bzo")
-def get_bzo_stock(
-    search: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get live tire inventory from BZO TireGuru portal."""
-    supplier = db.query(Supplier).filter(
-        Supplier.owner_id == current_user.id,
-        Supplier.name.ilike("%BZO%")
-    ).first()
-
-    if not supplier or not supplier.portal_username or not supplier.portal_password_encrypted:
-        raise HTTPException(status_code=404, detail="BZO supplier not configured with portal credentials.")
-
-    try:
-        password = _simple_decrypt(supplier.portal_password_encrypted)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Could not decrypt BZO portal password.")
-
+def _scrape_bzo_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
+    """Login to BZO TireGuru portal and return full tire list."""
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-
-    try:
-        login_page = session.get("https://bzowheelandtire.com", timeout=30)
-        soup = BeautifulSoup(login_page.text, 'lxml')
-        server_field = soup.find('input', {'name': 'server'})
-        from_field = soup.find('input', {'name': 'from'})
-        server_value = server_field.get('value', '') if server_field else ''
-        from_value = from_field.get('value', '') if from_field else ''
-
-        if not server_value:
-            raise HTTPException(status_code=400, detail="Could not extract BZO server field from login page.")
-
-        login_resp = session.post(
-            "https://companylinkhere.tireguru.net/checkLogin.php",
-            data={'server': server_value, 'from': from_value,
-                  'username': supplier.portal_username, 'password': password},
-            timeout=30, allow_redirects=True
-        )
-
-        if 'invalid' in login_resp.text.lower() or login_resp.status_code >= 400:
-            raise HTTPException(status_code=401, detail="BZO login failed - invalid credentials.")
-
-        params = {}
-        if search:
-            params['search'] = search
-
-        tires_resp = session.get(
-            "https://companylinkhere.tireguru.net/lookup/tires",
-            params=params, timeout=30
-        )
-
-        tires = []
-        if tires_resp.status_code == 200:
-            content_type = tires_resp.headers.get('Content-Type', '')
-            if 'json' in content_type:
-                data = tires_resp.json()
-                if isinstance(data, list):
-                    tires = data
-                elif isinstance(data, dict):
-                    tires = data.get("tires", data.get("items", data.get("data", [])))
-            else:
-                tire_soup = BeautifulSoup(tires_resp.text, 'lxml')
-                for row in tire_soup.find_all('tr', attrs={'data-index': True}):
+    login_page = session.get("https://bzowheelandtire.com", timeout=30)
+    soup = BeautifulSoup(login_page.text, 'lxml')
+    server_field = soup.find('input', {'name': 'server'})
+    from_field = soup.find('input', {'name': 'from'})
+    server_value = server_field.get('value', '') if server_field else ''
+    from_value = from_field.get('value', '') if from_field else ''
+    if not server_value:
+        raise ValueError("Could not extract BZO server field from login page.")
+    login_resp = session.post(
+        "https://companylinkhere.tireguru.net/checkLogin.php",
+        data={'server': server_value, 'from': from_value,
+              'username': supplier.portal_username, 'password': password},
+        timeout=30, allow_redirects=True
+    )
+    if 'invalid' in login_resp.text.lower() or login_resp.status_code >= 400:
+        raise ValueError("BZO login failed — invalid credentials.")
+    params = {'search': search} if search else {}
+    tires_resp = session.get(
+        "https://companylinkhere.tireguru.net/lookup/tires",
+        params=params, timeout=30
+    )
+    tires = []
+    if tires_resp.status_code == 200:
+        ct = tires_resp.headers.get('Content-Type', '')
+        if 'json' in ct:
+            data = tires_resp.json()
+            tires = data if isinstance(data, list) else data.get("tires", data.get("items", data.get("data", [])))
+        else:
+            tire_soup = BeautifulSoup(tires_resp.text, 'lxml')
+            for row in tire_soup.find_all('tr', attrs={'data-index': True}):
+                cells = row.find_all('td')
+                if len(cells) >= 4:
+                    tires.append({
+                        "sku": cells[0].get_text(strip=True),
+                        "size": cells[1].get_text(strip=True),
+                        "description": cells[2].get_text(strip=True),
+                        "price": cells[3].get_text(strip=True),
+                        "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
+                        "brand": cells[5].get_text(strip=True) if len(cells) > 5 else "",
+                    })
+            if not tires:
+                for row in tire_soup.find_all('tr'):
                     cells = row.find_all('td')
                     if len(cells) >= 4:
-                        tires.append({
-                            "sku": cells[0].get_text(strip=True),
-                            "size": cells[1].get_text(strip=True),
-                            "description": cells[2].get_text(strip=True),
-                            "price": cells[3].get_text(strip=True),
-                            "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
-                            "brand": cells[5].get_text(strip=True) if len(cells) > 5 else "",
-                        })
-                if not tires:
-                    for row in tire_soup.find_all('tr'):
-                        cells = row.find_all('td')
-                        if len(cells) >= 4:
-                            first = cells[0].get_text(strip=True)
-                            if first and first.lower() not in ('sku', 'item', '#', ''):
-                                tires.append({
-                                    "sku": first,
-                                    "size": cells[1].get_text(strip=True) if len(cells) > 1 else "",
-                                    "description": cells[2].get_text(strip=True) if len(cells) > 2 else "",
-                                    "price": cells[3].get_text(strip=True) if len(cells) > 3 else "",
-                                    "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
-                                    "brand": "",
-                                })
-
-        return {"supplier": "BZO", "tires": tires, "total": len(tires)}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"BZO stock error: {str(e)}")
+                        first = cells[0].get_text(strip=True)
+                        if first and first.lower() not in ('sku', 'item', '#', ''):
+                            tires.append({
+                                "sku": first,
+                                "size": cells[1].get_text(strip=True) if len(cells) > 1 else "",
+                                "description": cells[2].get_text(strip=True) if len(cells) > 2 else "",
+                                "price": cells[3].get_text(strip=True) if len(cells) > 3 else "",
+                                "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
+                                "brand": "",
+                            })
+    return tires
 
 
-@app.get("/stock/hesselbein")
-def get_hesselbein_stock(
-    search: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get live tire inventory from Hesselbein DKTire API."""
-    supplier = db.query(Supplier).filter(
-        Supplier.owner_id == current_user.id,
-        Supplier.name.ilike("%hesselbein%")
-    ).first()
-
-    if not supplier or not supplier.portal_username or not supplier.portal_password_encrypted:
-        raise HTTPException(status_code=404, detail="Hesselbein supplier not configured with portal credentials.")
-
-    try:
-        password = _simple_decrypt(supplier.portal_password_encrypted)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Could not decrypt Hesselbein portal password.")
-
+def _scrape_hesselbein_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
+    """Login to Hesselbein DKTire via Playwright and return full tire list."""
     access_token = None
     token_type = "Bearer"
-    errors = []
-
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ctx = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
-            page = context.new_page()
+            page = ctx.new_page()
             page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
             page.wait_for_load_state("networkidle", timeout=30000)
-            import time as _time
-            _time.sleep(3)
-
+            time.sleep(3)
             for sel in ['input[type="text"]', 'input[name="username"]', 'input[name="account"]']:
                 try:
                     loc = page.locator(sel).first
                     if loc.is_visible(timeout=2000):
                         loc.fill(supplier.portal_username)
                         break
-                except:
+                except Exception:
                     continue
-
             for sel in ['input[type="password"]', 'input[name="password"]']:
                 try:
                     loc = page.locator(sel).first
                     if loc.is_visible(timeout=2000):
                         loc.fill(password)
                         break
-                except:
+                except Exception:
                     continue
-
             for sel in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")']:
                 try:
                     loc = page.locator(sel).first
                     if loc.is_visible(timeout=2000):
                         loc.click()
                         break
-                except:
+                except Exception:
                     continue
-
-            _time.sleep(5)
+            time.sleep(5)
             page.wait_for_load_state("networkidle", timeout=30000)
-
             try:
                 import json as _json
                 auth_json = page.evaluate("() => localStorage.getItem('authUser')")
@@ -4499,23 +4461,19 @@ def get_hesselbein_stock(
                     auth_data = _json.loads(auth_json)
                     access_token = auth_data.get("access_token")
                     token_type = auth_data.get("token_type", "Bearer")
-            except Exception as e:
-                errors.append(f"Token extraction: {str(e)}")
-
+            except Exception:
+                pass
             browser.close()
     except Exception as e:
-        errors.append(f"Playwright error: {str(e)}")
-
+        raise ValueError(f"Playwright error: {e}")
     if not access_token:
-        raise HTTPException(status_code=401, detail=f"Hesselbein login failed. Errors: {errors}")
-
+        raise ValueError("Hesselbein login failed — could not extract access token.")
     api_headers = {
         "Authorization": f"{token_type} {access_token}",
         "Content-Type": "application/json",
-        "Timezone": "America/Chicago"
+        "Timezone": "America/Chicago",
     }
     api_base = "https://api-b2b.dktire.com"
-
     user_resp = requests.get(f"{api_base}/master/user-details", headers=api_headers, timeout=30)
     ship_to_uuid = "83373a2b-d442-41e6-8d65-531240a0ecb4"
     if user_resp.status_code == 200:
@@ -4524,25 +4482,19 @@ def get_hesselbein_stock(
         if isinstance(ship_to_list, list) and ship_to_list:
             first = ship_to_list[0]
             ship_to_uuid = (first.get("value", "") if isinstance(first, dict) else str(first)) or ship_to_uuid
-
     tires = []
-    search_params = {"ship_to": ship_to_uuid}
+    search_params: dict = {"ship_to": ship_to_uuid}
     if search:
         search_params["search"] = search
         search_params["query"] = search
-
-    for endpoint in ["/product/search", "/product/tire-search", "/product/list", "/master/product-list"]:
+    for ep in ["/product/search", "/product/tire-search", "/product/list", "/master/product-list"]:
         try:
-            r = requests.get(f"{api_base}{endpoint}", headers=api_headers, params=search_params, timeout=30)
+            r = requests.get(f"{api_base}{ep}", headers=api_headers, params=search_params, timeout=30)
             if r.status_code == 200:
                 data = r.json()
-                if isinstance(data, list):
-                    raw_list = data
-                elif isinstance(data, dict):
-                    raw_list = data.get("data", data.get("products", data.get("items", data.get("results", []))))
-                else:
-                    raw_list = []
-
+                raw_list = data if isinstance(data, list) else data.get(
+                    "data", data.get("products", data.get("items", data.get("results", [])))
+                )
                 for item in raw_list:
                     if not isinstance(item, dict):
                         continue
@@ -4558,8 +4510,170 @@ def get_hesselbein_stock(
                     break
         except Exception:
             continue
+    return tires
 
-    return {"supplier": "Hesselbein", "tires": tires, "total": len(tires), "errors": errors}
+
+def _upsert_supplier_catalog(db: Session, supplier_id: int, owner_id: int, entries: list) -> None:
+    """Delete-then-insert all catalog entries for a supplier with a shared timestamp."""
+    now = dt.datetime.utcnow()
+    db.query(SupplierCatalog).filter(SupplierCatalog.supplier_id == supplier_id).delete()
+    for e in entries:
+        db.add(SupplierCatalog(
+            supplier_id=supplier_id,
+            owner_id=owner_id,
+            sku=str(e.get("sku") or ""),
+            brand=str(e.get("brand") or ""),
+            model=str(e.get("description") or ""),
+            size=str(e.get("size") or ""),
+            cost=str(e.get("price") or ""),
+            fet="",
+            availability=str(e.get("availability") or ""),
+            last_updated=now,
+        ))
+    db.commit()
+
+
+_refresh_lock = threading.Lock()
+_cron_last_run_date: Optional[dt.date] = None
+
+
+def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
+    """Scrape BZO + Hesselbein and upsert into supplier_catalog.
+    Pass owner_id to scope to one user; None refreshes all users.
+    Acquires a lock so concurrent calls are a no-op."""
+    if not _refresh_lock.acquire(blocking=False):
+        return {"status": "already_running"}
+    results: dict = {}
+    try:
+        db = SessionLocal()
+        try:
+            for name_pattern, key, scrape_fn in [
+                ("%BZO%", "bzo", _scrape_bzo_catalog),
+                ("%hesselbein%", "hesselbein", _scrape_hesselbein_catalog),
+            ]:
+                q = db.query(Supplier).filter(
+                    Supplier.name.ilike(name_pattern),
+                    Supplier.portal_username.isnot(None),
+                    Supplier.portal_password_encrypted.isnot(None),
+                    Supplier.is_active == True,
+                )
+                if owner_id is not None:
+                    q = q.filter(Supplier.owner_id == owner_id)
+                supplier = q.first()
+                if not supplier:
+                    results[key] = {"status": "skipped", "detail": "No credentials configured"}
+                    continue
+                try:
+                    password = _simple_decrypt(supplier.portal_password_encrypted)
+                    tires = scrape_fn(supplier, password)
+                    _upsert_supplier_catalog(db, supplier.id, supplier.owner_id, tires)
+                    results[key] = {"status": "ok", "count": len(tires)}
+                except Exception as exc:
+                    results[key] = {"status": "error", "detail": str(exc)}
+        finally:
+            db.close()
+    finally:
+        _refresh_lock.release()
+    return results
+
+
+def _stock_cron_thread() -> None:
+    """Daemon thread: refresh supplier catalogs every Monday at 05:00 Central (UTC-6)."""
+    global _cron_last_run_date
+    while True:
+        try:
+            # Approximate Central time as UTC-6 (ignores DST — fine for a weekly job)
+            now_central = dt.datetime.utcnow() - dt.timedelta(hours=6)
+            if (
+                now_central.weekday() == 0  # Monday
+                and now_central.hour == 5
+                and _cron_last_run_date != now_central.date()
+            ):
+                _cron_last_run_date = now_central.date()
+                print("Stock cron: starting weekly catalog refresh...")
+                result = _do_full_catalog_refresh()
+                print(f"Stock cron: done — {result}")
+        except Exception as e:
+            print(f"Stock cron error: {e}")
+        time.sleep(1800)  # check every 30 minutes
+
+
+@app.post("/stock/refresh-all")
+def refresh_all_stock(
+    current_user: User = Depends(get_current_user),
+):
+    """Scrape BZO and Hesselbein full catalogs and upsert into supplier_catalog.
+    Takes 1-3 minutes. The Monday 5 AM cron also calls this automatically."""
+    result = _do_full_catalog_refresh(owner_id=current_user.id)
+    return result
+
+
+# =============================================================================
+# SUPPLIER STOCK — cached catalog reads (instant)
+# =============================================================================
+
+@app.get("/stock/bzo")
+def get_bzo_stock(
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read BZO catalog from local cache. Use POST /stock/refresh-all to update."""
+    supplier = db.query(Supplier).filter(
+        Supplier.owner_id == current_user.id,
+        Supplier.name.ilike("%BZO%"),
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="BZO supplier not configured.")
+    q = db.query(SupplierCatalog).filter(SupplierCatalog.supplier_id == supplier.id)
+    if search:
+        term = f"%{search}%"
+        q = q.filter(or_(
+            SupplierCatalog.size.ilike(term),
+            SupplierCatalog.brand.ilike(term),
+            SupplierCatalog.sku.ilike(term),
+            SupplierCatalog.model.ilike(term),
+        ))
+    rows = q.order_by(SupplierCatalog.size).limit(500).all()
+    last_updated = rows[0].last_updated.isoformat() if rows else None
+    tires = [
+        {"sku": r.sku, "brand": r.brand, "size": r.size,
+         "description": r.model, "price": r.cost, "availability": r.availability}
+        for r in rows
+    ]
+    return {"supplier": "BZO", "tires": tires, "total": len(tires), "last_updated": last_updated}
+
+
+@app.get("/stock/hesselbein")
+def get_hesselbein_stock(
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read Hesselbein catalog from local cache. Use POST /stock/refresh-all to update."""
+    supplier = db.query(Supplier).filter(
+        Supplier.owner_id == current_user.id,
+        Supplier.name.ilike("%hesselbein%"),
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Hesselbein supplier not configured.")
+    q = db.query(SupplierCatalog).filter(SupplierCatalog.supplier_id == supplier.id)
+    if search:
+        term = f"%{search}%"
+        q = q.filter(or_(
+            SupplierCatalog.size.ilike(term),
+            SupplierCatalog.brand.ilike(term),
+            SupplierCatalog.sku.ilike(term),
+            SupplierCatalog.model.ilike(term),
+        ))
+    rows = q.order_by(SupplierCatalog.size).limit(500).all()
+    last_updated = rows[0].last_updated.isoformat() if rows else None
+    tires = [
+        {"sku": r.sku, "brand": r.brand, "size": r.size,
+         "description": r.model, "price": r.cost, "availability": r.availability}
+        for r in rows
+    ]
+    return {"supplier": "Hesselbein", "tires": tires, "total": len(tires), "last_updated": last_updated}
 
 
 # =============================================================================

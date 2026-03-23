@@ -1249,7 +1249,7 @@
 
             const supplier = document.getElementById('orders-filter-supplier').value;
             const type = document.getElementById('orders-filter-type').value;
-            let url = '/orders/firebase-history?';
+            let url = '/movements/history?';
             if (supplier) url += `supplier=${encodeURIComponent(supplier)}&`;
             if (type) url += `order_type=${encodeURIComponent(type)}&`;
 

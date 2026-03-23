@@ -423,6 +423,13 @@
                     <button class="filter-chip" onclick="filterInventory('low')">Low Stock</button>
                     <button class="filter-chip" onclick="filterInventory('out')">Out of Stock</button>
                 </div>
+                <div class="filter-row" style="margin-top:6px;">
+                    <span style="font-size:11px; color:#666; margin-right:4px; align-self:center;">Sort:</span>
+                    <button class="filter-chip active" id="sort-size" onclick="sortInventory('size')">Size</button>
+                    <button class="filter-chip" id="sort-sold" onclick="sortInventory('sold')">Most Sold</button>
+                    <button class="filter-chip" id="sort-brand" onclick="sortInventory('brand')">Brand</button>
+                    <button class="filter-chip" id="sort-qty" onclick="sortInventory('qty')">Qty ↑</button>
+                </div>
                 <div id="inventory-list"></div>
             </div>
 
@@ -638,6 +645,8 @@
         let currentTab = 'dashboard';
         let editingItemId = null;
         let currentFilter = 'all';
+        let currentSort = 'size';
+        let salesRank = null; // {item_id_str: total_sold} loaded lazily
 
         async function api(path, opts = {}) {
             const headers = { 'Content-Type': 'application/json', ...opts.headers };
@@ -889,6 +898,16 @@
             applyInventoryFilters();
         }
 
+        async function sortInventory(sort) {
+            currentSort = sort;
+            document.querySelectorAll('[id^="sort-"]').forEach(el => el.classList.remove('active'));
+            document.getElementById(`sort-${sort}`).classList.add('active');
+            if (sort === 'sold' && salesRank === null) {
+                try { salesRank = await api('/inventory/stats/sales-rank'); } catch(e) { salesRank = {}; }
+            }
+            applyInventoryFilters();
+        }
+
         function applyInventoryFilters() {
             const q = (document.getElementById('inv-search').value || '').toLowerCase();
             let filtered = inventory;
@@ -906,6 +925,18 @@
                 filtered = filtered.filter(item => item.quantity <= item.reorder_level && item.quantity > 0);
             } else if (currentFilter === 'out') {
                 filtered = filtered.filter(item => item.quantity <= 0);
+            }
+
+            filtered = [...filtered];
+            if (currentSort === 'size') {
+                filtered.sort((a, b) => (a.size || '').localeCompare(b.size || ''));
+            } else if (currentSort === 'sold') {
+                const rank = salesRank || {};
+                filtered.sort((a, b) => (rank[String(b.id)] || 0) - (rank[String(a.id)] || 0));
+            } else if (currentSort === 'brand') {
+                filtered.sort((a, b) => (a.brand || '').localeCompare(b.brand || ''));
+            } else if (currentSort === 'qty') {
+                filtered.sort((a, b) => a.quantity - b.quantity);
             }
 
             renderInventory(filtered);
@@ -1373,7 +1404,7 @@
             bzoBtn.disabled = true;
             hessBtn.disabled = true;
 
-            const endpoint = supplierKey === 'bzo' ? '/suppliers/bzo-stock' : '/suppliers/hesselbein-stock';
+            const endpoint = supplierKey === 'bzo' ? '/stock/bzo' : '/stock/hesselbein';
             const url = search ? `${endpoint}?search=${encodeURIComponent(search)}` : endpoint;
 
             try {

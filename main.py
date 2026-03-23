@@ -4198,7 +4198,12 @@ def get_firebase_order_history(
         sku      = _parse_firestore_val(fields.get("sku"), "")
         condition= _parse_firestore_val(fields.get("condition"), "")
         position = _parse_firestore_val(fields.get("position"), "")
-        doc_date = doc.get("createTime", doc.get("updateTime", ""))[:10] if doc.get("createTime") else ""
+        # Prefer the order date stored in the document; fall back to Firestore createTime
+        stored_date = _parse_firestore_val(fields.get("date"), "")
+        if stored_date:
+            doc_date = stored_date[:10]
+        else:
+            doc_date = doc.get("createTime", doc.get("updateTime", ""))[:10] if doc.get("createTime") else ""
 
         # Extract order number from notes: #NNNNNN or 90-NNNNNN (Hesselbein)
         order_num = ""
@@ -4350,12 +4355,27 @@ def hesselbein_auto_receive(
 # =============================================================================
 
 def _scrape_bzo_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
-    """Login to BZO TireGuru portal and return full tire list."""
+    """Login to BZO TireGuru portal and return full tire catalog.
+
+    Uses POST /lookup (not GET /lookup/tires?search) — the correct TireGuru
+    approach: get CSRF token from /lookup/tires, then POST for each size.
+    Refreshes the CSRF token from each response before the next POST.
+    """
+    import re as _re
+    BZO_TBR_SIZES = [
+        "11R22.5", "11R24.5", "295/75R22.5", "315/80R22.5",
+        "255/70R22.5", "285/75R24.5", "385/65R22.5", "425/65R22.5",
+        "235/85R16", "235/80R16", "225/75R15", "215/75R17.5",
+        "235/75R17.5", "445/65R22.5",
+    ]
+
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
+
+    # Step 1: Login
     login_page = session.get("https://bzowheelandtire.com", timeout=30)
     soup = BeautifulSoup(login_page.text, 'lxml')
     server_field = soup.find('input', {'name': 'server'})
@@ -4372,45 +4392,82 @@ def _scrape_bzo_catalog(supplier: Supplier, password: str, search: Optional[str]
     )
     if 'invalid' in login_resp.text.lower() or login_resp.status_code >= 400:
         raise ValueError("BZO login failed — invalid credentials.")
-    params = {'search': search} if search else {}
-    tires_resp = session.get(
-        "https://companylinkhere.tireguru.net/lookup/tires",
-        params=params, timeout=30
-    )
-    tires = []
-    if tires_resp.status_code == 200:
-        ct = tires_resp.headers.get('Content-Type', '')
-        if 'json' in ct:
-            data = tires_resp.json()
-            tires = data if isinstance(data, list) else data.get("tires", data.get("items", data.get("data", [])))
-        else:
-            tire_soup = BeautifulSoup(tires_resp.text, 'lxml')
-            for row in tire_soup.find_all('tr', attrs={'data-index': True}):
-                cells = row.find_all('td')
-                if len(cells) >= 4:
-                    tires.append({
-                        "sku": cells[0].get_text(strip=True),
-                        "size": cells[1].get_text(strip=True),
-                        "description": cells[2].get_text(strip=True),
-                        "price": cells[3].get_text(strip=True),
-                        "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
-                        "brand": cells[5].get_text(strip=True) if len(cells) > 5 else "",
-                    })
-            if not tires:
-                for row in tire_soup.find_all('tr'):
-                    cells = row.find_all('td')
-                    if len(cells) >= 4:
-                        first = cells[0].get_text(strip=True)
-                        if first and first.lower() not in ('sku', 'item', '#', ''):
-                            tires.append({
-                                "sku": first,
-                                "size": cells[1].get_text(strip=True) if len(cells) > 1 else "",
-                                "description": cells[2].get_text(strip=True) if len(cells) > 2 else "",
-                                "price": cells[3].get_text(strip=True) if len(cells) > 3 else "",
-                                "availability": cells[4].get_text(strip=True) if len(cells) > 4 else "In Stock",
-                                "brand": "",
-                            })
-    return tires
+
+    # Step 2: Get initial CSRF token from /lookup/tires
+    token_resp = session.get("https://companylinkhere.tireguru.net/lookup/tires", timeout=30)
+    token_soup = BeautifulSoup(token_resp.text, 'lxml')
+    token_input = token_soup.find('input', {'name': '_token'})
+    current_token = token_input.get('value', '') if token_input else ''
+    if not current_token:
+        raise ValueError("Could not extract CSRF token from BZO /lookup/tires.")
+
+    # Step 3: POST /lookup for each size, chaining CSRF tokens
+    sizes_to_search = [search] if search else BZO_TBR_SIZES
+    all_tires = []
+    seen: set = set()  # deduplicate by (brand, description, size)
+
+    for size in sizes_to_search:
+        resp = session.post(
+            "https://companylinkhere.tireguru.net/lookup",
+            data={
+                '_token': current_token,
+                'type': 'tires',
+                'raw': size,
+                'wildcard': size,
+                'mq_show': '0',
+                'min_qty': '0',
+                'prod_code': '',
+                'desc': '',
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            continue
+
+        result_soup = BeautifulSoup(resp.text, 'lxml')
+
+        # Refresh CSRF token for next request
+        next_token = result_soup.find('input', {'name': '_token'})
+        if next_token:
+            current_token = next_token.get('value', current_token)
+
+        # Parse rows: cells [size, description, brand, <empty>, availability, cost_string, FET]
+        for row in result_soup.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 5:
+                continue
+            row_size    = cells[0].get_text(strip=True)
+            description = cells[1].get_text(strip=True)
+            brand       = cells[2].get_text(strip=True)
+            availability= cells[4].get_text(strip=True) if len(cells) > 4 else ""
+            cost_raw    = cells[5].get_text(strip=True) if len(cells) > 5 else ""
+            fet_raw     = cells[6].get_text(strip=True) if len(cells) > 6 else ""
+
+            # Cost cell contains "Cost[$29.39]" — extract the number
+            cost_match = _re.search(r'Cost\[\$?([\d.]+)\]', cost_raw)
+            cost = cost_match.group(1) if cost_match else cost_raw.lstrip('$').strip()
+
+            fet = fet_raw.lstrip('$').strip()
+
+            if not row_size and not description:
+                continue
+
+            key = (brand.lower(), description.lower(), (row_size or size).lower())
+            if key in seen:
+                continue
+            seen.add(key)
+
+            all_tires.append({
+                "sku": "",
+                "size": row_size or size,
+                "description": description,
+                "brand": brand,
+                "price": cost,
+                "fet": fet,
+                "availability": availability,
+            })
+
+    return all_tires
 
 
 def _scrape_hesselbein_catalog(supplier: Supplier, password: str, search: Optional[str] = None) -> list:
@@ -4526,7 +4583,7 @@ def _upsert_supplier_catalog(db: Session, supplier_id: int, owner_id: int, entri
             model=str(e.get("description") or ""),
             size=str(e.get("size") or ""),
             cost=str(e.get("price") or ""),
-            fet="",
+            fet=str(e.get("fet") or ""),
             availability=str(e.get("availability") or ""),
             last_updated=now,
         ))
@@ -4638,7 +4695,7 @@ def get_bzo_stock(
     last_updated = rows[0].last_updated.isoformat() if rows else None
     tires = [
         {"sku": r.sku, "brand": r.brand, "size": r.size,
-         "description": r.model, "price": r.cost, "availability": r.availability}
+         "description": r.model, "price": r.cost, "fet": r.fet, "availability": r.availability}
         for r in rows
     ]
     return {"supplier": "BZO", "tires": tires, "total": len(tires), "last_updated": last_updated}

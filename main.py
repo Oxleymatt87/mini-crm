@@ -5232,6 +5232,93 @@ def create_qb_invoice(
     }
 
 
+
+
+@app.get("/hesselbein/search")
+def hesselbein_product_search(
+    q: str = Query(..., description="Size to search, e.g. 37x13.50R20"),
+    current_user: User = Depends(get_current_user)
+):
+    """Search Hesselbein product catalog via Playwright + API."""
+    from playwright.sync_api import sync_playwright
+    import time as _time
+    import json as _json
+    
+    access_token = None
+    token_type = "Bearer"
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+            context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            page = context.new_page()
+            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            _time.sleep(3)
+            
+            for sel in ['input[type="text"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill("90-001923")
+                        break
+                except: continue
+            for sel in ['input[type="password"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill("Silver28!!")
+                        break
+                except: continue
+            for sel in ['button[type="submit"]', 'button:has-text("Sign In")']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.click()
+                        break
+                except: continue
+            
+            _time.sleep(5)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            
+            auth_json = page.evaluate("() => localStorage.getItem('authUser')")
+            if auth_json:
+                auth_data = _json.loads(auth_json)
+                access_token = auth_data.get("access_token")
+                token_type = auth_data.get("token_type", "Bearer")
+            browser.close()
+    except Exception as e:
+        return {"error": f"Playwright login failed: {str(e)}", "results": []}
+    
+    if not access_token:
+        return {"error": "Could not get auth token", "results": []}
+    
+    # Search products
+    api_headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
+    
+    try:
+        r = requests.post("https://api-b2b.dktire.com/quicksearch/cache",
+            headers=api_headers, json={"raw": q, "wildcard": q, "type": "tires"}, timeout=30)
+        if r.status_code == 200:
+            data = r.json()
+            return {"query": q, "count": len(data) if isinstance(data, list) else len(data.get("data", data.get("items", data.get("results", [])))), "results": data}
+        
+        # Try alternate params
+        r2 = requests.post("https://api-b2b.dktire.com/quicksearch/cache",
+            headers=api_headers, json={"search": q}, timeout=30)
+        if r2.status_code == 200:
+            return {"query": q, "results": r2.json()}
+        
+        # Try GET
+        r3 = requests.get(f"https://api-b2b.dktire.com/quicksearch/cache?raw={q}&type=tires",
+            headers=api_headers, timeout=30)
+        if r3.status_code == 200:
+            return {"query": q, "results": r3.json()}
+        
+        return {"error": f"Search failed: {r.status_code} {r.text[:200]}", "results": []}
+    except Exception as e:
+        return {"error": str(e), "results": []}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)

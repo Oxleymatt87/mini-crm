@@ -5295,37 +5295,49 @@ def hesselbein_product_search(
     
     # Search products
     api_headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
+    ship_to = "83373a2b-d442-41e6-8d65-531240a0ecb4"
+    debug = []
     
     try:
-        # Get ship_to from user details
-        ud = requests.get("https://api-b2b.dktire.com/master/user-details", headers=api_headers, timeout=15)
-        ship_to = "83373a2b-d442-41e6-8d65-531240a0ecb4"
-        if ud.status_code == 200:
-            st = ud.json().get("ship_to", [])
-            if st and isinstance(st, list) and isinstance(st[0], dict):
-                ship_to = st[0].get("value", ship_to)
+        # Try every search variation
+        combos = [
+            ("POST quicksearch/cache v1", "post", "quicksearch/cache", {"raw": q, "ship_to": ship_to}),
+            ("POST quicksearch/cache v2", "post", "quicksearch/cache", {"raw": q, "wildcard": q, "ship_to": ship_to, "type": "tires"}),
+            ("POST quicksearch/cache v3", "post", "quicksearch/cache", {"raw": q, "ship_to": ship_to, "include_out_of_stock": True}),
+            ("POST quicksearch/cache v4", "post", "quicksearch/cache", {"search": q, "ship_to": ship_to}),
+            ("POST quicksearch/cache v5", "post", "quicksearch/cache", {"size_number": q.replace("x","").replace("R","").replace("/",""), "ship_to": ship_to}),
+            ("POST quicksearch/cache v6", "post", "quicksearch/cache", {"raw": "3713.5020", "ship_to": ship_to}),
+            ("POST quicksearch/cache v7", "post", "quicksearch/cache", {"raw": "37/13.50R20", "ship_to": ship_to}),
+            ("POST quicksearch/cache v8", "post", "quicksearch/cache", {"raw": "LT37X13.50R20", "ship_to": ship_to}),
+        ]
         
-        r = requests.post("https://api-b2b.dktire.com/quicksearch/cache",
-            headers=api_headers, json={"raw": q, "wildcard": q, "type": "tires", "ship_to": ship_to}, timeout=30)
-        if r.status_code == 200:
-            data = r.json()
-            return {"query": q, "count": len(data) if isinstance(data, list) else len(data.get("data", data.get("items", data.get("results", [])))), "results": data}
+        for label, method, path, payload in combos:
+            try:
+                if method == "post":
+                    resp = requests.post(f"https://api-b2b.dktire.com/{path}", headers=api_headers, json=payload, timeout=15)
+                else:
+                    resp = requests.get(f"https://api-b2b.dktire.com/{path}", headers=api_headers, params=payload, timeout=15)
+                
+                result_data = resp.json() if resp.status_code == 200 else None
+                count = 0
+                if isinstance(result_data, list):
+                    count = len(result_data)
+                elif isinstance(result_data, dict):
+                    for k,v in result_data.items():
+                        if isinstance(v, list):
+                            count = len(v)
+                            break
+                
+                debug.append(f"{label}: {resp.status_code} count={count} body={str(payload)}")
+                
+                if count > 0:
+                    return {"query": q, "count": count, "results": result_data, "debug": debug}
+            except Exception as e:
+                debug.append(f"{label}: ERROR {str(e)[:80]}")
         
-        # Try alternate params
-        r2 = requests.post("https://api-b2b.dktire.com/quicksearch/cache",
-            headers=api_headers, json={"search": q}, timeout=30)
-        if r2.status_code == 200:
-            return {"query": q, "results": r2.json()}
-        
-        # Try GET
-        r3 = requests.get(f"https://api-b2b.dktire.com/quicksearch/cache?raw={q}&type=tires",
-            headers=api_headers, timeout=30)
-        if r3.status_code == 200:
-            return {"query": q, "results": r3.json()}
-        
-        return {"error": f"Search failed: {r.status_code} {r.text[:200]}", "results": []}
+        return {"query": q, "count": 0, "results": [], "debug": debug}
     except Exception as e:
-        return {"error": str(e), "results": []}
+        return {"error": str(e), "results": [], "debug": debug}
 
 if __name__ == "__main__":
     import uvicorn

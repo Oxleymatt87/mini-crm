@@ -4524,12 +4524,27 @@ def _scrape_bzo_catalog(supplier: Supplier, password: str, search: Optional[str]
     Refreshes the CSRF token from each response before the next POST.
     """
     import re as _re
+    # TBR (truck/bus radial) sizes
     BZO_TBR_SIZES = [
         "11R22.5", "11R24.5", "295/75R22.5", "315/80R22.5",
         "255/70R22.5", "285/75R24.5", "385/65R22.5", "425/65R22.5",
         "235/85R16", "235/80R16", "225/75R15", "215/75R17.5",
         "235/75R17.5", "445/65R22.5",
     ]
+    # PCR (passenger car replacement) sizes — high-volume sizes stocked by most dealers
+    BZO_PCR_SIZES = [
+        "185/65R15", "195/65R15", "205/65R15", "215/60R15", "225/60R15",
+        "205/55R16", "215/55R16", "225/50R16", "215/60R16", "225/60R16",
+        "235/60R16", "205/50R17", "215/45R17", "215/50R17", "225/45R17",
+        "225/50R17", "225/55R17", "235/45R17", "235/55R17", "245/45R17",
+        "245/65R17", "265/65R17", "265/70R17", "275/55R17", "225/40R18",
+        "225/45R18", "235/40R18", "235/45R18", "245/40R18", "245/45R18",
+        "255/45R18", "265/60R18", "265/65R18", "275/65R18", "285/60R18",
+        "225/45R19", "235/35R19", "245/40R19", "255/35R19", "255/40R19",
+        "245/35R20", "255/35R20", "265/50R20", "275/55R20", "285/50R20",
+        "275/60R20", "265/70R16", "235/70R16", "245/70R16", "255/70R16",
+    ]
+    BZO_ALL_SIZES = BZO_TBR_SIZES + BZO_PCR_SIZES
 
     session = requests.Session()
     session.headers.update({
@@ -4564,7 +4579,7 @@ def _scrape_bzo_catalog(supplier: Supplier, password: str, search: Optional[str]
         raise ValueError("Could not extract CSRF token from BZO /lookup/tires.")
 
     # Step 3: POST /lookup for each size, chaining CSRF tokens
-    sizes_to_search = [search] if search else BZO_TBR_SIZES
+    sizes_to_search = [search] if search else BZO_ALL_SIZES
     all_tires = []
     seen: set = set()  # deduplicate by (brand, description, size)
 
@@ -5063,6 +5078,108 @@ def get_hesselbein_stock(
         for r in rows
     ]
     return {"supplier": "Hesselbein", "tires": tires, "total": len(tires), "last_updated": last_updated}
+
+
+@app.get("/stock/price-check")
+def price_check(
+    size: str = Query(..., description="Tire size the customer needs, e.g. 225/65R17"),
+    brand: Optional[str] = Query(None, description="Optional brand filter"),
+    live: bool = Query(False, description="Re-scrape BZO+Hesselbein now instead of using cache"),
+    contact_id: Optional[int] = Query(None, description="Attach this lookup to a CRM contact"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cross-supplier lowest-price search triggered by a customer's tire size request.
+    Reads the cached Sunday catalog — instant (<100ms).
+    Pass live=true to scrape BZO+Hesselbein on demand for that exact size (~30s).
+    Returns all supplier results sorted by landed cost (price + FET) cheapest first."""
+
+    if live:
+        # On-demand scrape for this specific size — re-uses the single-size search path
+        for name_pattern, scrape_fn in [
+            ("%BZO%", _scrape_bzo_catalog),
+            ("%hesselbein%", _scrape_hesselbein_catalog),
+        ]:
+            supplier = db.query(Supplier).filter(
+                Supplier.owner_id == current_user.id,
+                Supplier.name.ilike(name_pattern),
+                Supplier.portal_username.isnot(None),
+                Supplier.portal_password_encrypted.isnot(None),
+                Supplier.is_active == True,
+            ).first()
+            if not supplier:
+                continue
+            try:
+                password = _simple_decrypt(supplier.portal_password_encrypted)
+                tires = scrape_fn(supplier, password, search=size)
+                _upsert_supplier_catalog(db, supplier.id, supplier.owner_id, tires)
+            except Exception:
+                pass  # Fall through to cached results
+
+    # Read from cache — fuzzy size match so "225/65R17" also catches "225/65R017" etc.
+    size_term = f"%{size.strip()}%"
+    q = (
+        db.query(SupplierCatalog, Supplier.name.label("supplier_name"))
+        .join(Supplier, Supplier.id == SupplierCatalog.supplier_id)
+        .filter(
+            Supplier.owner_id == current_user.id,
+            SupplierCatalog.size.ilike(size_term),
+        )
+    )
+    if brand:
+        q = q.filter(SupplierCatalog.brand.ilike(f"%{brand}%"))
+
+    rows = q.all()
+
+    def _to_float(val) -> Optional[float]:
+        try:
+            return float(str(val).replace("$", "").replace(",", "").strip())
+        except Exception:
+            return None
+
+    results = []
+    for row, supplier_name in rows:
+        price_f = _to_float(row.cost)
+        fet_f = _to_float(row.fet) or 0.0
+        results.append({
+            "supplier": supplier_name,
+            "brand": row.brand,
+            "size": row.size,
+            "description": row.model,
+            "price": row.cost,
+            "price_float": price_f,
+            "fet": row.fet,
+            "landed": round(price_f + fet_f, 2) if price_f is not None else None,
+            "availability": row.availability,
+            "sku": row.sku,
+            "last_updated": row.last_updated.isoformat() if row.last_updated else None,
+        })
+
+    # Sort by landed cost (price + FET), nulls last
+    results.sort(key=lambda r: (r["landed"] is None, r["landed"] or 0))
+
+    cheapest = results[0] if results else None
+
+    # Optionally include contact name for display in UI
+    customer_name = None
+    if contact_id:
+        contact = db.query(Contact).filter(
+            Contact.id == contact_id,
+            Contact.owner_id == current_user.id,
+        ).first()
+        if contact:
+            customer_name = f"{contact.first_name or ''} {contact.last_name or ''}".strip() or contact.company
+
+    return {
+        "size": size,
+        "brand_filter": brand,
+        "contact_id": contact_id,
+        "customer_name": customer_name,
+        "total": len(results),
+        "cheapest": cheapest,
+        "results": results,
+        "live_scraped": live,
+    }
 
 
 # =============================================================================

@@ -13,3 +13,10 @@ venv/
 # IDE
 .idea/
 .vscode/
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# Node
+node_modules/

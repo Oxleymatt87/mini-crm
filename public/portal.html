@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f1117">
+  <title>Oxley Tire — Order Portal</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .portal-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px;
+      text-align: center;
+    }
+    .portal-header h1 { color: var(--gold); font-size: 1.2rem; }
+    .portal-header p { color: var(--text2); font-size: .85rem; margin-top: 4px; }
+    .portal-tabs { display: flex; justify-content: center; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .portal-tab {
+      padding: 10px 24px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text2);
+      font-size: .9rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .portal-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+    .portal-content { max-width: 800px; margin: 0 auto; padding: 16px; }
+    .catalog-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .catalog-info h3 { font-size: .95rem; color: var(--text); margin-bottom: 2px; }
+    .catalog-info p { font-size: .8rem; color: var(--text2); }
+    .catalog-price { text-align: right; white-space: nowrap; }
+    .catalog-price .price { font-size: 1.2rem; font-weight: 700; color: var(--gold); }
+    .catalog-price .avail { font-size: .75rem; color: var(--green); }
+    .cart-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+    }
+    .cart-qty {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .cart-qty button {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .cart-summary {
+      background: var(--surface);
+      border: 1px solid var(--gold);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .cart-summary .total { font-size: 1.3rem; font-weight: 700; color: var(--gold); }
+    #portal-loading { text-align: center; padding: 60px 16px; }
+    #portal-invalid { display: none; text-align: center; padding: 60px 16px; color: var(--red); }
+  </style>
+</head>
+<body>
+
+  <div id="portal-loading">
+    <div class="spinner" style="width:32px;height:32px;margin:0 auto 16px"></div>
+    <p style="color:var(--text2)">Loading portal...</p>
+  </div>
+
+  <div id="portal-invalid">
+    <h2 style="color:var(--red);margin-bottom:8px">Invalid Portal Link</h2>
+    <p style="color:var(--text2)">This link is expired or invalid. Contact Oxley Tire for a new link.</p>
+  </div>
+
+  <div id="portal-app" style="display:none">
+    <div class="portal-header">
+      <h1>OXLEY TIRE</h1>
+      <p>Welcome, <span id="portal-customer-name"></span></p>
+    </div>
+
+    <div class="portal-tabs">
+      <button class="portal-tab active" data-ptab="catalog" onclick="switchPortalTab('catalog')">Catalog</button>
+      <button class="portal-tab" data-ptab="cart" onclick="switchPortalTab('cart')">Cart (<span id="cart-count">0</span>)</button>
+      <button class="portal-tab" data-ptab="history" onclick="switchPortalTab('history')">Orders</button>
+    </div>
+
+    <!-- Catalog -->
+    <div class="portal-content portal-section active" id="psec-catalog">
+      <div class="search-bar">
+        <input class="search-input" id="portal-search" placeholder="Search tires by size, brand...">
+      </div>
+      <div id="portal-catalog-list"></div>
+    </div>
+
+    <!-- Cart -->
+    <div class="portal-content portal-section" id="psec-cart" style="display:none">
+      <div id="cart-items"></div>
+      <div id="cart-empty" class="empty-state">
+        <p>Your cart is empty</p>
+      </div>
+      <div class="cart-summary" id="cart-summary" style="display:none">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+          <span>Subtotal</span>
+          <span id="cart-subtotal">$0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+          <span style="font-weight:700">Total</span>
+          <span class="total" id="cart-total">$0.00</span>
+        </div>
+        <button class="btn btn-gold" style="width:100%" onclick="submitOrder()">Submit Order</button>
+      </div>
+    </div>
+
+    <!-- Order History -->
+    <div class="portal-content portal-section" id="psec-history" style="display:none">
+      <div id="portal-orders"></div>
+    </div>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E",
+      authDomain: "inventory-setup-b3f20.firebaseapp.com",
+      projectId: "inventory-setup-b3f20",
+      storageBucket: "inventory-setup-b3f20.firebasestorage.app",
+      messagingSenderId: "162750059985",
+      appId: "1:162750059985:web:bbe5328412c7ef49893cf0"
+    });
+    const db = firebase.firestore();
+
+    let portalData = null;
+    let catalog = [];
+    let cart = [];
+
+    // Extract token from URL
+    const pathParts = window.location.pathname.split('/');
+    const token = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+
+    async function init() {
+      try {
+        // Validate token
+        const doc = await db.collection('portal_access').doc(token).get();
+        if (!doc.exists || !doc.data().active) {
+          document.getElementById('portal-loading').style.display = 'none';
+          document.getElementById('portal-invalid').style.display = 'block';
+          return;
+        }
+
+        portalData = doc.data();
+        document.getElementById('portal-customer-name').textContent = portalData.customer_name || 'Customer';
+
+        // Load supplier catalog
+        const snap = await db.collection('supplier_catalog').get();
+        catalog = snap.docs.map(d => {
+          const data = d.data();
+          const cost = Number(data.cost) || 0;
+          const fet = Number(data.fet) || 0;
+          const markup = portalData.markup_pct || 30;
+          const customerPrice = cost * (1 + markup / 100) + fet;
+          return {
+            id: d.id,
+            brand: data.brand || '',
+            description: data.description || '',
+            size: data.size || '',
+            availability: data.availability || '',
+            price: Math.round(customerPrice * 100) / 100,
+            fet: fet
+          };
+        });
+
+        // Load cart from localStorage
+        const saved = localStorage.getItem('oxley_cart_' + token);
+        if (saved) cart = JSON.parse(saved);
+
+        document.getElementById('portal-loading').style.display = 'none';
+        document.getElementById('portal-app').style.display = 'block';
+
+        renderCatalog();
+        renderCart();
+        loadOrderHistory();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('portal-loading').style.display = 'none';
+        document.getElementById('portal-invalid').style.display = 'block';
+      }
+    }
+
+    function switchPortalTab(tab) {
+      document.querySelectorAll('.portal-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector(`[data-ptab="${tab}"]`).classList.add('active');
+      document.querySelectorAll('.portal-section').forEach(s => s.style.display = 'none');
+      document.getElementById('psec-' + tab).style.display = 'block';
+    }
+
+    function renderCatalog() {
+      const q = (document.getElementById('portal-search').value || '').toLowerCase();
+      let filtered = catalog;
+      if (q) {
+        filtered = catalog.filter(c =>
+          c.size.toLowerCase().includes(q) ||
+          c.brand.toLowerCase().includes(q) ||
+          c.description.toLowerCase().includes(q)
+        );
+      }
+
+      const el = document.getElementById('portal-catalog-list');
+      if (filtered.length === 0) {
+        el.innerHTML = '<div class="empty-state"><p>No tires found</p></div>';
+        return;
+      }
+
+      el.innerHTML = filtered.map(c => `
+        <div class="catalog-card">
+          <div class="catalog-info">
+            <h3>${esc(c.brand)} ${esc(c.size)}</h3>
+            <p>${esc(c.description)}</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="catalog-price">
+              <div class="price">$${c.price.toFixed(2)}</div>
+              <div class="avail">${esc(c.availability)}</div>
+            </div>
+            <button class="btn btn-gold btn-sm" onclick="addToCart('${c.id}')">Add</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('portal-search').addEventListener('input', renderCatalog);
+
+    function addToCart(catalogId) {
+      const item = catalog.find(c => c.id === catalogId);
+      if (!item) return;
+
+      const existing = cart.find(c => c.catalog_id === catalogId);
+      if (existing) {
+        existing.quantity++;
+      } else {
+        cart.push({
+          catalog_id: catalogId,
+          brand: item.brand,
+          size: item.size,
+          description: item.description,
+          price: item.price,
+          quantity: 1
+        });
+      }
+      saveCart();
+      renderCart();
+      showToast('Added to cart');
+    }
+
+    function updateCartQty(catalogId, delta) {
+      const item = cart.find(c => c.catalog_id === catalogId);
+      if (!item) return;
+      item.quantity += delta;
+      if (item.quantity <= 0) {
+        cart = cart.filter(c => c.catalog_id !== catalogId);
+      }
+      saveCart();
+      renderCart();
+    }
+
+    function removeFromCart(catalogId) {
+      cart = cart.filter(c => c.catalog_id !== catalogId);
+      saveCart();
+      renderCart();
+    }
+
+    function saveCart() {
+      localStorage.setItem('oxley_cart_' + token, JSON.stringify(cart));
+      document.getElementById('cart-count').textContent = cart.reduce((s, c) => s + c.quantity, 0);
+    }
+
+    function renderCart() {
+      document.getElementById('cart-count').textContent = cart.reduce((s, c) => s + c.quantity, 0);
+      const el = document.getElementById('cart-items');
+      const emptyEl = document.getElementById('cart-empty');
+      const summaryEl = document.getElementById('cart-summary');
+
+      if (cart.length === 0) {
+        el.innerHTML = '';
+        emptyEl.style.display = 'block';
+        summaryEl.style.display = 'none';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+      summaryEl.style.display = 'block';
+
+      let total = 0;
+      el.innerHTML = cart.map(c => {
+        const lineTotal = c.price * c.quantity;
+        total += lineTotal;
+        return `
+          <div class="cart-item">
+            <div>
+              <div style="font-weight:600">${esc(c.brand)} ${esc(c.size)}</div>
+              <div style="font-size:.8rem;color:var(--text2)">${esc(c.description)}</div>
+              <div style="font-size:.85rem;color:var(--gold);margin-top:2px">$${c.price.toFixed(2)} each</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div class="cart-qty">
+                <button onclick="updateCartQty('${c.catalog_id}', -1)">&minus;</button>
+                <span>${c.quantity}</span>
+                <button onclick="updateCartQty('${c.catalog_id}', 1)">+</button>
+              </div>
+              <div style="min-width:70px;text-align:right;font-weight:600">$${lineTotal.toFixed(2)}</div>
+              <button class="btn btn-sm btn-danger" onclick="removeFromCart('${c.catalog_id}')" style="padding:4px 8px">X</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('cart-subtotal').textContent = '$' + total.toFixed(2);
+      document.getElementById('cart-total').textContent = '$' + total.toFixed(2);
+    }
+
+    async function submitOrder() {
+      if (cart.length === 0) return;
+
+      const total = cart.reduce((s, c) => s + c.price * c.quantity, 0);
+
+      try {
+        // Create order in Firestore
+        const orderRef = await db.collection('orders').add({
+          token: token,
+          customer_id: portalData.customer_id,
+          customer_name: portalData.customer_name,
+          qbo_id: portalData.qbo_id,
+          type: 'portal',
+          source: 'Customer Portal',
+          line_items: cart.map(c => ({
+            catalog_id: c.catalog_id,
+            brand: c.brand,
+            size: c.size,
+            description: c.description,
+            price: c.price,
+            quantity: c.quantity,
+            amount: c.price * c.quantity
+          })),
+          total: total,
+          status: 'pending',
+          created_at: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Clear cart
+        cart = [];
+        saveCart();
+        renderCart();
+
+        showToast('Order submitted! Oxley Tire will process your order shortly.');
+        switchPortalTab('history');
+        loadOrderHistory();
+      } catch (err) {
+        showToast('Error submitting order: ' + err.message);
+      }
+    }
+
+    async function loadOrderHistory() {
+      try {
+        const snap = await db.collection('orders')
+          .where('token', '==', token)
+          .orderBy('created_at', 'desc')
+          .get();
+
+        const el = document.getElementById('portal-orders');
+        const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        if (orders.length === 0) {
+          el.innerHTML = '<div class="empty-state"><p>No orders yet</p></div>';
+          return;
+        }
+
+        el.innerHTML = orders.map(o => {
+          const date = o.created_at ? new Date(o.created_at.seconds * 1000).toLocaleDateString() : '';
+          const statusClass = o.status === 'completed' ? 'badge-green' : o.status === 'pending' ? 'badge-gold' : 'badge-blue';
+          return `
+            <div class="card" style="margin-bottom:10px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span style="font-weight:600">${date}</span>
+                <span class="badge ${statusClass}">${o.status || 'pending'}</span>
+              </div>
+              ${(o.line_items || []).map(li => `
+                <div style="font-size:.85rem;padding:3px 0;display:flex;justify-content:space-between">
+                  <span>${esc(li.brand)} ${esc(li.size)} x${li.quantity}</span>
+                  <span style="color:var(--gold)">$${(li.amount || 0).toFixed(2)}</span>
+                </div>
+              `).join('')}
+              <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;text-align:right;font-weight:700;color:var(--gold)">
+                Total: $${(o.total || 0).toFixed(2)}
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        console.error('Order history error:', err);
+      }
+    }
+
+    function showToast(msg) {
+      const div = document.createElement('div');
+      div.className = 'toast toast-success';
+      div.textContent = msg;
+      div.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:300;max-width:300px;text-align:center';
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 3500);
+    }
+
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    init();
+  </script>
+</body>
+</html>

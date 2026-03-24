@@ -2160,45 +2160,109 @@ def delete_inventory_item(
     return {"ok": True}
 
 
-@app.post("/inventory/deduplicate")
-def deduplicate_inventory(
+@app.get("/inventory/duplicates")
+def list_inventory_duplicates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Remove duplicate CRM inventory items that share brand+name+size.
-    Keeps the item that has a qb_item_id; if neither or both do, keeps the
-    lower primary-key (original) row. Returns counts of removed duplicates."""
+    """Dry-run: show what /inventory/deduplicate would remove without deleting anything.
+    Matches by brand+name+size AND by SKU so seeded items with brand/size packed
+    into the name or sku field are caught too."""
     from collections import defaultdict
 
     items = db.query(InventoryItem).filter(
         InventoryItem.owner_id == current_user.id
     ).order_by(InventoryItem.id).all()
 
-    # Group by normalised (brand, name, size)
+    def _norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9/]", "", (s or "").lower())
+
     groups: dict = defaultdict(list)
     for it in items:
-        key = (
-            (it.brand or "").strip().lower(),
-            (it.name or "").strip().lower(),
-            (it.size or "").strip().lower(),
-        )
-        groups[key].append(it)
+        groups[(_norm(it.brand), _norm(it.name), _norm(it.size))].append(it)
+
+    sku_groups: dict = defaultdict(list)
+    for it in items:
+        if it.sku:
+            sku_groups[_norm(it.sku)].append(it)
+
+    duplicate_sets = []
+    seen_ids: set = set()
+
+    for strategy, bucket in [("brand+name+size", groups), ("sku", sku_groups)]:
+        for key, group in bucket.items():
+            if len(group) < 2:
+                continue
+            ids = [it.id for it in group]
+            if any(i in seen_ids for i in ids):
+                continue
+            seen_ids.update(ids)
+            duplicate_sets.append({
+                "match_strategy": strategy,
+                "key": key if isinstance(key, list) else list(key),
+                "items": [{"id": it.id, "sku": it.sku, "name": it.name,
+                           "brand": it.brand, "size": it.size,
+                           "qb_item_id": it.qb_item_id} for it in group],
+            })
+
+    return {
+        "total_items": len(items),
+        "duplicate_sets_found": len(duplicate_sets),
+        "would_remove": sum(len(s["items"]) - 1 for s in duplicate_sets),
+        "sets": duplicate_sets,
+    }
+
+
+@app.post("/inventory/deduplicate")
+def deduplicate_inventory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove duplicate CRM inventory items.
+    Groups by normalised brand+name+size AND by SKU (catches seeded items where
+    brand/size is packed into name or sku). Keeps the row with qb_item_id; ties
+    go to lowest id. Run GET /inventory/duplicates first to preview."""
+    from collections import defaultdict
+
+    items = db.query(InventoryItem).filter(
+        InventoryItem.owner_id == current_user.id
+    ).order_by(InventoryItem.id).all()
+
+    def _norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9/]", "", (s or "").lower())
+
+    groups: dict = defaultdict(list)
+    for it in items:
+        groups[(_norm(it.brand), _norm(it.name), _norm(it.size))].append(it)
+
+    sku_groups: dict = defaultdict(list)
+    for it in items:
+        if it.sku:
+            sku_groups[_norm(it.sku)].append(it)
 
     removed = []
     kept = []
+    deleted_ids: set = set()
 
-    for key, group in groups.items():
-        if len(group) < 2:
-            continue
-        # Pick winner: prefer item with qb_item_id, then lowest id
-        winner = next((it for it in group if it.qb_item_id), group[0])
-        losers = [it for it in group if it.id != winner.id]
-        for loser in losers:
-            removed.append({"id": loser.id, "sku": loser.sku, "name": loser.name,
-                            "had_qb_id": bool(loser.qb_item_id)})
-            db.delete(loser)
-        kept.append({"id": winner.id, "sku": winner.sku, "name": winner.name,
-                     "qb_item_id": winner.qb_item_id})
+    def _process_group(group: list):
+        live = [it for it in group if it.id not in deleted_ids]
+        if len(live) < 2:
+            return
+        winner = next((it for it in live if it.qb_item_id), live[0])
+        for it in live:
+            if it.id == winner.id:
+                kept.append({"id": it.id, "sku": it.sku, "name": it.name,
+                             "qb_item_id": it.qb_item_id})
+            else:
+                removed.append({"id": it.id, "sku": it.sku, "name": it.name,
+                                "had_qb_id": bool(it.qb_item_id)})
+                deleted_ids.add(it.id)
+                db.delete(it)
+
+    for group in groups.values():
+        _process_group(group)
+    for group in sku_groups.values():
+        _process_group(group)
 
     db.commit()
     return {"removed": len(removed), "details_removed": removed, "kept_count": len(kept)}
@@ -5244,6 +5308,66 @@ def list_qb_invoices(
         })
 
     return {"invoices": result, "total": len(result)}
+
+
+@app.post("/quickbooks/invoices/void")
+def void_qb_invoices(
+    doc_numbers: List[str],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Void one or more QBO invoices by DocNumber (e.g. ["13855","13856"]).
+    QBO does not hard-delete invoices — void zeroes the balance and marks them inactive."""
+    access_token, realm_id = get_qb_access_token(current_user.id, db)
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json",
+               "Content-Type": "application/json"}
+    base = get_qb_api_base()
+
+    voided = []
+    failed = []
+
+    for doc in doc_numbers:
+        try:
+            # 1. Find invoice by DocNumber
+            q_resp = requests.get(
+                f"{base}/v3/company/{realm_id}/query",
+                headers=headers,
+                params={"query": f"SELECT * FROM Invoice WHERE DocNumber = '{doc}'"},
+                timeout=30,
+            )
+            if q_resp.status_code != 200:
+                failed.append({"doc_number": doc, "error": f"Query failed: {q_resp.text[:200]}"})
+                continue
+
+            items = q_resp.json().get("QueryResponse", {}).get("Invoice", [])
+            if not items:
+                failed.append({"doc_number": doc, "error": "Not found in QBO"})
+                continue
+
+            inv = items[0]
+            inv_id = inv["Id"]
+            sync_token = inv["SyncToken"]
+
+            # 2. Void it
+            void_resp = requests.post(
+                f"{base}/v3/company/{realm_id}/invoice",
+                headers=headers,
+                params={"operation": "void"},
+                json={"Id": inv_id, "SyncToken": sync_token},
+                timeout=30,
+            )
+            if void_resp.status_code in (200, 201):
+                voided.append({"doc_number": doc, "id": inv_id,
+                               "customer": inv.get("CustomerRef", {}).get("name", ""),
+                               "total": inv.get("TotalAmt", 0)})
+            else:
+                failed.append({"doc_number": doc, "error": void_resp.text[:200]})
+
+        except Exception as exc:
+            failed.append({"doc_number": doc, "error": str(exc)[:200]})
+
+    return {"voided": len(voided), "failed": len(failed),
+            "details_voided": voided, "details_failed": failed}
 
 
 @app.post("/quickbooks/invoices/create")

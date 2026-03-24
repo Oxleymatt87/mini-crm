@@ -93,7 +93,16 @@ async function loadAllData() {
 
 async function loadItems() {
   const snap = await db.collection('items').get();
-  items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  items = snap.docs.map(d => {
+    const data = d.data();
+    return {
+      id: d.id,
+      ...data,
+      cost: data.cost || data.landedCost || data.unitCost || 0,
+      quantity: data.quantity || data.qty || 0,
+      qb_item_id: data.qb_item_id || data.qbItemId || null,
+    };
+  });
 }
 
 async function loadMovements() {

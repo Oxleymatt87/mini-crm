@@ -5257,7 +5257,7 @@ def hesselbein_product_search(
             captured = []
             def handle_response(response):
                 try:
-                    if "api-b2b.dktire.com" in response.url and response.status == 200:
+                    if "quicksearch/cache" in response.url and response.status == 200:
                         ct = response.headers.get("content-type", "")
                         if "json" in ct:
                             body = response.json()
@@ -5336,18 +5336,20 @@ def hesselbein_product_search(
                 for cap in captured:
                     url = cap["url"]
                     data = cap["data"]
-                    if isinstance(data, list) and len(data) > 0:
-                        debug.append(f"API {url}: {len(data)} items")
-                        for item in data:
-                            if isinstance(item, dict):
-                                results.append(item)
+                    debug.append(f"quicksearch/cache response type={type(data).__name__}")
+                    if isinstance(data, list):
+                        debug.append(f"quicksearch/cache: {len(data)} items")
+                        if data:
+                            debug.append(f"First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else 'not dict'}")
+                            debug.append(f"First item: {str(data[0])[:300]}")
+                        results.extend(data)
                     elif isinstance(data, dict):
+                        debug.append(f"quicksearch/cache keys: {list(data.keys())[:10]}")
+                        debug.append(f"quicksearch/cache raw: {str(data)[:500]}")
                         for k, v in data.items():
                             if isinstance(v, list) and len(v) > 0:
-                                debug.append(f"API {url} key={k}: {len(v)} items")
-                                for item in v:
-                                    if isinstance(item, dict):
-                                        results.append(item)
+                                results.extend(v)
+                                break
                 
                 # Also try to parse any table on the page
                 if not results:

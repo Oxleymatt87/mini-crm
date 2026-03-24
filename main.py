@@ -5297,8 +5297,16 @@ def hesselbein_product_search(
     api_headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
     
     try:
+        # Get ship_to from user details
+        ud = requests.get("https://api-b2b.dktire.com/master/user-details", headers=api_headers, timeout=15)
+        ship_to = "83373a2b-d442-41e6-8d65-531240a0ecb4"
+        if ud.status_code == 200:
+            st = ud.json().get("ship_to", [])
+            if st and isinstance(st, list) and isinstance(st[0], dict):
+                ship_to = st[0].get("value", ship_to)
+        
         r = requests.post("https://api-b2b.dktire.com/quicksearch/cache",
-            headers=api_headers, json={"raw": q, "wildcard": q, "type": "tires"}, timeout=30)
+            headers=api_headers, json={"raw": q, "wildcard": q, "type": "tires", "ship_to": ship_to}, timeout=30)
         if r.status_code == 200:
             data = r.json()
             return {"query": q, "count": len(data) if isinstance(data, list) else len(data.get("data", data.get("items", data.get("results", [])))), "results": data}

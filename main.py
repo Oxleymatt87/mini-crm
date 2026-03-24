@@ -5236,22 +5236,37 @@ def create_qb_invoice(
 
 @app.get("/hesselbein/search")
 def hesselbein_product_search(
-    q: str = Query(..., description="Size to search, e.g. 37x13.50R20"),
+    q: str = Query(..., description="Size to search"),
     current_user: User = Depends(get_current_user)
 ):
-    """Search Hesselbein product catalog via Playwright + API."""
+    """Search Hesselbein by browsing the actual site with Playwright."""
     from playwright.sync_api import sync_playwright
     import time as _time
     import json as _json
     
-    access_token = None
-    token_type = "Bearer"
+    results = []
+    debug = []
     
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
             context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             page = context.new_page()
+            
+            # Intercept API responses to capture product data
+            captured = []
+            def handle_response(response):
+                try:
+                    if "api-b2b.dktire.com" in response.url and response.status == 200:
+                        ct = response.headers.get("content-type", "")
+                        if "json" in ct:
+                            body = response.json()
+                            captured.append({"url": response.url, "data": body})
+                except:
+                    pass
+            page.on("response", handle_response)
+            
+            # Login
             page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
             page.wait_for_load_state("networkidle", timeout=30000)
             _time.sleep(3)
@@ -5280,64 +5295,86 @@ def hesselbein_product_search(
             
             _time.sleep(5)
             page.wait_for_load_state("networkidle", timeout=30000)
+            debug.append(f"Logged in: {page.url}")
             
-            auth_json = page.evaluate("() => localStorage.getItem('authUser')")
-            if auth_json:
-                auth_data = _json.loads(auth_json)
-                access_token = auth_data.get("access_token")
-                token_type = auth_data.get("token_type", "Bearer")
+            # Find and fill the search box on dashboard
+            _time.sleep(2)
+            
+            # Try to find search input
+            search_filled = False
+            for sel in ['input[placeholder*="Search"]', 'input[placeholder*="search"]', 'input[placeholder*="Size"]', 
+                        'input[placeholder*="size"]', 'input[placeholder*="Item"]', 'input[type="search"]',
+                        'input.form-control', 'input[name="raw"]', '#raw']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=1000):
+                        loc.fill(q)
+                        search_filled = True
+                        debug.append(f"Filled search with selector: {sel}")
+                        break
+                except:
+                    continue
+            
+            if search_filled:
+                # Press Enter or click search button
+                page.keyboard.press("Enter")
+                _time.sleep(5)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                _time.sleep(3)
+                
+                debug.append(f"After search: {page.url}")
+                
+                # Read visible text from page
+                page_text = page.evaluate("() => document.body.innerText")
+                debug.append(f"Page text length: {len(page_text)}")
+                
+                # Take screenshot
+                page.screenshot(path="/app/static/screenshots/hesselbein_search.png", full_page=True)
+                
+                # Check captured API responses for product data
+                debug.append(f"Captured {len(captured)} API responses")
+                for cap in captured:
+                    url = cap["url"]
+                    data = cap["data"]
+                    if isinstance(data, list) and len(data) > 0:
+                        debug.append(f"API {url}: {len(data)} items")
+                        for item in data:
+                            if isinstance(item, dict):
+                                results.append(item)
+                    elif isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, list) and len(v) > 0:
+                                debug.append(f"API {url} key={k}: {len(v)} items")
+                                for item in v:
+                                    if isinstance(item, dict):
+                                        results.append(item)
+                
+                # Also try to parse any table on the page
+                if not results:
+                    rows = page.query_selector_all("tr")
+                    debug.append(f"Table rows: {len(rows)}")
+                    for row in rows:
+                        cells = row.query_selector_all("td")
+                        if len(cells) >= 3:
+                            cell_texts = [c.inner_text().strip() for c in cells]
+                            if cell_texts[0] and not cell_texts[0].lower().startswith(("item", "sku", "product", "#")):
+                                results.append({"cells": cell_texts})
+            else:
+                debug.append("Could not find search input")
+                # List all inputs on page
+                all_inputs = page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('input')).map(i => ({
+                        type: i.type, name: i.name, placeholder: i.placeholder, id: i.id, visible: i.offsetParent !== null
+                    }))
+                }""")
+                debug.append(f"All inputs: {_json.dumps(all_inputs)[:500]}")
+            
             browser.close()
     except Exception as e:
-        return {"error": f"Playwright login failed: {str(e)}", "results": []}
+        debug.append(f"Error: {str(e)}")
     
-    if not access_token:
-        return {"error": "Could not get auth token", "results": []}
-    
-    # Search products
-    api_headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
-    ship_to = "83373a2b-d442-41e6-8d65-531240a0ecb4"
-    debug = []
-    
-    try:
-        # Try every search variation
-        combos = [
-            ("POST quicksearch/cache v1", "post", "quicksearch/cache", {"raw": q, "ship_to": ship_to}),
-            ("POST quicksearch/cache v2", "post", "quicksearch/cache", {"raw": q, "wildcard": q, "ship_to": ship_to, "type": "tires"}),
-            ("POST quicksearch/cache v3", "post", "quicksearch/cache", {"raw": q, "ship_to": ship_to, "include_out_of_stock": True}),
-            ("POST quicksearch/cache v4", "post", "quicksearch/cache", {"search": q, "ship_to": ship_to}),
-            ("POST quicksearch/cache v5", "post", "quicksearch/cache", {"size_number": q.replace("x","").replace("R","").replace("/",""), "ship_to": ship_to}),
-            ("POST quicksearch/cache v6", "post", "quicksearch/cache", {"raw": "3713.5020", "ship_to": ship_to}),
-            ("POST quicksearch/cache v7", "post", "quicksearch/cache", {"raw": "37/13.50R20", "ship_to": ship_to}),
-            ("POST quicksearch/cache v8", "post", "quicksearch/cache", {"raw": "LT37X13.50R20", "ship_to": ship_to}),
-        ]
-        
-        for label, method, path, payload in combos:
-            try:
-                if method == "post":
-                    resp = requests.post(f"https://api-b2b.dktire.com/{path}", headers=api_headers, json=payload, timeout=15)
-                else:
-                    resp = requests.get(f"https://api-b2b.dktire.com/{path}", headers=api_headers, params=payload, timeout=15)
-                
-                result_data = resp.json() if resp.status_code == 200 else None
-                count = 0
-                if isinstance(result_data, list):
-                    count = len(result_data)
-                elif isinstance(result_data, dict):
-                    for k,v in result_data.items():
-                        if isinstance(v, list):
-                            count = len(v)
-                            break
-                
-                debug.append(f"{label}: {resp.status_code} count={count} body={str(payload)}")
-                
-                if count > 0:
-                    return {"query": q, "count": count, "results": result_data, "debug": debug}
-            except Exception as e:
-                debug.append(f"{label}: ERROR {str(e)[:80]}")
-        
-        return {"query": q, "count": 0, "results": [], "debug": debug}
-    except Exception as e:
-        return {"error": str(e), "results": [], "debug": debug}
+    return {"query": q, "count": len(results), "results": results[:50], "debug": debug}
+
 
 if __name__ == "__main__":
     import uvicorn

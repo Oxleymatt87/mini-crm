@@ -774,7 +774,7 @@ def startup():
 
     # Start background cron: refresh supplier catalogs every Monday at 05:00 Central
     threading.Thread(target=_stock_cron_thread, daemon=True, name="stock-cron").start()
-    print("Stock catalog cron thread started (runs every Monday at 05:00 Central).")
+    print("Stock catalog cron thread started (runs every Sunday at 06:00 Central, refreshes QBO tokens + all supplier costs).")
 
 
 # Routes - Health
@@ -4930,21 +4930,58 @@ def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
 
 
 def _stock_cron_thread() -> None:
-    """Daemon thread: refresh supplier catalogs every Monday at 05:00 Central (UTC-6)."""
+    """Daemon thread: refresh supplier catalogs + QBO tokens every Sunday at 06:00 Central (UTC-6)."""
     global _cron_last_run_date
     while True:
         try:
             # Approximate Central time as UTC-6 (ignores DST — fine for a weekly job)
             now_central = dt.datetime.utcnow() - dt.timedelta(hours=6)
             if (
-                now_central.weekday() == 0  # Monday
-                and now_central.hour == 5
+                now_central.weekday() == 6  # Sunday
+                and now_central.hour == 6
                 and _cron_last_run_date != now_central.date()
             ):
                 _cron_last_run_date = now_central.date()
-                print("Stock cron: starting weekly catalog refresh...")
+                print("Stock cron: starting Sunday catalog refresh + QBO token refresh...")
+
+                # 1. Proactively refresh all QBO access tokens before catalog runs
+                try:
+                    db = SessionLocal()
+                    try:
+                        now_utc = dt.datetime.now(dt.timezone.utc)
+                        tokens = db.query(QuickBooksToken).all()
+                        for tok in tokens:
+                            # Refresh if access token expires within 24 h
+                            if tok.access_token_expires_at - now_utc < dt.timedelta(hours=24):
+                                resp = requests.post(
+                                    QB_TOKEN_URL,
+                                    auth=(get_qb_client_id(), get_qb_client_secret()),
+                                    headers={"Accept": "application/json",
+                                             "Content-Type": "application/x-www-form-urlencoded"},
+                                    data={"grant_type": "refresh_token",
+                                          "refresh_token": tok.refresh_token},
+                                    timeout=30,
+                                )
+                                if resp.status_code == 200:
+                                    td = resp.json()
+                                    tok.access_token = td["access_token"]
+                                    tok.refresh_token = td["refresh_token"]
+                                    tok.access_token_expires_at = now_utc + dt.timedelta(seconds=td["expires_in"])
+                                    tok.refresh_token_expires_at = now_utc + dt.timedelta(
+                                        seconds=td["x_refresh_token_expires_in"])
+                                    db.commit()
+                                    print(f"Stock cron: QBO token refreshed for user_id={tok.user_id}")
+                                else:
+                                    print(f"Stock cron: QBO token refresh failed for user_id={tok.user_id}: {resp.text[:200]}")
+                    finally:
+                        db.close()
+                except Exception as qb_err:
+                    print(f"Stock cron: QBO token refresh error: {qb_err}")
+
+                # 2. Refresh all supplier catalogs (costs)
                 result = _do_full_catalog_refresh()
-                print(f"Stock cron: done — {result}")
+                print(f"Stock cron: catalog refresh done — {result}")
+
         except Exception as e:
             print(f"Stock cron error: {e}")
         time.sleep(1800)  # check every 30 minutes

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Oxley Tire CRM</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon-192.png">
+</head>
+<body>
+
+  <!-- Login Screen -->
+  <div id="login-screen" style="display:none">
+    <div style="max-width:360px;margin:80px auto;padding:24px">
+      <h1 style="text-align:center;color:var(--gold);margin-bottom:24px">Oxley Tire CRM</h1>
+      <div class="card">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="login-email" value="moxley@oxleytireinc.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="login-pass">
+        </div>
+        <button class="btn btn-gold" style="width:100%;margin-top:8px" onclick="doLogin()">Sign In</button>
+        <p id="login-error" style="color:var(--red);font-size:.85rem;margin-top:8px;display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" style="display:none">
+
+    <div class="header">
+      <h1>OXLEY TIRE</h1>
+      <div class="header-right">
+        <button class="header-btn" onclick="signOut()">Sign Out</button>
+      </div>
+    </div>
+
+    <div class="tab-bar" id="tab-bar">
+      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-tab="inventory">Inventory</button>
+      <button class="tab-btn" data-tab="contacts">Contacts</button>
+      <button class="tab-btn" data-tab="orders">Orders</button>
+      <button class="tab-btn" data-tab="stock">Stock</button>
+      <button class="tab-btn" data-tab="invoices">Invoices</button>
+    </div>
+
+    <!-- DASHBOARD TAB -->
+    <div class="tab-content active" id="tab-dashboard">
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">Total SKUs</div>
+          <div class="card-value" id="stat-skus">--</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Total Units</div>
+          <div class="card-value" id="stat-units">--</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Inventory Value</div>
+          <div class="card-value" id="stat-value">--</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Customers</div>
+          <div class="card-value" id="stat-customers">--</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Low Stock Alerts</div>
+        <div id="low-stock-list">
+          <div class="empty-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-title">Recent Activity</div>
+        <div id="activity-list">
+          <div class="empty-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INVENTORY TAB -->
+    <div class="tab-content" id="tab-inventory">
+      <div class="search-bar">
+        <input class="search-input" id="inv-search" placeholder="Search brand, size, model...">
+        <select class="search-input" id="inv-sort" style="flex:0 0 160px">
+          <option value="size">Sort: Size</option>
+          <option value="brand">Sort: Brand</option>
+          <option value="qty_low">Sort: Qty Low→High</option>
+          <option value="qty_high">Sort: Qty High→Low</option>
+          <option value="cost">Sort: Cost</option>
+        </select>
+        <button class="btn btn-gold" onclick="openEditItem()">+ Add Item</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>Model</th>
+              <th>Size</th>
+              <th>Qty</th>
+              <th>Cost</th>
+              <th>Zone</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CONTACTS TAB -->
+    <div class="tab-content" id="tab-contacts">
+      <div class="search-bar">
+        <input class="search-input" id="contact-search" placeholder="Search name, company...">
+        <button class="btn btn-gold" onclick="syncQBOCustomers()">Sync from QBO</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Company</th>
+              <th>Phone</th>
+              <th>QBO ID</th>
+              <th>Portal</th>
+            </tr>
+          </thead>
+          <tbody id="contacts-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ORDERS TAB -->
+    <div class="tab-content" id="tab-orders">
+      <div class="search-bar">
+        <input class="search-input" id="order-search" placeholder="Search orders...">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Order #</th>
+              <th>Source</th>
+              <th>Type</th>
+              <th>Items</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody"></tbody>
+        </table>
+      </div>
+      <div id="orders-empty" class="empty-state" style="display:none">
+        <p>No orders yet</p>
+      </div>
+    </div>
+
+    <!-- STOCK TAB (Supplier Catalog) -->
+    <div class="tab-content" id="tab-stock">
+      <div class="search-bar">
+        <input class="search-input" id="stock-search" placeholder="Search size, brand...">
+        <button class="btn btn-outline" onclick="refreshCatalog()">&#8635; Refresh</button>
+      </div>
+      <p style="font-size:.75rem;color:var(--text2);margin-bottom:12px" id="stock-updated">Last refreshed: --</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Supplier</th>
+              <th>Brand</th>
+              <th>Description</th>
+              <th>Size</th>
+              <th>Cost</th>
+              <th>FET</th>
+              <th>Avail</th>
+            </tr>
+          </thead>
+          <tbody id="stock-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- INVOICES TAB -->
+    <div class="tab-content" id="tab-invoices">
+      <div class="card" style="margin-bottom:16px">
+        <h2 style="color:var(--gold);font-size:1rem;margin-bottom:12px">Create Invoice</h2>
+        <div class="form-group typeahead-wrap">
+          <label>Customer</label>
+          <input class="search-input" id="inv-customer-search" placeholder="Search customer..." autocomplete="off">
+          <div class="typeahead-list" id="inv-customer-list"></div>
+          <input type="hidden" id="inv-customer-id">
+          <input type="hidden" id="inv-customer-name">
+        </div>
+        <div id="invoice-lines">
+          <div class="invoice-line" data-idx="0">
+            <div class="form-row" style="grid-template-columns: 2fr 1fr 1fr 1fr auto; gap:8px; margin-bottom:8px; align-items:end;">
+              <div class="form-group" style="margin-bottom:0">
+                <label>Item</label>
+                <select class="search-input line-item-select" data-idx="0" onchange="onLineItemSelect(this)">
+                  <option value="">Select item...</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label>Qty</label>
+                <input type="number" class="search-input line-qty" data-idx="0" value="1" min="1" onchange="calcLineTotal()">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label>Price</label>
+                <input type="number" class="search-input line-price" data-idx="0" step="0.01" onchange="calcLineTotal()">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label>FET</label>
+                <input type="number" class="search-input line-fet" data-idx="0" step="0.01" value="0" readonly>
+              </div>
+              <button class="btn btn-sm btn-danger" onclick="removeLine(this)" style="margin-bottom:0;height:36px">X</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+          <button class="btn btn-outline btn-sm" onclick="addInvoiceLine()">+ Line Item</button>
+          <div style="font-size:.9rem;font-weight:600">
+            Total: $<span id="invoice-total">0.00</span>
+          </div>
+        </div>
+        <button class="btn btn-gold" style="width:100%;margin-top:12px" onclick="createInvoice()">Create Invoice</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Recent Invoices</div>
+        <div id="recent-invoices">
+          <div class="empty-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /app -->
+
+  <!-- Edit Item Modal -->
+  <div class="modal-overlay" id="modal-edit-item">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('modal-edit-item')">&times;</button>
+      <h2 id="edit-item-title">Add Item</h2>
+      <input type="hidden" id="edit-item-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Brand</label>
+          <input id="edit-brand">
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <input id="edit-model">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Size</label>
+          <input id="edit-size">
+        </div>
+        <div class="form-group">
+          <label>Zone</label>
+          <input id="edit-zone">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantity</label>
+          <input type="number" id="edit-qty" min="0">
+        </div>
+        <div class="form-group">
+          <label>Cost ($)</label>
+          <input type="number" id="edit-cost" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>FET ($)</label>
+        <input type="number" id="edit-fet" step="0.01" min="0" value="0">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-gold" style="flex:1" onclick="saveItem()">Save</button>
+        <button class="btn btn-outline" onclick="closeModal('modal-edit-item')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Portal Link Modal -->
+  <div class="modal-overlay" id="modal-portal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('modal-portal')">&times;</button>
+      <h2>Generate Portal Link</h2>
+      <div class="form-group">
+        <label>Customer</label>
+        <input id="portal-customer-name" readonly>
+        <input type="hidden" id="portal-customer-id">
+        <input type="hidden" id="portal-qbo-id">
+      </div>
+      <div class="form-group">
+        <label>Markup %</label>
+        <input type="number" id="portal-markup" value="30" min="0" max="100">
+      </div>
+      <button class="btn btn-gold" style="width:100%;margin-top:8px" onclick="generatePortalLink()">Generate Link</button>
+      <div id="portal-link-result" style="margin-top:12px;display:none">
+        <label style="font-size:.8rem;color:var(--text2)">Portal URL</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input id="portal-link-url" readonly style="flex:1;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--gold);font-size:.8rem">
+          <button class="btn btn-outline btn-sm" onclick="copyPortalLink()">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+  <script src="/js/app.js"></script>
+
+</body>
+</html>

@@ -534,7 +534,7 @@ function toggleOrderDetail(row) {
 
 // ─── Stock / Supplier Catalog ───
 function renderStock() {
-  const q = (document.getElementById('stock-search').value || '').toLowerCase();
+  const q = (document.getElementById('stock-search').value || '').toLowerCase().trim();
   let filtered = supplierCatalog;
   if (q) {
     filtered = supplierCatalog.filter(s =>
@@ -544,6 +544,9 @@ function renderStock() {
       (s.supplier || '').toLowerCase().includes(q)
     );
   }
+
+  // Sort by cost low→high so cheapest shows first
+  filtered.sort((a, b) => (Number(a.cost) || 999999) - (Number(b.cost) || 999999));
 
   // Find most recent timestamp
   let latest = null;
@@ -557,15 +560,33 @@ function renderStock() {
     ? 'Last refreshed: ' + latest.toLocaleDateString() + ' ' + latest.toLocaleTimeString()
     : 'Last refreshed: --';
 
+  // Quick-link buttons to supplier portals (show when searching)
+  const linksEl = document.getElementById('stock-quick-links');
+  if (q.length >= 3) {
+    const sizeQuery = document.getElementById('stock-search').value.trim();
+    linksEl.innerHTML = `
+      <span style="font-size:.8rem;color:var(--text2);margin-right:8px">Search manually:</span>
+      <a href="https://atdonline.com/search?q=${encodeURIComponent(sizeQuery)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="margin-right:6px">Search ATD</a>
+      <a href="https://kmtire.com" target="_blank" rel="noopener" class="btn btn-sm btn-outline" style="margin-right:6px">Search K&amp;M</a>
+      <a href="https://b2b.dktire.com" target="_blank" rel="noopener" class="btn btn-sm btn-outline">Search Hesselbein</a>
+    `;
+    linksEl.style.display = 'flex';
+  } else {
+    linksEl.style.display = 'none';
+  }
+
   const tbody = document.getElementById('stock-tbody');
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No catalog data. Click Refresh to load.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No cached results. Check supplier portals above or click Refresh.</td></tr>';
     return;
   }
 
-  tbody.innerHTML = filtered.map(s => `
+  tbody.innerHTML = filtered.map(s => {
+    const supplierColors = { 'BZO': 'badge-blue', 'Hesselbein': 'badge-gold', 'ATD': 'badge-green', 'K&M': 'badge-red' };
+    const badgeClass = supplierColors[s.supplier] || 'badge-blue';
+    return `
     <tr>
-      <td><span class="badge badge-blue">${esc(s.supplier || '')}</span></td>
+      <td><span class="badge ${badgeClass}">${esc(s.supplier || '')}</span></td>
       <td>${esc(s.brand || '')}</td>
       <td>${esc(s.description || '')}</td>
       <td>${esc(s.size || '')}</td>
@@ -573,7 +594,8 @@ function renderStock() {
       <td>$${(Number(s.fet) || 0).toFixed(2)}</td>
       <td>${esc(s.availability || '')}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 document.getElementById('stock-search').addEventListener('input', renderStock);

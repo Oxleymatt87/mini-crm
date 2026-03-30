@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxley Tire Sales - Territory Map</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; }
+    #header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 10;
+      position: relative;
+    }
+    #header h1 { font-size: 20px; font-weight: 600; }
+    #header span { font-size: 13px; opacity: 0.7; }
+    #map { width: 100%; height: calc(100vh - 52px); }
+    #legend {
+      position: absolute;
+      bottom: 30px;
+      left: 10px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 14px 18px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      font-size: 13px;
+      z-index: 5;
+    }
+    #legend h3 { margin-bottom: 8px; font-size: 14px; color: #333; }
+    .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+    .legend-color {
+      width: 18px; height: 18px; border-radius: 3px;
+      margin-right: 8px; border: 1px solid rgba(0,0,0,0.15);
+    }
+    #error-banner {
+      display: none;
+      background: #fee;
+      border: 1px solid #c00;
+      color: #900;
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>Oxley Tire Sales - Territory Map</h1>
+    <span>Sales Territories & Key Accounts</span>
+  </div>
+  <div id="error-banner"></div>
+  <div id="map"></div>
+
+  <script>
+    // Global error handler for Maps API issues
+    window.gm_authFailure = function() {
+      var banner = document.getElementById('error-banner');
+      banner.style.display = 'block';
+      banner.innerHTML = '<strong>Google Maps API Error:</strong> The API key may have restrictions or billing is not enabled. ' +
+        'Check the <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a> to verify ' +
+        'the key has Maps JavaScript API enabled and billing is active.';
+    };
+
+    function initMap() {
+      // Center on a common US tire sales region (adjust as needed)
+      var center = {lat: 35.5, lng: -86.5};
+
+      var map = new google.maps.Map(document.getElementById('map'), {
+        zoom: 7,
+        center: center,
+        mapTypeId: 'roadmap',
+        styles: [
+          {featureType: 'poi', stylers: [{visibility: 'off'}]},
+          {featureType: 'transit', stylers: [{visibility: 'off'}]}
+        ]
+      });
+
+      // Territory definitions with colors
+      var territories = [
+        {
+          name: 'Territory 1 - North',
+          color: '#4285F4',
+          coords: [
+            {lat: 36.5, lng: -87.5},
+            {lat: 36.5, lng: -85.5},
+            {lat: 35.8, lng: -85.5},
+            {lat: 35.8, lng: -87.5}
+          ],
+          rep: 'North Region'
+        },
+        {
+          name: 'Territory 2 - Central',
+          color: '#EA4335',
+          coords: [
+            {lat: 35.8, lng: -87.5},
+            {lat: 35.8, lng: -85.5},
+            {lat: 35.1, lng: -85.5},
+            {lat: 35.1, lng: -87.5}
+          ],
+          rep: 'Central Region'
+        },
+        {
+          name: 'Territory 3 - South',
+          color: '#34A853',
+          coords: [
+            {lat: 35.1, lng: -87.5},
+            {lat: 35.1, lng: -85.5},
+            {lat: 34.4, lng: -85.5},
+            {lat: 34.4, lng: -87.5}
+          ],
+          rep: 'South Region'
+        },
+        {
+          name: 'Territory 4 - East',
+          color: '#FBBC05',
+          coords: [
+            {lat: 36.5, lng: -85.5},
+            {lat: 36.5, lng: -83.5},
+            {lat: 35.1, lng: -83.5},
+            {lat: 35.1, lng: -85.5}
+          ],
+          rep: 'East Region'
+        },
+        {
+          name: 'Territory 5 - West',
+          color: '#9C27B0',
+          coords: [
+            {lat: 36.5, lng: -89.5},
+            {lat: 36.5, lng: -87.5},
+            {lat: 34.4, lng: -87.5},
+            {lat: 34.4, lng: -89.5}
+          ],
+          rep: 'West Region'
+        }
+      ];
+
+      // Draw territory polygons
+      territories.forEach(function(t) {
+        var polygon = new google.maps.Polygon({
+          paths: t.coords,
+          strokeColor: t.color,
+          strokeOpacity: 0.9,
+          strokeWeight: 2,
+          fillColor: t.color,
+          fillOpacity: 0.2
+        });
+        polygon.setMap(map);
+
+        var infoWindow = new google.maps.InfoWindow();
+        polygon.addListener('click', function(e) {
+          infoWindow.setContent(
+            '<div style="padding:6px"><strong>' + t.name + '</strong><br>' +
+            '<span style="color:#666">' + t.rep + '</span></div>'
+          );
+          infoWindow.setPosition(e.latLng);
+          infoWindow.open(map);
+        });
+      });
+
+      // Key account markers
+      var accounts = [
+        {name: 'Nashville Distribution Center', lat: 36.16, lng: -86.78, type: 'warehouse'},
+        {name: 'Chattanooga Tire Depot', lat: 35.05, lng: -85.31, type: 'depot'},
+        {name: 'Knoxville Sales Office', lat: 35.96, lng: -83.92, type: 'office'},
+        {name: 'Memphis Hub', lat: 35.15, lng: -90.05, type: 'warehouse'},
+        {name: 'Murfreesboro Retail', lat: 35.85, lng: -86.39, type: 'retail'},
+        {name: 'Clarksville Account', lat: 36.53, lng: -87.36, type: 'retail'},
+        {name: 'Jackson Tire Center', lat: 35.61, lng: -88.81, type: 'depot'},
+        {name: 'Cookeville Branch', lat: 36.16, lng: -85.50, type: 'office'}
+      ];
+
+      var icons = {
+        warehouse: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+        depot: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
+        office: 'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
+        retail: 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png'
+      };
+
+      accounts.forEach(function(a) {
+        var marker = new google.maps.Marker({
+          position: {lat: a.lat, lng: a.lng},
+          map: map,
+          title: a.name,
+          icon: icons[a.type]
+        });
+
+        var infoWindow = new google.maps.InfoWindow({
+          content: '<div style="padding:6px"><strong>' + a.name + '</strong><br>' +
+                   '<span style="color:#666;text-transform:capitalize">' + a.type + '</span></div>'
+        });
+
+        marker.addListener('click', function() {
+          infoWindow.open(map, marker);
+        });
+      });
+
+      // Add legend to map
+      var legendDiv = document.createElement('div');
+      legendDiv.id = 'legend';
+      legendDiv.innerHTML = '<h3>Territories</h3>';
+      territories.forEach(function(t) {
+        legendDiv.innerHTML += '<div class="legend-item">' +
+          '<div class="legend-color" style="background:' + t.color + '"></div>' +
+          '<span>' + t.name.replace(/Territory \d+ - /, '') + '</span></div>';
+      });
+      legendDiv.innerHTML += '<h3 style="margin-top:10px">Locations</h3>' +
+        '<div class="legend-item"><img src="' + icons.warehouse + '" width="16" style="margin-right:8px"> Warehouse</div>' +
+        '<div class="legend-item"><img src="' + icons.depot + '" width="16" style="margin-right:8px"> Depot</div>' +
+        '<div class="legend-item"><img src="' + icons.office + '" width="16" style="margin-right:8px"> Office</div>' +
+        '<div class="legend-item"><img src="' + icons.retail + '" width="16" style="margin-right:8px"> Retail</div>';
+      map.controls[google.maps.ControlPosition.LEFT_BOTTOM].push(legendDiv);
+    }
+  </script>
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap"
+    onerror="document.getElementById('error-banner').style.display='block';document.getElementById('error-banner').innerHTML='<strong>Failed to load Google Maps API.</strong> Check your internet connection and API key.'">
+  </script>
+</body>
+</html>

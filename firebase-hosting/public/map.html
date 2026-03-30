@@ -1,225 +1,572 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Oxley Tire Sales - Territory Map</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; }
-    #header {
-      background: #1a1a2e;
-      color: #fff;
-      padding: 12px 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      z-index: 10;
-      position: relative;
-    }
-    #header h1 { font-size: 20px; font-weight: 600; }
-    #header span { font-size: 13px; opacity: 0.7; }
-    #map { width: 100%; height: calc(100vh - 52px); }
-    #legend {
-      position: absolute;
-      bottom: 30px;
-      left: 10px;
-      background: #fff;
-      border-radius: 8px;
-      padding: 14px 18px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-      font-size: 13px;
-      z-index: 5;
-    }
-    #legend h3 { margin-bottom: 8px; font-size: 14px; color: #333; }
-    .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
-    .legend-color {
-      width: 18px; height: 18px; border-radius: 3px;
-      margin-right: 8px; border: 1px solid rgba(0,0,0,0.15);
-    }
-    #error-banner {
-      display: none;
-      background: #fee;
-      border: 1px solid #c00;
-      color: #900;
-      padding: 12px 20px;
-      text-align: center;
-      font-size: 14px;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Oxley Tire Inc — Territory Map</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0}
+#map{width:100%;height:100vh}
+
+/* Top bar */
+#topbar{position:fixed;top:0;left:0;right:0;z-index:20;background:rgba(22,22,40,0.95);backdrop-filter:blur(8px);padding:8px 10px 6px;display:flex;flex-direction:column;gap:6px;box-shadow:0 2px 12px rgba(0,0,0,0.5)}
+#search-row{display:flex;gap:8px;align-items:center}
+#search{flex:1;background:#2a2a4a;border:1px solid #444;border-radius:8px;padding:10px 14px;color:#fff;font-size:15px;outline:none}
+#search::placeholder{color:#888}
+#search:focus{border-color:#4fc3f7}
+#route-btn{background:#ff6f00;color:#fff;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;min-width:70px}
+#route-btn.active{background:#4caf50}
+#filter-row{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+#filter-row::-webkit-scrollbar{display:none}
+.filter-btn{background:#2a2a4a;border:1px solid #555;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#ccc;cursor:pointer;white-space:nowrap;transition:all .2s}
+.filter-btn.active{background:#4fc3f7;color:#111;border-color:#4fc3f7}
+
+/* Bottom sheet */
+#sheet-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:30}
+#sheet{position:fixed;bottom:0;left:0;right:0;z-index:31;background:#1e1e3a;border-radius:20px 20px 0 0;max-height:75vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
+#sheet.open{transform:translateY(0)}
+#sheet-handle{width:40px;height:4px;background:#555;border-radius:2px;margin:10px auto}
+#sheet-content{padding:0 18px 24px}
+#sheet-name{font-size:20px;font-weight:700;color:#fff;margin-bottom:2px}
+#sheet-type-badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-bottom:10px;text-transform:uppercase}
+.badge-whale{background:#e53935;color:#fff}
+.badge-customer{background:#43a047;color:#fff}
+.badge-prospect{background:#fdd835;color:#111}
+.badge-cold{background:#9e9e9e;color:#111}
+.badge-home{background:#2196f3;color:#fff}
+#sheet-details{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.detail-card{background:#2a2a4a;border-radius:10px;padding:10px 12px}
+.detail-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+.detail-value{font-size:15px;font-weight:600;color:#fff}
+#sheet-notes{background:#2a2a4a;border-radius:10px;padding:12px;margin:8px 0;font-size:13px;line-height:1.5;color:#ccc}
+#sheet-actions{display:flex;gap:8px;margin-top:12px}
+.action-btn{flex:1;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px}
+#btn-call{background:#43a047;color:#fff}
+#btn-nav{background:#1e88e5;color:#fff}
+#btn-sv{background:#7b1fa2;color:#fff}
+#streetview-container{display:none;width:100%;height:200px;border-radius:10px;margin-top:10px;overflow:hidden}
+
+/* Route bar */
+#route-bar{display:none;position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(22,22,40,0.97);padding:14px 16px;border-top:2px solid #ff6f00;backdrop-filter:blur(8px)}
+#route-info{font-size:13px;color:#ccc;margin-bottom:8px}
+#route-stops{font-size:11px;color:#888;margin-bottom:10px;max-height:60px;overflow-y:auto}
+#route-actions{display:flex;gap:8px}
+#route-actions button{flex:1;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+#launch-route{background:#4caf50;color:#fff}
+#clear-route{background:#e53935;color:#fff}
+
+/* Error banner */
+#error-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:100;background:#b71c1c;color:#fff;padding:16px;font-size:13px;line-height:1.5;text-align:center}
+#error-banner a{color:#ffcdd2}
+
+/* Loading */
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:50;color:#fff;font-size:16px;text-align:center}
+#loading .spinner{width:40px;height:40px;border:3px solid #333;border-top-color:#4fc3f7;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
 </head>
 <body>
-  <div id="header">
-    <h1>Oxley Tire Sales - Territory Map</h1>
-    <span>Sales Territories & Key Accounts</span>
+
+<div id="loading"><div class="spinner"></div>Loading territory map...</div>
+<div id="error-banner"></div>
+
+<div id="topbar">
+  <div id="search-row">
+    <input type="text" id="search" placeholder="Search companies...">
+    <button id="route-btn" onclick="toggleRouteMode()">Route</button>
   </div>
-  <div id="error-banner"></div>
-  <div id="map"></div>
+  <div id="filter-row">
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="whale">Whales</button>
+    <button class="filter-btn" data-filter="customer">Customers</button>
+    <button class="filter-btn" data-filter="prospect">Prospects</button>
+    <button class="filter-btn" data-filter="cold">Cold</button>
+  </div>
+</div>
 
-  <script>
-    // Global error handler for Maps API issues
-    window.gm_authFailure = function() {
-      var banner = document.getElementById('error-banner');
-      banner.style.display = 'block';
-      banner.innerHTML = '<strong>Google Maps API Error:</strong> The API key may have restrictions or billing is not enabled. ' +
-        'Check the <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a> to verify ' +
-        'the key has Maps JavaScript API enabled and billing is active.';
-    };
+<div id="map"></div>
 
-    function initMap() {
-      // Center on a common US tire sales region (adjust as needed)
-      var center = {lat: 35.5, lng: -86.5};
+<div id="sheet-overlay" onclick="closeSheet()"></div>
+<div id="sheet">
+  <div id="sheet-handle"></div>
+  <div id="sheet-content">
+    <div id="sheet-name"></div>
+    <div id="sheet-type-badge"></div>
+    <div id="sheet-details"></div>
+    <div id="sheet-notes"></div>
+    <div id="sheet-actions">
+      <a id="btn-call" class="action-btn" href="#">&#128222; Call</a>
+      <a id="btn-nav" class="action-btn" href="#" target="_blank">&#128665; Navigate</a>
+      <button id="btn-sv" class="action-btn" onclick="toggleStreetView()">&#127758; Street View</button>
+    </div>
+    <div id="streetview-container"></div>
+  </div>
+</div>
 
-      var map = new google.maps.Map(document.getElementById('map'), {
-        zoom: 7,
-        center: center,
-        mapTypeId: 'roadmap',
-        styles: [
-          {featureType: 'poi', stylers: [{visibility: 'off'}]},
-          {featureType: 'transit', stylers: [{visibility: 'off'}]}
-        ]
-      });
+<div id="route-bar">
+  <div id="route-info">Tap pins to add stops. Route starts &amp; ends at Oxley Tire HQ.</div>
+  <div id="route-stops"></div>
+  <div id="route-actions">
+    <button id="launch-route" onclick="launchRoute()">&#128640; Launch Route</button>
+    <button id="clear-route" onclick="clearRoute()">&#10060; Clear</button>
+  </div>
+</div>
 
-      // Territory definitions with colors
-      var territories = [
-        {
-          name: 'Territory 1 - North',
-          color: '#4285F4',
-          coords: [
-            {lat: 36.5, lng: -87.5},
-            {lat: 36.5, lng: -85.5},
-            {lat: 35.8, lng: -85.5},
-            {lat: 35.8, lng: -87.5}
-          ],
-          rep: 'North Region'
-        },
-        {
-          name: 'Territory 2 - Central',
-          color: '#EA4335',
-          coords: [
-            {lat: 35.8, lng: -87.5},
-            {lat: 35.8, lng: -85.5},
-            {lat: 35.1, lng: -85.5},
-            {lat: 35.1, lng: -87.5}
-          ],
-          rep: 'Central Region'
-        },
-        {
-          name: 'Territory 3 - South',
-          color: '#34A853',
-          coords: [
-            {lat: 35.1, lng: -87.5},
-            {lat: 35.1, lng: -85.5},
-            {lat: 34.4, lng: -85.5},
-            {lat: 34.4, lng: -87.5}
-          ],
-          rep: 'South Region'
-        },
-        {
-          name: 'Territory 4 - East',
-          color: '#FBBC05',
-          coords: [
-            {lat: 36.5, lng: -85.5},
-            {lat: 36.5, lng: -83.5},
-            {lat: 35.1, lng: -83.5},
-            {lat: 35.1, lng: -85.5}
-          ],
-          rep: 'East Region'
-        },
-        {
-          name: 'Territory 5 - West',
-          color: '#9C27B0',
-          coords: [
-            {lat: 36.5, lng: -89.5},
-            {lat: 36.5, lng: -87.5},
-            {lat: 34.4, lng: -87.5},
-            {lat: 34.4, lng: -89.5}
-          ],
-          rep: 'West Region'
+<script>
+// ── CONFIG ──
+var API_KEY = 'AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E';
+var HOME_BASE = {lat: 30.0205, lng: -94.1468}; // 655 Langham Rd, Beaumont TX
+var HOME_ADDRESS = '655 Langham Rd, Beaumont, TX 77657';
+var MAP_CENTER = {lat: 30.05, lng: -94.55};
+
+// ── PROSPECT DATA ──
+var prospects = [
+  // CUSTOMERS (green)
+  {name:"Curtis & Son Companies",address:"4408 N Main St, Liberty, TX 77575",trucks:84,drivers:null,phone:"(936) 334-1188",type:"customer",locType:"Yard",notes:"Oilfield services, vacuum trucks, heavy haul. QBO #283, $342K all-time.",spend:"$342K+ all-time"},
+  {name:"Shamrock Vacuum Service",address:"11616 US-90, Liberty, TX 77575",trucks:60,drivers:4,phone:"(936) 334-8100",type:"customer",locType:"Yard",notes:"Oilfield fluid hauling. Open 24hrs.",spend:"Est $100K-$150K/yr"},
+
+  // WHALES (red)
+  {name:"Axis Power Generation",address:"Hwy 146 N and Mizell Rd, Liberty, TX 77575",trucks:223,drivers:200,phone:"(936) 336-6700",type:"whale",locType:"Yard",notes:"Oilfield generator rental, lowboy/flatbed heavy haul. Just moved to yard near Mizell Rd. $400K-$500K+/yr potential.",spend:"$400K-$500K+/yr"},
+  {name:"Bright Star Solutions LLC",address:"18788 Hwy 105, Sour Lake, TX 77659",trucks:187,drivers:186,phone:"(409) 287-3662",type:"whale",locType:"Yard",notes:"Logging/utility fleet. Private property carrier. 89 trailers. $350K-$450K+ potential.",spend:"$350K-$450K+/yr"},
+  {name:"Huntsman Petrochemical",address:"6001 FM 366, Port Neches, TX 77651",trucks:137,drivers:104,phone:"(409) 724-4430",type:"whale",locType:"Plant",notes:"Fortune 500 chemical company. Corporate account.",spend:"$250K-$350K+/yr"},
+
+  // PROSPECTS (yellow)
+  {name:"Standard Supply",address:"11562 US-90, Liberty, TX 77575",trucks:27,drivers:27,phone:"(936) 336-6200",type:"prospect",locType:"Yard",notes:"Industrial supply warehouse on Hwy 90. Verified yard.",spend:"Est $40K-$55K/yr"},
+  {name:"Thomas Honey Farms",address:"1700 FM 1011, Liberty, TX 77575",trucks:23,drivers:26,phone:"(936) 334-7823",type:"prospect",locType:"Farm - Call first",notes:"Livestock + beekeeping equip. Farm. Call first.",spend:"Est $35K-$50K/yr"},
+  {name:"Smart Materials Inc",address:"1404 Wallisville Rd, Liberty, TX 77575",trucks:22,drivers:18,phone:"(936) 336-3026",type:"prospect",locType:"Yard",notes:"Rock/gravel yard. Ask for Mark Joines or Arnold Smart. Since 1979. Opens 6AM.",spend:"Est $35K-$50K/yr"},
+  {name:"Smart Oilfield Services",address:"2251 Mizell Rd, Liberty, TX 77575",trucks:null,drivers:null,phone:"(936) 336-3768",type:"prospect",locType:"Yard",notes:"Absorbed B&J Vac. Leasing yard to Maverick Wireline. Opens 5:30AM.",spend:"Unknown"},
+  {name:"Curtis Oilfield Services",address:"4779 US-96, Silsbee, TX 77656",trucks:27,drivers:27,phone:"(409) 385-2937",type:"prospect",locType:"Yard",notes:"Oilfield services.",spend:"Est $40K-$55K/yr"},
+  {name:"Clean Combustion Inc",address:"14210 TX-146, Dayton, TX 77535",trucks:26,drivers:29,phone:"(281) 385-0111",type:"prospect",locType:"Yard",notes:"Combustion/emissions equipment. Verified yard on Hwy 146.",spend:"Est $40K-$55K/yr"},
+  {name:"Orange County Building Materials",address:"365 Old Hwy 90 W, Vidor, TX 77662",trucks:21,drivers:25,phone:"(409) 769-2410",type:"prospect",locType:"Yard",notes:"Building materials. 500K miles/yr.",spend:"Est $35K-$50K/yr"},
+  {name:"South Hampton Resources",address:"7752 Farm Rd 418 W, Silsbee, TX 77656",trucks:19,drivers:19,phone:"(409) 385-8300",type:"prospect",locType:"Yard",notes:"HAZMAT carrier. Chemical hauler. 2M+ miles/yr.",spend:"Est $30K-$45K/yr"},
+  {name:"Apache Products (Acme Skid)",address:"1012 John Hare Rd, Silsbee, TX 77656",trucks:19,drivers:14,phone:"(409) 385-7021",type:"prospect",locType:"Yard",notes:"Pallets/lumber/wood products.",spend:"Est $30K-$40K/yr"},
+  {name:"Liberty Ready Mix (Yellow Jacket)",address:"3301 Beaumont Ave, Liberty, TX 77575",trucks:10,drivers:8,phone:"(936) 334-0304",type:"prospect",locType:"Batch plant",notes:"Concrete batch plant. Mixer trucks. M-Sat 7-5.",spend:"Est $20K-$30K/yr"},
+  {name:"Triangle Petroleum Service",address:"902 Layl Dr, Liberty, TX 77575",trucks:9,drivers:5,phone:"(936) 336-7373",type:"prospect",locType:"Yard - Call first",notes:"Oilfield vacuum trucks. Call first.",spend:"Est $15K-$25K/yr"},
+  {name:"Blackgold Services Inc",address:"3608 US-90, Liberty, TX 77575",trucks:8,drivers:5,phone:"(936) 336-9600",type:"prospect",locType:"Yard",notes:"Oilfield transport since 1997. M-F 8-5. Verified yard on Hwy 90.",spend:"Est $12K-$20K/yr"},
+  {name:"4KBC Trucking LLC",address:"2004 N Main St, Liberty, TX 77575",trucks:7,drivers:7,phone:"(936) 336-6275",type:"prospect",locType:"Yard",notes:"Downtown Liberty.",spend:"Est $10K-$18K/yr"},
+  {name:"Quikrete Plant",address:"13174 US-90, Raywood, TX 77582",trucks:null,drivers:null,phone:"(936) 587-4450",type:"prospect",locType:"Plant",notes:"Concrete manufacturing plant. M-F 7-4:30.",spend:"Unknown"},
+  {name:"Liberty Forge Inc",address:"1507 Fort Worth St, Liberty, TX 77575",trucks:5,drivers:5,phone:"(936) 336-5785",type:"prospect",locType:"Yard",notes:"Metal forging manufacturer. M-F 7:30-5.",spend:"Est $8K-$15K/yr"},
+
+  // COLD (gray)
+  {name:"C6 Logistics LLC",address:"202 Mockingbird Ln, Liberty, TX 77575",trucks:5,drivers:null,phone:"(936) 334-4335",type:"cold",locType:"House - Phone only",notes:"House address. Phone only.",spend:"Est $8K-$12K/yr"},
+  {name:"936 Logistics LLC",address:"2075 CR 2107, Liberty, TX 77575",trucks:5,drivers:null,phone:"(832) 581-6037",type:"cold",locType:"County road - Phone only",notes:"County road. Phone only.",spend:"Est $8K-$12K/yr"},
+  {name:"Helena Chemical Co",address:"206629 Hwy 90 E, Raywood, TX 77582",trucks:null,drivers:null,phone:"(936) 549-7336",type:"cold",locType:"Branch",notes:"Ag chemical branch. Small fleet.",spend:"Unknown"},
+  {name:"Ellerbee Services",address:"1552 2nd St, Nome, TX 77629",trucks:4,drivers:2,phone:"(409) 253-2165",type:"cold",locType:"Call first",notes:"Oilfield + livestock + grain. Call first.",spend:"Est $6K-$10K/yr"}
+];
+
+// ── GLOBALS ──
+var map, geocoder, svService, svPano;
+var markers = [];
+var activeFilter = 'all';
+var routeMode = false;
+var routeStops = [];
+var currentProspect = null;
+var streetViewOpen = false;
+
+// Fallback coordinates for geocoding failures
+var FALLBACK_COORDS = {
+  'Liberty': {lat:30.058, lng:-94.795},
+  'Sour Lake': {lat:30.14, lng:-94.41},
+  'Port Neches': {lat:29.99, lng:-93.96},
+  'Silsbee': {lat:30.35, lng:-94.18},
+  'Dayton': {lat:30.05, lng:-94.89},
+  'Vidor': {lat:30.13, lng:-93.99},
+  'Raywood': {lat:30.05, lng:-94.68},
+  'Nome': {lat:30.04, lng:-94.42},
+  'Beaumont': {lat:30.08, lng:-94.13}
+};
+
+// ── DARK MAP STYLE ──
+var darkStyle = [
+  {elementType:"geometry",stylers:[{color:"#212121"}]},
+  {elementType:"labels.icon",stylers:[{visibility:"off"}]},
+  {elementType:"labels.text.fill",stylers:[{color:"#757575"}]},
+  {elementType:"labels.text.stroke",stylers:[{color:"#212121"}]},
+  {featureType:"administrative",elementType:"geometry",stylers:[{color:"#757575"}]},
+  {featureType:"administrative.country",elementType:"labels.text.fill",stylers:[{color:"#9e9e9e"}]},
+  {featureType:"administrative.locality",elementType:"labels.text.fill",stylers:[{color:"#bdbdbd"}]},
+  {featureType:"poi",stylers:[{visibility:"off"}]},
+  {featureType:"road",elementType:"geometry.fill",stylers:[{color:"#2c2c2c"}]},
+  {featureType:"road",elementType:"labels.text.fill",stylers:[{color:"#8a8a8a"}]},
+  {featureType:"road.arterial",elementType:"geometry",stylers:[{color:"#373737"}]},
+  {featureType:"road.highway",elementType:"geometry",stylers:[{color:"#3c3c3c"}]},
+  {featureType:"road.highway.controlled_access",elementType:"geometry",stylers:[{color:"#4e4e4e"}]},
+  {featureType:"road.local",elementType:"labels.text.fill",stylers:[{color:"#616161"}]},
+  {featureType:"transit",stylers:[{visibility:"off"}]},
+  {featureType:"water",elementType:"geometry",stylers:[{color:"#000000"}]},
+  {featureType:"water",elementType:"labels.text.fill",stylers:[{color:"#3d3d3d"}]}
+];
+
+// ── PIN COLORS ──
+var PIN_COLORS = {
+  whale:    {bg:'#e53935', border:'#b71c1c', text:'#fff', glyph:'#fff'},
+  customer: {bg:'#43a047', border:'#2e7d32', text:'#fff', glyph:'#fff'},
+  prospect: {bg:'#fdd835', border:'#f9a825', text:'#111', glyph:'#111'},
+  cold:     {bg:'#9e9e9e', border:'#616161', text:'#111', glyph:'#111'},
+  home:     {bg:'#2196f3', border:'#1565c0', text:'#fff', glyph:'#fff'}
+};
+
+// ── ERROR HANDLER ──
+window.gm_authFailure = function() {
+  showError('Google Maps API authentication failed. The API key may need billing enabled or Maps JavaScript API is not enabled for this project. ' +
+    'Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a> → ' +
+    'API key: ' + API_KEY.substring(0,12) + '... → Check: (1) Billing enabled (2) Maps JavaScript API enabled (3) No HTTP referrer restrictions blocking this domain.');
+};
+
+function showError(msg) {
+  var el = document.getElementById('error-banner');
+  el.style.display = 'block';
+  el.innerHTML = '<strong>Map Error:</strong> ' + msg + '<br><button onclick="this.parentElement.style.display=\'none\'" style="margin-top:8px;padding:4px 16px;border:1px solid #fff;background:transparent;color:#fff;border-radius:4px;cursor:pointer">Dismiss</button>';
+}
+
+// ── INIT MAP ──
+function initMap() {
+  document.getElementById('loading').style.display = 'none';
+
+  try {
+    map = new google.maps.Map(document.getElementById('map'), {
+      center: MAP_CENTER,
+      zoom: 10,
+      styles: darkStyle,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      zoomControlOptions: {position: google.maps.ControlPosition.RIGHT_CENTER}
+    });
+  } catch(e) {
+    showError('Failed to initialize map: ' + e.message);
+    return;
+  }
+
+  geocoder = new google.maps.Geocoder();
+  svService = new google.maps.StreetViewService();
+
+  // Add home base marker
+  addHomeMarker();
+
+  // Geocode and add all prospect markers
+  geocodeAll();
+
+  // Set up search
+  document.getElementById('search').addEventListener('input', filterMarkers);
+
+  // Set up filter buttons
+  document.querySelectorAll('.filter-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active')});
+      this.classList.add('active');
+      activeFilter = this.getAttribute('data-filter');
+      filterMarkers();
+    });
+  });
+
+  // Pad map for topbar
+  map.addListener('idle', function() {
+    // ensure topbar doesn't cover map content
+  });
+}
+
+function addHomeMarker() {
+  var marker = new google.maps.Marker({
+    position: HOME_BASE,
+    map: map,
+    title: 'Oxley Tire Inc (HQ)',
+    icon: {
+      path: 'M -8,-16 0,-28 8,-16 8,0 -8,0 Z',
+      fillColor: '#2196f3',
+      fillOpacity: 1,
+      strokeColor: '#0d47a1',
+      strokeWeight: 2,
+      scale: 1.3,
+      anchor: new google.maps.Point(0, 0),
+      labelOrigin: new google.maps.Point(0, -14)
+    },
+    label: {text: 'HQ', color: '#fff', fontSize: '10px', fontWeight: '700'},
+    zIndex: 1000
+  });
+
+  marker.addListener('click', function() {
+    currentProspect = {name:'Oxley Tire Inc',address:HOME_ADDRESS,trucks:null,drivers:null,phone:'',type:'home',locType:'Home Base / HQ',notes:'655 Langham Rd, Beaumont TX. Home base for all routes.',spend:'N/A',position:HOME_BASE};
+    openSheet(currentProspect);
+  });
+}
+
+// ── GEOCODING ──
+var geocodeQueue = [];
+var geocodeIndex = 0;
+
+function geocodeAll() {
+  geocodeQueue = prospects.slice();
+  geocodeIndex = 0;
+  processNextGeocode();
+}
+
+function processNextGeocode() {
+  if (geocodeIndex >= geocodeQueue.length) return;
+
+  var p = geocodeQueue[geocodeIndex];
+  geocoder.geocode({address: p.address}, function(results, status) {
+    var pos;
+    if (status === 'OK' && results[0]) {
+      pos = results[0].geometry.location;
+      p.position = {lat: pos.lat(), lng: pos.lng()};
+    } else {
+      // Fallback: try to match city name
+      var fallback = null;
+      for (var city in FALLBACK_COORDS) {
+        if (p.address.indexOf(city) !== -1) {
+          fallback = FALLBACK_COORDS[city];
+          break;
         }
-      ];
-
-      // Draw territory polygons
-      territories.forEach(function(t) {
-        var polygon = new google.maps.Polygon({
-          paths: t.coords,
-          strokeColor: t.color,
-          strokeOpacity: 0.9,
-          strokeWeight: 2,
-          fillColor: t.color,
-          fillOpacity: 0.2
-        });
-        polygon.setMap(map);
-
-        var infoWindow = new google.maps.InfoWindow();
-        polygon.addListener('click', function(e) {
-          infoWindow.setContent(
-            '<div style="padding:6px"><strong>' + t.name + '</strong><br>' +
-            '<span style="color:#666">' + t.rep + '</span></div>'
-          );
-          infoWindow.setPosition(e.latLng);
-          infoWindow.open(map);
-        });
-      });
-
-      // Key account markers
-      var accounts = [
-        {name: 'Nashville Distribution Center', lat: 36.16, lng: -86.78, type: 'warehouse'},
-        {name: 'Chattanooga Tire Depot', lat: 35.05, lng: -85.31, type: 'depot'},
-        {name: 'Knoxville Sales Office', lat: 35.96, lng: -83.92, type: 'office'},
-        {name: 'Memphis Hub', lat: 35.15, lng: -90.05, type: 'warehouse'},
-        {name: 'Murfreesboro Retail', lat: 35.85, lng: -86.39, type: 'retail'},
-        {name: 'Clarksville Account', lat: 36.53, lng: -87.36, type: 'retail'},
-        {name: 'Jackson Tire Center', lat: 35.61, lng: -88.81, type: 'depot'},
-        {name: 'Cookeville Branch', lat: 36.16, lng: -85.50, type: 'office'}
-      ];
-
-      var icons = {
-        warehouse: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-        depot: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-        office: 'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
-        retail: 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png'
-      };
-
-      accounts.forEach(function(a) {
-        var marker = new google.maps.Marker({
-          position: {lat: a.lat, lng: a.lng},
-          map: map,
-          title: a.name,
-          icon: icons[a.type]
-        });
-
-        var infoWindow = new google.maps.InfoWindow({
-          content: '<div style="padding:6px"><strong>' + a.name + '</strong><br>' +
-                   '<span style="color:#666;text-transform:capitalize">' + a.type + '</span></div>'
-        });
-
-        marker.addListener('click', function() {
-          infoWindow.open(map, marker);
-        });
-      });
-
-      // Add legend to map
-      var legendDiv = document.createElement('div');
-      legendDiv.id = 'legend';
-      legendDiv.innerHTML = '<h3>Territories</h3>';
-      territories.forEach(function(t) {
-        legendDiv.innerHTML += '<div class="legend-item">' +
-          '<div class="legend-color" style="background:' + t.color + '"></div>' +
-          '<span>' + t.name.replace(/Territory \d+ - /, '') + '</span></div>';
-      });
-      legendDiv.innerHTML += '<h3 style="margin-top:10px">Locations</h3>' +
-        '<div class="legend-item"><img src="' + icons.warehouse + '" width="16" style="margin-right:8px"> Warehouse</div>' +
-        '<div class="legend-item"><img src="' + icons.depot + '" width="16" style="margin-right:8px"> Depot</div>' +
-        '<div class="legend-item"><img src="' + icons.office + '" width="16" style="margin-right:8px"> Office</div>' +
-        '<div class="legend-item"><img src="' + icons.retail + '" width="16" style="margin-right:8px"> Retail</div>';
-      map.controls[google.maps.ControlPosition.LEFT_BOTTOM].push(legendDiv);
+      }
+      if (fallback) {
+        // Offset slightly so pins don't stack
+        p.position = {lat: fallback.lat + (Math.random()-0.5)*0.02, lng: fallback.lng + (Math.random()-0.5)*0.02};
+      } else {
+        p.position = {lat: MAP_CENTER.lat + (Math.random()-0.5)*0.05, lng: MAP_CENTER.lng + (Math.random()-0.5)*0.05};
+      }
+      console.warn('Geocode failed for "' + p.address + '": ' + status + '. Using fallback.');
     }
-  </script>
-  <script async defer
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap"
-    onerror="document.getElementById('error-banner').style.display='block';document.getElementById('error-banner').innerHTML='<strong>Failed to load Google Maps API.</strong> Check your internet connection and API key.'">
-  </script>
+
+    createMarker(p);
+    geocodeIndex++;
+
+    // Throttle to stay under geocoding rate limits (50/sec)
+    if (geocodeIndex < geocodeQueue.length) {
+      setTimeout(processNextGeocode, 120);
+    }
+  });
+}
+
+// ── MARKERS ──
+function createMarker(p) {
+  var colors = PIN_COLORS[p.type] || PIN_COLORS.prospect;
+  var isLarge = p.type === 'whale';
+  var scale = isLarge ? 1.4 : 1.0;
+  var showCount = p.trucks && p.trucks >= 20;
+
+  var marker = new google.maps.Marker({
+    position: p.position,
+    map: map,
+    title: p.name,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: colors.bg,
+      fillOpacity: 1,
+      strokeColor: colors.border,
+      strokeWeight: 2,
+      scale: isLarge ? 18 : 12,
+      labelOrigin: new google.maps.Point(0, 0)
+    },
+    label: showCount ? {
+      text: String(p.trucks),
+      color: colors.glyph,
+      fontSize: isLarge ? '11px' : '9px',
+      fontWeight: '700'
+    } : null,
+    zIndex: p.type === 'whale' ? 900 : (p.type === 'customer' ? 800 : 700)
+  });
+
+  marker.prospectData = p;
+
+  marker.addListener('click', function() {
+    if (routeMode) {
+      addRouteStop(p);
+      return;
+    }
+    currentProspect = p;
+    openSheet(p);
+  });
+
+  markers.push(marker);
+}
+
+// ── FILTER ──
+function filterMarkers() {
+  var query = document.getElementById('search').value.toLowerCase().trim();
+  markers.forEach(function(m) {
+    var p = m.prospectData;
+    var matchesFilter = (activeFilter === 'all' || p.type === activeFilter);
+    var matchesSearch = (!query || p.name.toLowerCase().indexOf(query) !== -1);
+    m.setVisible(matchesFilter && matchesSearch);
+  });
+}
+
+// ── BOTTOM SHEET ──
+function openSheet(p) {
+  var nameEl = document.getElementById('sheet-name');
+  var badgeEl = document.getElementById('sheet-type-badge');
+  var detailsEl = document.getElementById('sheet-details');
+  var notesEl = document.getElementById('sheet-notes');
+
+  nameEl.textContent = p.name;
+
+  var badgeClass = 'badge-' + p.type;
+  var typeLabel = p.type.charAt(0).toUpperCase() + p.type.slice(1);
+  if (p.type === 'whale') typeLabel = 'Whale (50+ trucks)';
+  badgeEl.className = '';
+  badgeEl.classList.add(badgeClass);
+  badgeEl.id = 'sheet-type-badge';
+  badgeEl.textContent = typeLabel;
+
+  var trucksDisplay = p.trucks ? p.trucks + ' trucks' : 'Unknown';
+  var driversDisplay = p.drivers ? p.drivers + ' drivers' : '—';
+  var spendDisplay = p.spend || 'Unknown';
+  var locTypeDisplay = p.locType || '—';
+
+  detailsEl.innerHTML =
+    '<div class="detail-card"><div class="detail-label">Fleet Size</div><div class="detail-value">' + trucksDisplay + '</div></div>' +
+    '<div class="detail-card"><div class="detail-label">Drivers</div><div class="detail-value">' + driversDisplay + '</div></div>' +
+    '<div class="detail-card"><div class="detail-label">Est. Annual Spend</div><div class="detail-value">' + spendDisplay + '</div></div>' +
+    '<div class="detail-card"><div class="detail-label">Location Type</div><div class="detail-value">' + locTypeDisplay + '</div></div>' +
+    '<div class="detail-card" style="grid-column:1/-1"><div class="detail-label">Address</div><div class="detail-value" style="font-size:13px">' + p.address + '</div></div>';
+
+  notesEl.textContent = p.notes || '';
+
+  // Call button
+  var callBtn = document.getElementById('btn-call');
+  if (p.phone) {
+    callBtn.href = 'tel:' + p.phone.replace(/[^\d+]/g, '');
+    callBtn.innerHTML = '&#128222; ' + p.phone;
+    callBtn.style.display = 'flex';
+  } else {
+    callBtn.style.display = 'none';
+  }
+
+  // Navigate button
+  var navBtn = document.getElementById('btn-nav');
+  navBtn.href = 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(p.address) + '&origin=' + encodeURIComponent(HOME_ADDRESS);
+
+  // Reset street view
+  streetViewOpen = false;
+  document.getElementById('streetview-container').style.display = 'none';
+
+  document.getElementById('sheet-overlay').style.display = 'block';
+  document.getElementById('sheet').classList.add('open');
+}
+
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+  setTimeout(function() {
+    document.getElementById('sheet-overlay').style.display = 'none';
+  }, 300);
+}
+
+// ── STREET VIEW ──
+function toggleStreetView() {
+  var container = document.getElementById('streetview-container');
+  if (streetViewOpen) {
+    container.style.display = 'none';
+    streetViewOpen = false;
+    return;
+  }
+
+  if (!currentProspect || !currentProspect.position) return;
+  container.style.display = 'block';
+  streetViewOpen = true;
+
+  var pos = currentProspect.position;
+  svService.getPanorama({location: pos, radius: 200}, function(data, status) {
+    if (status === 'OK') {
+      if (!svPano) {
+        svPano = new google.maps.StreetViewPanorama(container, {
+          position: data.location.latLng,
+          pov: {heading: 0, pitch: 0},
+          zoom: 1,
+          addressControl: false,
+          fullscreenControl: true
+        });
+      } else {
+        svPano.setPosition(data.location.latLng);
+      }
+    } else {
+      container.innerHTML = '<div style="padding:20px;text-align:center;color:#888">No Street View available for this location.</div>';
+    }
+  });
+}
+
+// ── ROUTE MODE ──
+function toggleRouteMode() {
+  routeMode = !routeMode;
+  var btn = document.getElementById('route-btn');
+  var bar = document.getElementById('route-bar');
+
+  if (routeMode) {
+    btn.textContent = 'Routing...';
+    btn.classList.add('active');
+    bar.style.display = 'block';
+    closeSheet();
+  } else {
+    btn.textContent = 'Route';
+    btn.classList.remove('active');
+    bar.style.display = 'none';
+  }
+}
+
+function addRouteStop(p) {
+  // Don't add duplicates
+  for (var i = 0; i < routeStops.length; i++) {
+    if (routeStops[i].name === p.name) return;
+  }
+  routeStops.push(p);
+  updateRouteDisplay();
+}
+
+function updateRouteDisplay() {
+  var stopsEl = document.getElementById('route-stops');
+  if (routeStops.length === 0) {
+    stopsEl.innerHTML = '<em>No stops added yet.</em>';
+    return;
+  }
+  var html = '';
+  routeStops.forEach(function(s, i) {
+    html += '<div style="margin:2px 0">' + (i+1) + '. ' + s.name;
+    html += ' <span style="cursor:pointer;color:#e53935" onclick="removeStop(' + i + ')">&times;</span></div>';
+  });
+  stopsEl.innerHTML = html;
+}
+
+function removeStop(i) {
+  routeStops.splice(i, 1);
+  updateRouteDisplay();
+}
+
+function clearRoute() {
+  routeStops = [];
+  updateRouteDisplay();
+}
+
+function launchRoute() {
+  if (routeStops.length === 0) return;
+
+  // Build Google Maps directions URL with waypoints
+  // Start and end at home base
+  var url = 'https://www.google.com/maps/dir/?api=1';
+  url += '&origin=' + encodeURIComponent(HOME_ADDRESS);
+  url += '&destination=' + encodeURIComponent(HOME_ADDRESS);
+
+  if (routeStops.length === 1) {
+    url += '&waypoints=' + encodeURIComponent(routeStops[0].address);
+  } else {
+    var waypoints = routeStops.map(function(s){return s.address}).join('|');
+    url += '&waypoints=' + encodeURIComponent(waypoints);
+  }
+
+  url += '&travelmode=driving';
+  window.open(url, '_blank');
+
+  // Exit route mode
+  toggleRouteMode();
+  clearRoute();
+}
+</script>
+
+<!-- Load Google Maps API -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&libraries=places&callback=initMap"
+  async defer
+  onerror="showError('Failed to load Google Maps JavaScript API. Check network connection and API key. Key: AIzaSyDdxP...Ciy4E')">
+</script>
 </body>
 </html>

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Oxley Tire - Sales Territory Map</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden;background:#1a1a2e}
+#map{width:100%;height:100%}
+#topBar{position:fixed;top:0;left:0;right:0;z-index:10;background:rgba(16,16,32,0.95);backdrop-filter:blur(10px);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+#searchRow{display:flex;gap:8px;align-items:center}
+#searchBar{flex:1;padding:8px 12px;border-radius:20px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:14px;outline:none}
+#searchBar::placeholder{color:#666}
+#searchBar:focus{border-color:#4a9eff}
+#routeBtn{width:40px;height:40px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+#routeBtn.active{background:#ff4a4a}
+#filterRow{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+#filterRow::-webkit-scrollbar{display:none}
+.filterBtn{padding:6px 14px;border-radius:16px;border:1px solid #444;background:transparent;color:#ccc;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s}
+.filterBtn.active{color:#fff;border-color:#fff}
+.filterBtn[data-f="all"].active{background:#4a9eff;border-color:#4a9eff}
+.filterBtn[data-f="whale"].active{background:#e53935;border-color:#e53935}
+.filterBtn[data-f="customer"].active{background:#43a047;border-color:#43a047}
+.filterBtn[data-f="prospect"].active{background:#fdd835;border-color:#fdd835;color:#000}
+.filterBtn[data-f="cold"].active{background:#757575;border-color:#757575}
+#statsBar{color:#888;font-size:11px;text-align:center;padding:0 0 2px}
+#sheet{position:fixed;bottom:0;left:0;right:0;z-index:20;background:#1a1a2e;border-radius:16px 16px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:70vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
+#sheet.open{transform:translateY(0)}
+#sheetHandle{width:40px;height:4px;background:#444;border-radius:2px;margin:10px auto 6px}
+#sheetContent{padding:0 16px 24px}
+.sheetName{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px}
+.sheetBadge{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:10px}
+.badge-whale{background:#e53935;color:#fff}
+.badge-customer{background:#43a047;color:#fff}
+.badge-prospect{background:#fdd835;color:#000}
+.badge-cold{background:#757575;color:#fff}
+.badge-home{background:#1e88e5;color:#fff}
+.sheetRow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #222;color:#ccc;font-size:14px}
+.sheetRow .icon{width:24px;text-align:center;font-size:16px;flex-shrink:0}
+.sheetRow a{color:#4a9eff;text-decoration:none}
+.sheetNotes{background:#111;border-radius:10px;padding:10px 12px;color:#aaa;font-size:13px;margin-top:10px;line-height:1.4}
+.sheetActions{display:flex;gap:10px;margin-top:14px}
+.sheetActions button{flex:1;padding:12px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer}
+#navBtn{background:#4a9eff;color:#fff}
+#svBtn{background:#333;color:#fff}
+#svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
+#routeBanner{position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(255,74,74,0.95);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600}
+#routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
+#routeLaunch{background:#fff;color:#e53935}
+#routeCancel{background:rgba(255,255,255,0.2);color:#fff}
+</style>
+</head><body>
+<div id="topBar">
+  <div id="searchRow">
+    <input id="searchBar" type="text" placeholder="Search companies...">
+    <button id="routeBtn" title="Route mode">&#9971;</button>
+  </div>
+  <div id="filterRow">
+    <button class="filterBtn active" data-f="all">All</button>
+    <button class="filterBtn" data-f="whale">Whales</button>
+    <button class="filterBtn" data-f="prospect">Prospects</button>
+    <button class="filterBtn" data-f="customer">Customers</button>
+    <button class="filterBtn" data-f="cold">Cold</button>
+  </div>
+  <div id="statsBar"></div>
+</div>
+
+<div id="map"></div>
+
+<div id="sheet">
+  <div id="sheetHandle"></div>
+  <div id="sheetContent"></div>
+</div>
+
+<div id="routeBanner">
+  <span id="routeInfo">Tap pins to add stops</span>
+  <button id="routeLaunch">GO</button>
+  <button id="routeCancel">Cancel</button>
+</div>
+
+<script>
+const API_KEY = 'AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E';
+const HOME = {lat:30.0702,lng:-94.1631};
+const HOME_ADDR = '655 Langham Rd, Beaumont TX';
+
+const locations = [
+  // CUSTOMERS (green)
+  {name:"Curtis & Son Companies",lat:30.0904,lng:-94.7575,addr:"4408 N Main St, Liberty TX",trucks:84,drivers:null,phone:"(936) 334-1188",type:"customer",notes:"Oilfield services. $342K all-time.",spend:"$150K-$200K/yr",locType:"Oilfield services"},
+  {name:"Shamrock Vacuum Service",lat:30.0461,lng:-94.7050,addr:"11616 US-90, Liberty TX",trucks:60,drivers:4,phone:"(936) 334-8100",type:"customer",notes:"Oilfield fluid hauling. 24hrs.",spend:"$110K-$140K/yr",locType:"Oilfield fluid hauling"},
+  // WHALES (red)
+  {name:"Axis Power Generation",lat:30.0786,lng:-94.7704,addr:"Mizell Rd area, Liberty TX",trucks:223,drivers:200,phone:"(936) 336-6700",type:"whale",notes:"Oilfield generators, lowboy/flatbed.",spend:"$400K-$500K+/yr",locType:"Oilfield generators"},
+  {name:"Bright Star Solutions",lat:30.14,lng:-94.39,addr:"18788 Hwy 105, Sour Lake TX",trucks:187,drivers:186,phone:"(409) 287-3662",type:"whale",notes:"Logging/utility fleet. 89 trailers.",spend:"$350K-$450K+/yr",locType:"Logging/utility fleet"},
+  {name:"Huntsman Petrochemical",lat:29.9697,lng:-93.9292,addr:"6001 FM 366, Port Neches TX",trucks:137,drivers:104,phone:"(409) 724-4430",type:"whale",notes:"Fortune 500 chemical co.",spend:"$250K-$350K+/yr",locType:"Chemical manufacturing"},
+  // PROSPECTS (yellow)
+  {name:"Standard Supply",lat:30.0445,lng:-94.7057,addr:"11562 US-90, Liberty TX",trucks:27,drivers:27,phone:"(936) 336-6200",type:"prospect",notes:"Industrial supply on Hwy 90.",spend:"$48K-$65K/yr",locType:"Industrial supply"},
+  {name:"Thomas Honey Farms",lat:30.1246,lng:-94.7677,addr:"1700 FM 1011, Liberty TX",trucks:23,drivers:26,phone:"(936) 334-7823",type:"prospect",notes:"Livestock + bee equip. Call first.",spend:"$40K-$55K/yr",locType:"Livestock + bee equipment"},
+  {name:"Smart Materials Inc",lat:30.0194,lng:-94.7768,addr:"1404 Wallisville Rd, Liberty TX",trucks:22,drivers:18,phone:"(936) 336-3026",type:"prospect",notes:"Rock yard. Mark Joines/Arnold Smart. Since 1979.",spend:"$38K-$50K/yr",locType:"Rock yard"},
+  {name:"Smart Oilfield Services",lat:30.0786,lng:-94.7704,addr:"2251 Mizell Rd, Liberty TX",trucks:null,drivers:null,phone:"(936) 336-3768",type:"prospect",notes:"Absorbed B&J Vac. Opens 5:30AM.",spend:"TBD",locType:"Oilfield services"},
+  {name:"Curtis Oilfield Services",lat:30.3572,lng:-94.1098,addr:"4779 US-96, Silsbee TX",trucks:27,drivers:27,phone:"(409) 385-2937",type:"prospect",notes:"Oilfield on US-96.",spend:"$48K-$65K/yr",locType:"Oilfield services"},
+  {name:"Clean Combustion Inc",lat:29.8885,lng:-94.8944,addr:"14210 TX-146, Dayton TX",trucks:26,drivers:29,phone:"(281) 385-0111",type:"prospect",notes:"Verified yard on 146.",spend:"$45K-$60K/yr",locType:"Oilfield services"},
+  {name:"Orange County Building Materials",lat:30.13,lng:-93.98,addr:"365 Old Hwy 90 W, Vidor TX",trucks:21,drivers:25,phone:"(409) 769-2410",type:"prospect",notes:"Building materials. 500K mi/yr.",spend:"$38K-$50K/yr",locType:"Building materials"},
+  {name:"South Hampton Resources",lat:30.35,lng:-94.18,addr:"7752 Farm Rd 418 W, Silsbee TX",trucks:19,drivers:19,phone:"(409) 385-8300",type:"prospect",notes:"HAZMAT chemical hauler. 2M mi/yr.",spend:"$35K-$45K/yr",locType:"Chemical hauling"},
+  {name:"Apache Products Acme Skid",lat:30.34,lng:-94.17,addr:"1012 John Hare Rd, Silsbee TX",trucks:19,drivers:14,phone:"(409) 385-7021",type:"prospect",notes:"Pallets/lumber.",spend:"$33K-$42K/yr",locType:"Pallets/lumber"},
+  {name:"Liberty Ready Mix",lat:30.0604,lng:-94.7694,addr:"3301 Beaumont Ave, Liberty TX",trucks:10,drivers:8,phone:"(936) 334-0304",type:"prospect",notes:"Concrete batch plant. M-Sat 7-5.",spend:"$18K-$25K/yr",locType:"Concrete batch plant"},
+  {name:"Triangle Petroleum",lat:30.058,lng:-94.798,addr:"902 Layl Dr, Liberty TX",trucks:9,drivers:5,phone:"(936) 336-7373",type:"prospect",notes:"Oilfield vacuum. Call first.",spend:"$16K-$22K/yr",locType:"Oilfield vacuum"},
+  {name:"Blackgold Services",lat:30.0564,lng:-94.7643,addr:"3608 US-90, Liberty TX",trucks:8,drivers:5,phone:"(936) 336-9600",type:"prospect",notes:"Oilfield since 1997. M-F 8-5.",spend:"$14K-$20K/yr",locType:"Oilfield services"},
+  {name:"4KBC Trucking",lat:30.0712,lng:-94.7871,addr:"2004 N Main St, Liberty TX",trucks:7,drivers:7,phone:"(936) 336-6275",type:"prospect",notes:"Downtown Liberty.",spend:"$12K-$18K/yr",locType:"Trucking"},
+  {name:"Quikrete Plant",lat:30.0434,lng:-94.6800,addr:"13174 US-90, Raywood TX",trucks:null,drivers:null,phone:"(936) 587-4450",type:"prospect",notes:"Concrete mfg. M-F 7-4:30.",spend:"TBD",locType:"Concrete manufacturing"},
+  {name:"Liberty Forge",lat:30.0486,lng:-94.8157,addr:"1507 Fort Worth St, Liberty TX",trucks:5,drivers:5,phone:"(936) 336-5785",type:"prospect",notes:"Metal forging. M-F 7:30-5.",spend:"$9K-$14K/yr",locType:"Metal forging"},
+  // COLD (gray)
+  {name:"C6 Logistics",lat:30.065,lng:-94.785,addr:"202 Mockingbird Ln, Liberty TX",trucks:5,drivers:null,phone:"(936) 334-4335",type:"cold",notes:"House. Phone only.",spend:null,locType:"Logistics"},
+  {name:"936 Logistics",lat:30.07,lng:-94.79,addr:"2075 CR 2107, Liberty TX",trucks:5,drivers:null,phone:"(832) 581-6037",type:"cold",notes:"Phone only.",spend:null,locType:"Logistics"},
+  {name:"Helena Chemical",lat:30.0419,lng:-94.6721,addr:"206629 Hwy 90 E, Raywood TX",trucks:null,drivers:null,phone:"(936) 549-7336",type:"cold",notes:"Ag chemical. Small fleet.",spend:null,locType:"Ag chemical"},
+  {name:"Ellerbee Services",lat:30.0358,lng:-94.4244,addr:"1552 2nd St, Nome TX",trucks:4,drivers:2,phone:"(409) 253-2165",type:"cold",notes:"Oilfield+livestock+grain.",spend:null,locType:"Oilfield/livestock/grain"},
+  // HOME (blue)
+  {name:"Oxley Tire Inc",lat:30.0702,lng:-94.1631,addr:"655 Langham Rd, Beaumont TX",trucks:null,drivers:null,phone:null,type:"home",notes:"Home base.",spend:null,locType:"Home base"}
+];
+
+const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5'};
+const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40};
+let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById('map'), {
+    center: {lat:30.05, lng:-94.55}, zoom:10,
+    disableDefaultUI: true, zoomControl: true,
+    styles: [
+      {elementType:'geometry',stylers:[{color:'#1d2c4d'}]},
+      {elementType:'labels.text.fill',stylers:[{color:'#8ec3b9'}]},
+      {elementType:'labels.text.stroke',stylers:[{color:'#1a3646'}]},
+      {featureType:'administrative.country',elementType:'geometry.stroke',stylers:[{color:'#4b6878'}]},
+      {featureType:'land',elementType:'geometry',stylers:[{color:'#1d2c4d'}]},
+      {featureType:'land',elementType:'labels.text.fill',stylers:[{color:'#64779e'}]},
+      {featureType:'poi',elementType:'geometry',stylers:[{color:'#283d6a'}]},
+      {featureType:'poi',elementType:'labels.text.fill',stylers:[{color:'#6f9ba5'}]},
+      {featureType:'poi.park',elementType:'geometry.fill',stylers:[{color:'#023e58'}]},
+      {featureType:'road',elementType:'geometry',stylers:[{color:'#304a7d'}]},
+      {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#98a5be'}]},
+      {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#2c6675'}]},
+      {featureType:'transit',elementType:'labels.text.fill',stylers:[{color:'#98a5be'}]},
+      {featureType:'water',elementType:'geometry',stylers:[{color:'#0e1626'}]},
+      {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#4e6d70'}]}
+    ]
+  });
+
+  locations.forEach((loc, i) => {
+    const size = SIZES[loc.type] || 32;
+    const color = COLORS[loc.type] || '#999';
+    const showLabel = loc.trucks && loc.trucks >= 20;
+    const label = showLabel ? String(loc.trucks) : '';
+    const isWhale = loc.type === 'whale';
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size+12}">
+      <circle cx="${size/2}" cy="${size/2}" r="${size/2-2}" fill="${color}" stroke="#fff" stroke-width="2"/>
+      ${label ? `<text x="${size/2}" y="${size/2+5}" text-anchor="middle" fill="${isWhale||loc.type==='customer'?'#fff':'#000'}" font-size="${size>36?13:11}" font-weight="bold">${label}</text>` : ''}
+      <polygon points="${size/2},${size+10} ${size/2-5},${size-4} ${size/2+5},${size-4}" fill="${color}"/>
+    </svg>`;
+
+    const marker = new google.maps.Marker({
+      position: {lat:loc.lat, lng:loc.lng},
+      map: map,
+      title: loc.name,
+      icon: {
+        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+        scaledSize: new google.maps.Size(size, size+12),
+        anchor: new google.maps.Point(size/2, size+10)
+      }
+    });
+
+    marker._loc = loc;
+    marker._idx = i;
+    marker.addListener('click', () => onMarkerClick(marker));
+    markers.push(marker);
+  });
+
+  updateStats();
+}
+
+function onMarkerClick(marker) {
+  const loc = marker._loc;
+  if (routeMode) {
+    const exists = routeStops.findIndex(s => s._idx === marker._idx);
+    if (exists > -1) {
+      routeStops.splice(exists, 1);
+    } else {
+      routeStops.push(marker);
+    }
+    document.getElementById('routeInfo').textContent = routeStops.length + ' stop' + (routeStops.length!==1?'s':'') + ' selected';
+    return;
+  }
+  openSheet(loc);
+}
+
+function openSheet(loc) {
+  const truckStr = loc.trucks ? loc.trucks + ' trucks' : 'Trucks unknown';
+  const driverStr = loc.drivers ? ', ' + loc.drivers + ' drivers' : '';
+  const phoneLink = loc.phone ? `<a href="tel:${loc.phone.replace(/[^\d+]/g,'')}">${loc.phone}</a>` : 'N/A';
+  const badgeClass = 'badge-' + loc.type;
+  const typeLabel = loc.type.charAt(0).toUpperCase() + loc.type.slice(1);
+  const spendLine = loc.spend ? `<div class="sheetRow"><span class="icon">&#128176;</span>${loc.spend} est. tire spend</div>` : '';
+
+  document.getElementById('sheetContent').innerHTML = `
+    <div class="sheetName">${loc.name}</div>
+    <span class="sheetBadge ${badgeClass}">${typeLabel}</span>
+    <div class="sheetRow"><span class="icon">&#128666;</span>${truckStr}${driverStr}</div>
+    <div class="sheetRow"><span class="icon">&#128222;</span>${phoneLink}</div>
+    <div class="sheetRow"><span class="icon">&#128205;</span>${loc.addr}</div>
+    ${spendLine}
+    <div class="sheetRow"><span class="icon">&#127981;</span>${loc.locType}</div>
+    <div class="sheetNotes">${loc.notes}</div>
+    <div class="sheetActions">
+      <button id="navBtn" onclick="navigate('${loc.addr}')">&#128665; Navigate</button>
+      <button id="svBtn" onclick="showStreetView(${loc.lat},${loc.lng})">&#128064; Street View</button>
+    </div>
+    <div id="svContainer"></div>
+  `;
+  document.getElementById('sheet').classList.add('open');
+}
+
+function navigate(addr) {
+  window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr), '_blank');
+}
+
+function showStreetView(lat, lng) {
+  const svContainer = document.getElementById('svContainer');
+  if (svContainer.style.display === 'block') {
+    svContainer.style.display = 'none';
+    return;
+  }
+  svContainer.style.display = 'block';
+  new google.maps.StreetViewPanorama(svContainer, {
+    position: {lat, lng},
+    pov: {heading:0, pitch:0},
+    zoom: 1,
+    disableDefaultUI: true,
+    showRoadLabels: false
+  });
+}
+
+// Filters
+document.getElementById('filterRow').addEventListener('click', e => {
+  if (!e.target.classList.contains('filterBtn')) return;
+  document.querySelectorAll('.filterBtn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  activeFilter = e.target.dataset.f;
+  applyFilters();
+});
+
+document.getElementById('searchBar').addEventListener('input', () => applyFilters());
+
+function applyFilters() {
+  const q = document.getElementById('searchBar').value.toLowerCase();
+  let shown = 0, totalTrucks = 0;
+  markers.forEach(m => {
+    const loc = m._loc;
+    const matchFilter = activeFilter === 'all' || loc.type === activeFilter;
+    const matchSearch = !q || loc.name.toLowerCase().includes(q) || loc.addr.toLowerCase().includes(q) || (loc.notes && loc.notes.toLowerCase().includes(q));
+    const visible = matchFilter && matchSearch;
+    m.setVisible(visible);
+    if (visible) { shown++; totalTrucks += loc.trucks || 0; }
+  });
+  document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
+}
+
+function updateStats() {
+  let shown = 0, totalTrucks = 0;
+  markers.forEach(m => {
+    if (m.getVisible()) { shown++; totalTrucks += m._loc.trucks || 0; }
+  });
+  document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
+}
+
+// Close sheet on map click
+document.getElementById('map').addEventListener('click', e => {
+  if (e.target === document.getElementById('map')) {
+    document.getElementById('sheet').classList.remove('open');
+  }
+});
+
+// Route mode
+document.getElementById('routeBtn').addEventListener('click', () => {
+  routeMode = !routeMode;
+  routeStops = [];
+  document.getElementById('routeBtn').classList.toggle('active', routeMode);
+  document.getElementById('routeBanner').style.display = routeMode ? 'flex' : 'none';
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('routeInfo').textContent = 'Tap pins to add stops';
+});
+
+document.getElementById('routeCancel').addEventListener('click', () => {
+  routeMode = false;
+  routeStops = [];
+  document.getElementById('routeBtn').classList.remove('active');
+  document.getElementById('routeBanner').style.display = 'none';
+});
+
+document.getElementById('routeLaunch').addEventListener('click', () => {
+  if (!routeStops.length) return;
+  const origin = encodeURIComponent(HOME_ADDR);
+  const dest = encodeURIComponent(HOME_ADDR);
+  const waypoints = routeStops.map(s => encodeURIComponent(s._loc.addr)).join('|');
+  window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&waypoints=${waypoints}`, '_blank');
+});
+
+// Close sheet by tapping outside
+document.addEventListener('click', e => {
+  const sheet = document.getElementById('sheet');
+  if (sheet.classList.contains('open') && !sheet.contains(e.target) && !e.target.closest('.gm-style')) {
+    sheet.classList.remove('open');
+  }
+});
+
+function gm_authFailure() {
+  document.getElementById('map').innerHTML = '<div style="color:red;padding:40px;font-size:18px"><h2>Google Maps Auth Failure</h2><p>The API key was rejected. Check the Google Cloud Console.</p></div>';
+}
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap" async defer></script>
+</body></html>

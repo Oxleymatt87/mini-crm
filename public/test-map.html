@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body,#map{height:100%;margin:0}</style>
+</head><body>
+<div id="map"></div>
+<script>
+function initMap(){new google.maps.Map(document.getElementById('map'),{center:{lat:30.05,lng:-94.55},zoom:10})}
+function gm_authFailure(){document.body.innerHTML='<h1>AUTH FAILURE - Key rejected</h1>'}
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap" async defer></script>
+</body></html>

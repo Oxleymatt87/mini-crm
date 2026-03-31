@@ -8,6 +8,14 @@
         "destination": "/portal.html"
       },
       {
+        "source": "/map",
+        "destination": "/map.html"
+      },
+      {
+        "source": "/test-map",
+        "destination": "/test-map.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

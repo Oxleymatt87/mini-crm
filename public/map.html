@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Oxley Tire Territory Map</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden;background:#1a1a2e}
+#map{width:100%;height:100%;position:absolute;top:0;left:0}
+#error-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#d32f2f;color:#fff;padding:16px;font-size:14px;text-align:center;word-break:break-all}
+#header{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(26,26,46,0.95);backdrop-filter:blur(10px);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+#stats{color:#e0e0e0;font-size:13px;font-weight:600;text-align:center}
+#search-row{display:flex;gap:8px;align-items:center}
+#search{flex:1;padding:8px 12px;border-radius:20px;border:1px solid #444;background:#2a2a4a;color:#fff;font-size:14px;outline:none}
+#search::placeholder{color:#888}
+#route-btn{padding:8px 14px;border-radius:20px;border:none;background:#1565c0;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+#route-btn.active{background:#c62828}
+#filters{display:flex;gap:6px;overflow-x:auto;padding:2px 0}
+#filters::-webkit-scrollbar{display:none}
+.filter-btn{padding:6px 14px;border-radius:16px;border:1px solid #555;background:transparent;color:#ccc;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s}
+.filter-btn.active{background:#fff;color:#1a1a2e;border-color:#fff}
+#bottom-sheet{position:fixed;bottom:0;left:0;right:0;z-index:200;background:#1e1e3a;border-radius:20px 20px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:70vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
+#bottom-sheet.open{transform:translateY(0)}
+#sheet-handle{width:40px;height:4px;background:#555;border-radius:2px;margin:10px auto}
+#sheet-content{padding:0 16px 24px}
+.sheet-name{font-size:20px;font-weight:700;color:#fff;margin-bottom:6px}
+.sheet-badge{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;margin-bottom:10px}
+.badge-customer{background:#2e7d32;color:#fff}
+.badge-whale{background:#c62828;color:#fff}
+.badge-prospect{background:#f9a825;color:#000}
+.badge-cold{background:#616161;color:#fff}
+.badge-home{background:#1565c0;color:#fff}
+.sheet-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #333;color:#ccc;font-size:14px}
+.sheet-row svg{flex-shrink:0;width:18px;height:18px;fill:#888}
+.sheet-label{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+.sheet-value{color:#e0e0e0}
+.sheet-notes{color:#aaa;font-size:13px;line-height:1.5;padding:10px 0}
+.sheet-actions{display:flex;gap:10px;margin-top:12px}
+.action-btn{flex:1;padding:12px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-call{background:#2e7d32;color:#fff}
+.btn-nav{background:#1565c0;color:#fff}
+.btn-sv{background:#6a1b9a;color:#fff}
+#streetview-container{display:none;width:100%;height:200px;border-radius:12px;margin-top:10px;overflow:hidden}
+#route-panel{display:none;position:fixed;bottom:0;left:0;right:0;z-index:300;background:#1e1e3a;border-radius:20px 20px 0 0;padding:16px;box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
+#route-stops{color:#ccc;font-size:13px;margin-bottom:10px;max-height:150px;overflow-y:auto}
+.route-stop{padding:4px 0;display:flex;align-items:center;gap:8px}
+.route-stop-num{background:#1565c0;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+#route-actions{display:flex;gap:10px}
+#route-actions button,#route-actions a{flex:1;padding:12px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer;text-align:center;color:#fff;text-decoration:none}
+.btn-launch{background:#2e7d32}
+.btn-clear{background:#616161}
+</style>
+</head>
+<body>
+<div id="error-banner"></div>
+<div id="header">
+  <div id="stats">Loading map...</div>
+  <div id="search-row">
+    <input id="search" type="text" placeholder="Search company or city...">
+    <button id="route-btn" onclick="toggleRouteMode()">🛣 Route</button>
+  </div>
+  <div id="filters">
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">All</button>
+    <button class="filter-btn" data-filter="whale" onclick="setFilter('whale',this)">Whales</button>
+    <button class="filter-btn" data-filter="prospect" onclick="setFilter('prospect',this)">Prospects</button>
+    <button class="filter-btn" data-filter="customer" onclick="setFilter('customer',this)">Customers</button>
+    <button class="filter-btn" data-filter="cold" onclick="setFilter('cold',this)">Cold</button>
+  </div>
+</div>
+<div id="map"></div>
+<div id="bottom-sheet" onclick="event.target===this&&closeSheet()">
+  <div id="sheet-handle"></div>
+  <div id="sheet-content"></div>
+</div>
+<div id="route-panel">
+  <div style="color:#fff;font-weight:700;font-size:16px;margin-bottom:8px">🛣 Route Planner <span id="route-count" style="font-weight:400;font-size:13px;color:#aaa"></span></div>
+  <div id="route-stops"></div>
+  <div id="route-actions">
+    <a id="route-launch" class="btn-launch" href="#" target="_blank">Launch Nav</a>
+    <button class="btn-clear" onclick="clearRoute()">Clear</button>
+  </div>
+</div>
+
+<script>
+const API_KEY = 'AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E';
+const HOME = {lat:30.0702,lng:-94.1631};
+const HOME_ADDR = '655 Langham Rd, Beaumont TX';
+
+const prospects = [
+  {id:1,name:'Curtis & Son Companies',status:'customer',lat:30.0904,lng:-94.7575,addr:'4408 N Main St, Liberty TX',trucks:84,drivers:null,phone:'(936) 334-1188',notes:'Oilfield services, vacuum trucks, heavy haul. QBO #283, $342K all-time revenue.',spend:'$150K-$200K/yr',type:'Oilfield Services'},
+  {id:2,name:'Shamrock Vacuum Service',status:'customer',lat:30.0461,lng:-94.7050,addr:'11616 US-90, Liberty TX',trucks:60,drivers:4,phone:'(936) 334-8100',notes:'Oilfield fluid hauling. Open 24hrs. Frac tanks, equipment rental.',spend:'$110K-$140K/yr',type:'Oilfield Hauling'},
+  {id:3,name:'Axis Power Generation',status:'whale',lat:30.0786,lng:-94.7704,addr:'Mizell Rd area, Liberty TX',trucks:223,drivers:200,phone:'(936) 336-6700',notes:'Oilfield generator rental & transport. Lowboy/flatbed. Just moved to yard near Mizell Rd.',spend:'$400K-$500K+/yr',type:'Generator Rental'},
+  {id:4,name:'Bright Star Solutions LLC',status:'whale',lat:30.14,lng:-94.39,addr:'18788 Hwy 105, Sour Lake TX',trucks:187,drivers:186,phone:'(409) 287-3662',notes:'Logging/utility fleet. Private property carrier. 89 trailers. Cell: (409) 658-2644',spend:'$350K-$450K+/yr',type:'Logging/Utility'},
+  {id:5,name:'Huntsman Petrochemical',status:'whale',lat:29.9697,lng:-93.9292,addr:'6001 FM 366, Port Neches TX',trucks:137,drivers:104,phone:'(409) 724-4430',notes:'Fortune 500 chemical company. Corporate account — ask for fleet/maintenance procurement.',spend:'$250K-$350K+/yr',type:'Chemical Manufacturing'},
+  {id:6,name:'Standard Supply',status:'prospect',lat:30.0445,lng:-94.7057,addr:'11562 US-90, Liberty TX',trucks:27,drivers:27,phone:'(936) 336-6200',notes:'Industrial supply warehouse on Hwy 90. Verified yard.',spend:'$48K-$65K/yr',type:'Industrial Supply'},
+  {id:7,name:'Thomas Honey Farms',status:'prospect',lat:30.1246,lng:-94.7677,addr:'1700 FM 1011, Liberty TX',trucks:23,drivers:26,phone:'(936) 334-7823',notes:'Livestock + beekeeping equip. Farm — CALL FIRST. Private carrier = buys own tires.',spend:'$40K-$55K/yr',type:'Agriculture'},
+  {id:8,name:'Smart Materials Inc',status:'prospect',lat:30.0194,lng:-94.7768,addr:'1404 Wallisville Rd, Liberty TX',trucks:22,drivers:18,phone:'(936) 336-3026',notes:'Rock/gravel yard. Ask for Mark Joines (mgr) or Arnold Smart (owner). Since 1979. Opens 6AM.',spend:'$38K-$50K/yr',type:'Aggregate/Materials'},
+  {id:9,name:'Smart Oilfield Services',status:'prospect',lat:30.0786,lng:-94.7704,addr:'2251 Mizell Rd, Liberty TX',trucks:null,drivers:null,phone:'(936) 336-3768',notes:'Absorbed B&J Vac. Leasing yard to Maverick Wireline. Axis moved in nearby. Opens 5:30AM.',spend:'TBD',type:'Oilfield Services'},
+  {id:10,name:'Curtis Oilfield Services',status:'prospect',lat:30.3572,lng:-94.1098,addr:'4779 US-96, Silsbee TX',trucks:27,drivers:27,phone:'(409) 385-2937',notes:'Oilfield services on US-96.',spend:'$48K-$65K/yr',type:'Oilfield Services'},
+  {id:11,name:'Clean Combustion Inc',status:'prospect',lat:29.8885,lng:-94.8944,addr:'14210 TX-146, Dayton TX',trucks:26,drivers:29,phone:'(281) 385-0111',notes:'Combustion/emissions equipment. Verified yard on Hwy 146.',spend:'$45K-$60K/yr',type:'Equipment Services'},
+  {id:12,name:'Orange County Building Materials',status:'prospect',lat:30.13,lng:-93.98,addr:'365 Old Hwy 90 W, Vidor TX',trucks:21,drivers:25,phone:'(409) 769-2410',notes:'Building materials. 500K miles/yr. Website: ocbm-tx.com',spend:'$38K-$50K/yr',type:'Building Materials'},
+  {id:13,name:'South Hampton Resources',status:'prospect',lat:30.35,lng:-94.18,addr:'7752 Farm Rd 418 W, Silsbee TX',trucks:19,drivers:19,phone:'(409) 385-8300',notes:'HAZMAT carrier. Chemical hauler. 2M+ miles/yr.',spend:'$35K-$45K/yr',type:'Chemical Hauling'},
+  {id:14,name:'Apache Products (Acme Skid)',status:'prospect',lat:30.34,lng:-94.17,addr:'1012 John Hare Rd, Silsbee TX',trucks:19,drivers:14,phone:'(409) 385-7021',notes:'Pallets/lumber/wood products.',spend:'$33K-$42K/yr',type:'Wood Products'},
+  {id:15,name:'Liberty Ready Mix (Yellow Jacket)',status:'prospect',lat:30.0604,lng:-94.7694,addr:'3301 Beaumont Ave, Liberty TX',trucks:10,drivers:8,phone:'(936) 334-0304',notes:'Concrete batch plant. Mixer trucks. M-Sat 7-5.',spend:'$18K-$25K/yr',type:'Concrete'},
+  {id:16,name:'Triangle Petroleum Service',status:'prospect',lat:30.058,lng:-94.798,addr:'902 Layl Dr, Liberty TX',trucks:9,drivers:5,phone:'(936) 336-7373',notes:'Oilfield vacuum trucks. Call first.',spend:'$16K-$22K/yr',type:'Oilfield Services'},
+  {id:17,name:'Blackgold Services Inc',status:'prospect',lat:30.0564,lng:-94.7643,addr:'3608 US-90, Liberty TX',trucks:8,drivers:5,phone:'(936) 336-9600',notes:'Oilfield transport since 1997. M-F 8-5. Verified yard on Hwy 90.',spend:'$14K-$20K/yr',type:'Oilfield Transport'},
+  {id:18,name:'4KBC Trucking LLC',status:'prospect',lat:30.0712,lng:-94.7871,addr:'2004 N Main St, Liberty TX',trucks:7,drivers:7,phone:'(936) 336-6275',notes:'Downtown Liberty.',spend:'$12K-$18K/yr',type:'Trucking'},
+  {id:19,name:'Quikrete Plant',status:'prospect',lat:30.0434,lng:-94.6800,addr:'13174 US-90, Raywood TX',trucks:null,drivers:null,phone:'(936) 587-4450',notes:'Concrete manufacturing plant. M-F 7-4:30.',spend:'TBD',type:'Manufacturing'},
+  {id:20,name:'Liberty Forge Inc',status:'prospect',lat:30.0486,lng:-94.8157,addr:'1507 Fort Worth St, Liberty TX',trucks:5,drivers:5,phone:'(936) 336-5785',notes:'Metal forging manufacturer. M-F 7:30-5.',spend:'$9K-$14K/yr',type:'Manufacturing'},
+  {id:21,name:'C6 Logistics LLC',status:'cold',lat:30.065,lng:-94.785,addr:'202 Mockingbird Ln, Liberty TX',trucks:5,drivers:null,phone:'(936) 334-4335',notes:'House address. Phone only.',spend:null,type:'Logistics'},
+  {id:22,name:'936 Logistics LLC',status:'cold',lat:30.07,lng:-94.79,addr:'2075 CR 2107, Liberty TX',trucks:5,drivers:null,phone:'(832) 581-6037',notes:'County road. Phone only.',spend:null,type:'Logistics'},
+  {id:23,name:'Helena Chemical Co',status:'cold',lat:30.0419,lng:-94.6721,addr:'206629 Hwy 90 E, Raywood TX',trucks:null,drivers:null,phone:'(936) 549-7336',notes:'Ag chemical branch. Small fleet.',spend:null,type:'Agricultural Chemical'},
+  {id:24,name:'Ellerbee Services',status:'cold',lat:30.0358,lng:-94.4244,addr:'1552 2nd St, Nome TX',trucks:4,drivers:2,phone:'(409) 253-2165',notes:'Oilfield + livestock + grain. Cell: (409) 291-6983',spend:null,type:'Oilfield/Agriculture'},
+  {id:25,name:'Oxley Tire Inc',status:'home',lat:30.0702,lng:-94.1631,addr:'655 Langham Rd, Beaumont TX',trucks:null,drivers:null,phone:null,notes:'Home base.',spend:null,type:'Home Base'}
+];
+
+let map, markers=[], activeFilter='all', routeMode=false, routeStops=[], svService, svPano;
+
+function showError(msg){
+  const b=document.getElementById('error-banner');
+  b.textContent=msg;
+  b.style.display='block';
+}
+
+window.gm_authFailure=function(){
+  showError('Google Maps Auth Failure: API key may be invalid, billing not enabled, or Maps JavaScript API not enabled for this key. Key used: '+API_KEY);
+};
+window.onerror=function(msg,src,line,col,err){
+  showError('JS Error: '+msg+' at '+src+':'+line);
+};
+
+function initMap(){
+  const darkStyle=[
+    {elementType:'geometry',stylers:[{color:'#212121'}]},
+    {elementType:'labels.icon',stylers:[{visibility:'off'}]},
+    {elementType:'labels.text.fill',stylers:[{color:'#757575'}]},
+    {elementType:'labels.text.stroke',stylers:[{color:'#212121'}]},
+    {featureType:'administrative',elementType:'geometry',stylers:[{color:'#757575'}]},
+    {featureType:'poi',elementType:'geometry',stylers:[{color:'#181818'}]},
+    {featureType:'road',elementType:'geometry.fill',stylers:[{color:'#2c2c2c'}]},
+    {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#8a8a8a'}]},
+    {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#3c3c3c'}]},
+    {featureType:'transit',elementType:'geometry',stylers:[{color:'#2f3948'}]},
+    {featureType:'water',elementType:'geometry',stylers:[{color:'#000000'}]},
+    {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#3d3d3d'}]}
+  ];
+
+  map=new google.maps.Map(document.getElementById('map'),{
+    center:{lat:30.05,lng:-94.55},
+    zoom:10,
+    styles:darkStyle,
+    disableDefaultUI:true,
+    zoomControl:true,
+    mapTypeControl:false,
+    fullscreenControl:false
+  });
+
+  svService=new google.maps.StreetViewService();
+
+  prospects.forEach(p=>createMarker(p));
+  updateStats();
+  document.getElementById('search').addEventListener('input',applyFilters);
+}
+
+function getMarkerColor(status){
+  switch(status){
+    case 'customer':return '#4CAF50';
+    case 'whale':return '#F44336';
+    case 'prospect':return '#FDD835';
+    case 'cold':return '#9E9E9E';
+    case 'home':return '#2196F3';
+    default:return '#999';
+  }
+}
+
+function getMarkerScale(status){
+  return status==='whale'?1.3:status==='home'?1.2:1;
+}
+
+function createMarker(p){
+  const color=getMarkerColor(p.status);
+  const scale=getMarkerScale(p.status);
+  const showCount=p.trucks&&p.trucks>=20;
+  const isHome=p.status==='home';
+
+  let icon;
+  if(isHome){
+    icon={
+      path:'M -8,-14 L 0,-22 L 8,-14 L 8,-4 L -8,-4 Z',
+      fillColor:color,
+      fillOpacity:1,
+      strokeColor:'#fff',
+      strokeWeight:2,
+      scale:scale,
+      anchor:new google.maps.Point(0,-4)
+    };
+  } else {
+    icon={
+      path:google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+      fillColor:color,
+      fillOpacity:1,
+      strokeColor:'#fff',
+      strokeWeight:1.5,
+      scale:6*scale,
+      anchor:new google.maps.Point(0,0)
+    };
+  }
+
+  const marker=new google.maps.Marker({
+    position:{lat:p.lat,lng:p.lng},
+    map:map,
+    icon:icon,
+    title:p.name,
+    zIndex:p.status==='whale'?100:p.status==='customer'?80:50,
+    label:showCount?{text:String(p.trucks),color:'#fff',fontSize:'10px',fontWeight:'700'}:null
+  });
+
+  marker.prospectData=p;
+  marker.addListener('click',()=>{
+    if(routeMode){
+      addRouteStop(p);
+    } else {
+      openSheet(p);
+    }
+  });
+  markers.push(marker);
+}
+
+function openSheet(p){
+  const s=document.getElementById('sheet-content');
+  const badgeClass='badge-'+p.status;
+  const statusLabel=p.status.charAt(0).toUpperCase()+p.status.slice(1);
+  const truckText=p.trucks?p.trucks+' trucks':'Unknown';
+  const driverText=p.drivers?p.drivers+' drivers':'—';
+  const phoneLink=p.phone?`<a href="tel:${p.phone.replace(/[^0-9+]/g,'')}" style="color:#64B5F6;text-decoration:none">${p.phone}</a>`:'—';
+  const spendText=p.spend||'—';
+
+  s.innerHTML=`
+    <div class="sheet-name">${p.name}</div>
+    <span class="sheet-badge ${badgeClass}">${statusLabel}</span>
+    <div class="sheet-row"><div><span class="sheet-label">Trucks</span><br><span class="sheet-value">${truckText}</span></div></div>
+    <div class="sheet-row"><div><span class="sheet-label">Drivers</span><br><span class="sheet-value">${driverText}</span></div></div>
+    <div class="sheet-row"><div><span class="sheet-label">Phone</span><br><span class="sheet-value">${phoneLink}</span></div></div>
+    <div class="sheet-row"><div><span class="sheet-label">Address</span><br><span class="sheet-value">${p.addr}</span></div></div>
+    <div class="sheet-row"><div><span class="sheet-label">Est. Annual Tire Spend</span><br><span class="sheet-value">${spendText}</span></div></div>
+    <div class="sheet-row"><div><span class="sheet-label">Location Type</span><br><span class="sheet-value">${p.type||'—'}</span></div></div>
+    <div class="sheet-notes">${p.notes||''}</div>
+    <div class="sheet-actions">
+      ${p.phone?`<a class="action-btn btn-call" href="tel:${p.phone.replace(/[^0-9+]/g,'')}">📞 Call</a>`:''}
+      <a class="action-btn btn-nav" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.addr)}" target="_blank">🧭 Navigate</a>
+      <button class="action-btn btn-sv" onclick="showStreetView(${p.lat},${p.lng})">📷 Street View</button>
+    </div>
+    <div id="streetview-container"></div>
+  `;
+  document.getElementById('bottom-sheet').classList.add('open');
+}
+
+function closeSheet(){
+  document.getElementById('bottom-sheet').classList.remove('open');
+}
+
+function showStreetView(lat,lng){
+  const container=document.getElementById('streetview-container');
+  container.style.display='block';
+  svPano=new google.maps.StreetViewPanorama(container,{
+    position:{lat,lng},
+    pov:{heading:0,pitch:0},
+    zoom:1,
+    disableDefaultUI:true,
+    zoomControl:true
+  });
+}
+
+function setFilter(filter,btn){
+  activeFilter=filter;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters(){
+  const q=document.getElementById('search').value.toLowerCase();
+  markers.forEach(m=>{
+    const p=m.prospectData;
+    const matchFilter=activeFilter==='all'||p.status===activeFilter;
+    const matchSearch=!q||p.name.toLowerCase().includes(q)||p.addr.toLowerCase().includes(q);
+    m.setVisible(matchFilter&&matchSearch);
+  });
+  updateStats();
+}
+
+function updateStats(){
+  const visible=markers.filter(m=>m.getVisible());
+  const totalTrucks=visible.reduce((s,m)=>s+(m.prospectData.trucks||0),0);
+  document.getElementById('stats').textContent=`${visible.length} locations · ${totalTrucks} trucks`;
+}
+
+// Route mode
+function toggleRouteMode(){
+  routeMode=!routeMode;
+  const btn=document.getElementById('route-btn');
+  const panel=document.getElementById('route-panel');
+  if(routeMode){
+    btn.classList.add('active');
+    btn.textContent='✕ Cancel';
+    panel.style.display='block';
+    closeSheet();
+  } else {
+    btn.classList.remove('active');
+    btn.textContent='🛣 Route';
+    panel.style.display='none';
+    routeStops=[];
+    updateRoutePanel();
+  }
+}
+
+function addRouteStop(p){
+  if(routeStops.find(s=>s.id===p.id))return;
+  routeStops.push(p);
+  updateRoutePanel();
+}
+
+function clearRoute(){
+  routeStops=[];
+  updateRoutePanel();
+}
+
+function updateRoutePanel(){
+  const stopsDiv=document.getElementById('route-stops');
+  const countSpan=document.getElementById('route-count');
+  countSpan.textContent=`(${routeStops.length} stops)`;
+
+  if(!routeStops.length){
+    stopsDiv.innerHTML='<div style="color:#888;padding:8px 0">Tap pins to add stops</div>';
+    document.getElementById('route-launch').href='#';
+    return;
+  }
+
+  stopsDiv.innerHTML=routeStops.map((s,i)=>`
+    <div class="route-stop">
+      <span class="route-stop-num">${i+1}</span>
+      <span>${s.name}</span>
+    </div>
+  `).join('');
+
+  // Build Google Maps multi-stop URL: start at home, waypoints, end at home
+  const waypoints=routeStops.map(s=>encodeURIComponent(s.addr)).join('/');
+  const url=`https://www.google.com/maps/dir/${encodeURIComponent(HOME_ADDR)}/${waypoints}/${encodeURIComponent(HOME_ADDR)}`;
+  document.getElementById('route-launch').href=url;
+  document.getElementById('route-launch').target='_blank';
+}
+</script>
+<script async defer
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap"
+  onerror="showError('Failed to load Google Maps script. Check network/API key.')">
+</script>
+</body>
+</html>

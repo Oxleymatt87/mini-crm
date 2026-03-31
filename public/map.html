@@ -23,6 +23,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .filterBtn[data-f="customer"].active{background:#43a047;border-color:#43a047}
 .filterBtn[data-f="prospect"].active{background:#fdd835;border-color:#fdd835;color:#000}
 .filterBtn[data-f="cold"].active{background:#757575;border-color:#757575}
+.filterBtn[data-f="saved"].active{background:#ff9800;border-color:#ff9800;color:#000}
 #statsBar{color:#888;font-size:11px;text-align:center;padding:0 0 2px}
 #sheet{position:fixed;bottom:0;left:0;right:0;z-index:20;background:#1a1a2e;border-radius:16px 16px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:70vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
 #sheet.open{transform:translateY(0)}
@@ -35,6 +36,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .badge-prospect{background:#fdd835;color:#000}
 .badge-cold{background:#757575;color:#fff}
 .badge-home{background:#1e88e5;color:#fff}
+.badge-saved{background:#ff9800;color:#000}
 .sheetRow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #222;color:#ccc;font-size:14px}
 .sheetRow .icon{width:24px;text-align:center;font-size:16px;flex-shrink:0}
 .sheetRow a{color:#4a9eff;text-decoration:none}
@@ -61,6 +63,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <button class="filterBtn" data-f="prospect">Prospects</button>
     <button class="filterBtn" data-f="customer">Customers</button>
     <button class="filterBtn" data-f="cold">Cold</button>
+    <button class="filterBtn" data-f="saved">Saved</button>
   </div>
   <div id="statsBar"></div>
 </div>
@@ -116,8 +119,118 @@ const locations = [
   {name:"Oxley Tire Inc",lat:30.0702,lng:-94.1631,addr:"655 Langham Rd, Beaumont TX",trucks:null,drivers:null,phone:null,type:"home",notes:"Home base.",spend:null,locType:"Home base"}
 ];
 
-const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5'};
-const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40};
+const savedPlaces = [
+  {name:"M&D Supply Ace Hardware",lat:30.0687179,lng:-94.1426162,addr:"4580 College St, Beaumont, TX 77707",type:"saved"},
+  {name:"Elite Recovery Services",lat:30.1307416,lng:-94.213134,addr:"11181 N Keith Rd, Beaumont, TX 77713",type:"saved"},
+  {name:"Anahuac Transport",lat:29.8344071,lng:-94.5759266,addr:"309 FM 1724, Hankamer, TX 77560",type:"saved"},
+  {name:"C Hill Propane LLC",lat:30.1544797,lng:-94.6482235,addr:"2221 Farm to Market Rd 770, Hull, TX 77564",type:"saved"},
+  {name:"Alliance Industrial Group",lat:30.2845868,lng:-94.2328293,addr:"570 N Lhs Dr, Lumberton, TX 77657",type:"saved"},
+  {name:"A & P Oil And Gas Company Llc",lat:30.9482544,lng:-95.9134714,addr:"101 W Trinity St, Madisonville, TX 77864",type:"saved"},
+  {name:"MATHESON",lat:30.0842661,lng:-94.1067589,addr:"1170 Liberty Ave, Beaumont, TX 77701",type:"saved"},
+  {name:"Giglio Distributing Co.",lat:30.0809704,lng:-94.1068837,addr:"155 S M L King Jr Pkwy, Beaumont, TX 77701",type:"saved"},
+  {name:"DRUM OIL & GAS INC",lat:30.0241188,lng:-94.7976465,addr:"311 River Bend Rd, Liberty, TX 77575",type:"saved"},
+  {name:"Gary Whitman Materials Inc",lat:30.2158994,lng:-94.3802663,addr:"13766 TX-326, Kountze, TX 77625",type:"saved"},
+  {name:"Vickery Dirt",lat:30.7004954,lng:-94.9330206,addr:"141 Pan American Dr, Livingston, TX 77351",type:"saved"},
+  {name:"Green Tree Transportation",lat:29.8296025,lng:-94.8223767,addr:"15009 I-10, Baytown, TX 77523",type:"saved"},
+  {name:"RedZone Towing",lat:29.841182,lng:-94.67381,addr:"24015 I-10 B, Wallisville, TX 77597",type:"saved"},
+  {name:"RWS Crane & Rigging",lat:29.785279,lng:-95.0161693,addr:"5800 Wade Rd, Baytown, TX 77521",type:"saved"},
+  {name:"Transwood",lat:29.8184476,lng:-94.881061,addr:"8703 Unity Dr, Baytown, TX 77523",type:"saved"},
+  {name:"STS Tank Leasing LLC",lat:29.8249271,lng:-94.8782336,addr:"11603 I-10 building 2, Baytown, TX 77523",type:"saved"},
+  {name:"Hydro Spy LLC",lat:29.7128125,lng:-95.2190433,addr:"808 W Shaw Ave, Pasadena, TX 77506",type:"saved"},
+  {name:"Apache Industrial",lat:29.9740788,lng:-94.2114129,addr:"11165 TX-124, Beaumont, TX 77705",type:"saved"},
+  {name:"Bryant Oilfield Resources Llc",lat:29.9916023,lng:-94.202866,addr:"6344 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Intergrity Heavy Haul",lat:29.984093,lng:-94.1959949,addr:"Garth St, Beaumont, TX 77705",type:"saved"},
+  {name:"Definitive Industrial Group",lat:29.9866383,lng:-94.2075578,addr:"6980 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Tank Solutions",lat:29.9828293,lng:-94.198063,addr:"7572 Garth St, Taylor Landing, TX 77705",type:"saved"},
+  {name:"Chaparral Industrial Shop Services",lat:29.9861787,lng:-94.1972685,addr:"157 Garth St, Beaumont, TX 77705",type:"saved"},
+  {name:"Nitro-Lift Technologies LLC",lat:29.988552,lng:-94.2056503,addr:"6742 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"O'Rourke Petroleum",lat:29.9910307,lng:-94.2037203,addr:"6454 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Crabtree Barricade Systems",lat:30.001587,lng:-94.1789876,addr:"7375 Frint Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Neches Management Services",lat:30.0288953,lng:-94.06624,addr:"1325 Spindletop Ave, Beaumont, TX 77705",type:"saved"},
+  {name:"Safety-Kleen Systems",lat:30.1192136,lng:-93.8068909,addr:"3454 Womack Rd, Orange, TX 77632",type:"saved"},
+  {name:"TAS Environmental Services LP",lat:30.1288653,lng:-93.8813756,addr:"12273 I-10, Orange, TX 77630",type:"saved"},
+  {name:"GHX Industrial LLC",lat:30.0380638,lng:-94.1168033,addr:"3155 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Acme Truck Line Inc",lat:30.0391302,lng:-94.1236205,addr:"3825 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Beaumont Solid Waste Department",lat:30.0397361,lng:-94.1320704,addr:"4955 Lafin Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"I-Corp Industrial Services",lat:30.0376518,lng:-94.142852,addr:"4933 Fannett Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Piping Specialists",lat:30.037264,lng:-94.1432593,addr:"4945 Fannett Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Beaumont Pallet Company",lat:30.0779064,lng:-94.1344417,addr:"20 I-10, Beaumont, TX 77702",type:"saved"},
+  {name:"Certified Crane and Rigging Services LLC",lat:30.0187397,lng:-94.0437746,addr:"6405 TX-347, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Pipe & Valve",lat:30.0186244,lng:-94.0439299,addr:"6405 TX-347, Beaumont, TX 77705",type:"saved"},
+  {name:"X L Systems",lat:30.0293902,lng:-94.0920367,addr:"5780 Hagner Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Superior Waste Solutions LLC",lat:30.0324218,lng:-94.1001771,addr:"5565 Erie St, Beaumont, TX 77705",type:"saved"},
+  {name:"Mc Kenzie Tank Lines",lat:30.0361644,lng:-94.1087589,addr:"2465 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Fast Trac Transportation Inc",lat:30.0381829,lng:-94.1079841,addr:"2430 W Cardinal Dr suite h, Beaumont, TX 77705",type:"saved"},
+  {name:"Rain for Rent",lat:29.9363145,lng:-93.8969262,addr:"6401 Gulfway Dr, Groves, TX 77619",type:"saved"},
+  {name:"RCS Refractory Construction Services",lat:29.929168,lng:-94.0077864,addr:"960 FM 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Southern Crane Works",lat:29.9278424,lng:-94.0094795,addr:"8725 Industrial Ct, Port Arthur, TX 77640",type:"saved"},
+  {name:"Knight Industrial Services",lat:29.9272035,lng:-94.0129079,addr:"401 Marcontell Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"Total Safety",lat:29.9264723,lng:-94.0141554,addr:"365 FM 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Standard Crane & Hoist LLC",lat:29.9704702,lng:-94.0280197,addr:"4536 Hodgson Rd, Nederland, TX 77627",type:"saved"},
+  {name:"J. Johnnie On The Spot",lat:29.9707385,lng:-94.0303136,addr:"4635 Hodgson Rd, Nederland, TX 77627",type:"saved"},
+  {name:"Gore Propane",lat:29.8449143,lng:-94.6992721,addr:"6837 Farm to Market Rd 563, Wallisville, TX 77597",type:"saved"},
+  {name:"Sabine Environmental Services LLC",lat:29.8825261,lng:-94.6951477,addr:"9480 Farm to Market Rd 563, Wallisville, TX 77597",type:"saved"},
+  {name:"Superior Supply & Steel",lat:30.039989,lng:-94.135827,addr:"4855 Fannett Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Kilgore Industrial",lat:30.0411067,lng:-94.1282468,addr:"4245 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Taylor Bus Sales",lat:30.0105841,lng:-94.0817534,addr:"529 Hillebrandt Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Scaffolding",lat:30.0247015,lng:-94.0871262,addr:"6164 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Port Arthur Recycling",lat:29.9151515,lng:-94.0363998,addr:"2901 W Farm to Market Rd 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Ohmstede Industrial Service",lat:29.9275553,lng:-94.0282434,addr:"950 Jade Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"Phoenix Industrial Water Works",lat:29.9253145,lng:-94.0335188,addr:"9501 Jade Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"B&B Ice & Water",lat:29.9257331,lng:-94.0355873,addr:"9555 Richard Wycoff Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"BioMedical Waste Solutions LLC",lat:29.9272032,lng:-94.0320565,addr:"9665 Jade Ave, Port Arthur, TX 77642",type:"saved"},
+  {name:"GFL Environmental",lat:29.9241409,lng:-94.0320205,addr:"1000 S Business Park Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"Dashiell Corp & Dacon LLC",lat:29.9244394,lng:-94.0272321,addr:"930 S Business Park Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"Coastal Industrial Services Inc",lat:29.9283563,lng:-94.0287781,addr:"955 West Jade Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"Sandifers LP Gas",lat:29.9281303,lng:-93.9031681,addr:"5812 Gulfway Dr, Port Arthur, TX 77642",type:"saved"},
+  {name:"War Horse Industrial",lat:30.0403712,lng:-94.1323696,addr:"4849 Lafin Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Core Safety LLC",lat:30.0358172,lng:-94.100964,addr:"1910 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Deep South Crane & Rigging",lat:30.0295166,lng:-94.0541217,addr:"6135 TX-347, Beaumont, TX 77705",type:"saved"},
+  {name:"ABC Supply Co Inc",lat:29.9713694,lng:-94.0258855,addr:"7620 Beauxart Garden Rd, Nederland, TX 77627",type:"saved"},
+  {name:"Elite Turnaround Specialist",lat:29.974463,lng:-94.0275043,addr:"5043 Bourque Rd, Nederland, TX 77627",type:"saved"},
+  {name:"409 Demolition & Tree Service",lat:29.9504417,lng:-94.0017399,addr:"9501 Memorial Blvd, Port Arthur, TX 77640",type:"saved"},
+  {name:"Extra Mile Roll Off Dumpster",lat:29.9491269,lng:-93.9998527,addr:"9501 US-69, Port Arthur, TX 77640",type:"saved"},
+  {name:"M&S Unlimited Services LLC",lat:29.923489,lng:-94.0161439,addr:"115 FM 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Price & Co",lat:30.041368,lng:-94.1220255,addr:"3530 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Lone Star Rigging LP",lat:30.0407569,lng:-94.1277035,addr:"4175 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Greenco",lat:30.0246877,lng:-94.0863004,addr:"6164 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Tri-Con Inc",lat:30.0160956,lng:-94.0809518,addr:"7076 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Red Bear Industries Inc",lat:30.0098499,lng:-94.0786497,addr:"7822 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Elite Turnaround Specialists",lat:29.9607604,lng:-94.0514918,addr:"3400 Knauth Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Trinity Industrial Services LLC",lat:29.9594706,lng:-94.0454882,addr:"13071 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"PalletOne Inc",lat:29.9520699,lng:-94.0393342,addr:"1212 Brai Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"Thomas Petroleum",lat:29.9465271,lng:-94.0379168,addr:"11703 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Baker Distributing Company",lat:29.9415462,lng:-93.91699,addr:"3500 E Parkway St, Groves, TX 77619",type:"saved"},
+  {name:"Fusion Mechanical",lat:30.1790773,lng:-94.0245691,addr:"3995 N Main St, Vidor, TX 77662",type:"saved"},
+  {name:"Aegis Chemical Solutions",lat:30.0413617,lng:-94.6682024,addr:"3876 US-90, Liberty, TX 77575",type:"saved"},
+  {name:"Quality Mat Co",lat:30.1716089,lng:-94.1770408,addr:"6550 Tram Rd, Beaumont, TX 77713",type:"saved"},
+  {name:"Triple S Industrial Corporation",lat:30.2704931,lng:-94.2159873,addr:"860 W Chance Cutoff, Lumberton, TX 77657",type:"saved"},
+  {name:"ClearWell Dynamics Liberty",lat:30.0671313,lng:-94.7720306,addr:"1593 TX-146, Liberty, TX 77575",type:"saved"},
+  {name:"American Cementing",lat:30.0897681,lng:-94.7585648,addr:"4402 N Main St, Liberty, TX 77575",type:"saved"},
+  {name:"Pipeline Integrity Group LLC",lat:29.9155498,lng:-94.8993741,addr:"12614 TX-146, Dayton, TX 77535",type:"saved"},
+  {name:"Bennett Motor Express",lat:29.9117936,lng:-94.8980546,addr:"12859 TX-146, Dayton, TX 77535",type:"saved"},
+  {name:"AmeriGas Propane Silsbee",lat:30.3548145,lng:-94.1760848,addr:"811 N 5th St, Silsbee, TX 77656",type:"saved"},
+  {name:"Elite Septic Solutions",lat:30.355301,lng:-94.2804125,addr:"2171 Gates Rd, Kountze, TX 77625",type:"saved"},
+  {name:"Muddy Mutt Rentals LLC",lat:30.3442891,lng:-94.2859801,addr:"3928 US-69, Kountze, TX 77625",type:"saved"},
+  {name:"W.I.T. Development and Contracting Inc",lat:30.2156873,lng:-94.2892755,addr:"7092 TX-421, Kountze, TX 77625",type:"saved"},
+  {name:"B & J Vacuum Tank Services",lat:30.1783891,lng:-94.6384111,addr:"3957 Farm to Market Rd 770, Hull, TX 77564",type:"saved"},
+  {name:"Barnharts Welding",lat:30.1558141,lng:-94.7185115,addr:"1395 FM 834, Liberty, TX 77575",type:"saved"},
+  {name:"Tanner Services LLC",lat:30.3449285,lng:-94.2483164,addr:"4527 TX-327, Kountze, TX 77625",type:"saved"},
+  {name:"A.G.Y. Transport",lat:30.2994848,lng:-94.2405731,addr:"9667 Hwy 69 S Bldg, Kountze, TX 77625",type:"saved"},
+  {name:"Lumberton Culvert & Tank",lat:30.2892084,lng:-94.2359312,addr:"770 N Lhs Dr, Lumberton, TX 77657",type:"saved"},
+  {name:"Enterprise Products",lat:29.766649,lng:-95.0125771,addr:"4225 Decker Dr, Baytown, TX 77520",type:"saved"},
+  {name:"South Hampton Refinery",lat:30.37467,lng:-94.171005,addr:"92 hwy, Silsbee, TX 77656",type:"saved"}
+];
+
+// Merge saved places into locations
+savedPlaces.forEach(sp => {
+  sp.trucks = null; sp.drivers = null; sp.phone = null;
+  sp.notes = 'Google Maps saved place'; sp.spend = null; sp.locType = 'Saved place';
+  locations.push(sp);
+});
+
+const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5',saved:'#ff9800'};
+const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26};
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
 
 function initMap() {

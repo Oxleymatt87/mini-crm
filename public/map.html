@@ -50,8 +50,35 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
 #routeLaunch{background:#fff;color:#e53935}
 #routeCancel{background:rgba(255,255,255,0.2);color:#fff}
+#loginOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;background:rgba(15,17,23,0.97);display:flex;align-items:center;justify-content:center}
+#loginOverlay.hidden{display:none}
+#loginBox{background:#1a1d27;border:1px solid #2e3345;border-radius:16px;padding:28px 24px;width:320px;text-align:center}
+#loginBox h2{color:#d4a12a;margin-bottom:16px;font-size:1.1rem}
+#loginBox input{width:100%;padding:10px 12px;margin-bottom:10px;border-radius:8px;border:1px solid #333;background:#0f1117;color:#fff;font-size:14px}
+#loginBox button{width:100%;padding:12px;border-radius:10px;border:none;background:#d4a12a;color:#000;font-weight:700;font-size:14px;cursor:pointer}
+#loginBox .err{color:#e74c3c;font-size:12px;margin-top:6px;display:none}
+.qbo-section{background:#0d1520;border:1px solid #1e3a5f;border-radius:10px;padding:10px 12px;margin-top:10px}
+.qbo-title{color:#4a9eff;font-size:12px;font-weight:700;text-transform:uppercase;margin-bottom:6px;letter-spacing:0.5px}
+.qbo-row{display:flex;justify-content:space-between;padding:4px 0;color:#aaa;font-size:13px;border-bottom:1px solid #1a2a3e}
+.qbo-row:last-child{border:none}
+.qbo-val{color:#fff;font-weight:600}
+.inv-item{padding:4px 0;color:#aaa;font-size:12px;border-bottom:1px solid #1a2a3e}
+.inv-item:last-child{border:none}
+.notes-area{width:100%;min-height:60px;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:#ccc;font-size:13px;font-family:inherit;resize:vertical;margin-top:8px}
+.notes-save{padding:8px 16px;border-radius:8px;border:none;background:#4a9eff;color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:6px}
+.notes-status{color:#43a047;font-size:11px;margin-left:8px;display:none}
 </style>
 </head><body>
+<div id="loginOverlay">
+  <div id="loginBox">
+    <h2>Oxley Tire Map</h2>
+    <input type="email" id="mapEmail" value="moxley@oxleytireinc.com" placeholder="Email">
+    <input type="password" id="mapPass" placeholder="Password">
+    <button onclick="mapLogin()">Sign In</button>
+    <div class="err" id="mapLoginErr"></div>
+  </div>
+</div>
+
 <div id="topBar">
   <div id="searchRow">
     <input id="searchBar" type="text" placeholder="Search companies...">
@@ -304,14 +331,53 @@ function onMarkerClick(marker) {
   openSheet(loc);
 }
 
-function openSheet(loc) {
+async function openSheet(loc) {
   const truckStr = loc.trucks ? loc.trucks + ' trucks' : 'Trucks unknown';
   const driverStr = loc.drivers ? ', ' + loc.drivers + ' drivers' : '';
   const phoneLink = loc.phone ? `<a href="tel:${loc.phone.replace(/[^\d+]/g,'')}">${loc.phone}</a>` : 'N/A';
   const badgeClass = 'badge-' + loc.type;
   const typeLabel = loc.type.charAt(0).toUpperCase() + loc.type.slice(1);
   const spendLine = loc.spend ? `<div class="sheetRow"><span class="icon">&#128176;</span>${loc.spend} est. tire spend</div>` : '';
+  const pinKey = getPinKey(loc);
+  const savedNote = mapNotesCache[pinKey] || '';
 
+  // QBO match
+  const qbo = findQBOMatch(loc.name);
+  let qboHtml = '';
+  let invoiceHtml = '';
+
+  if (qbo) {
+    const bal = qbo.balance != null ? '$' + Number(qbo.balance).toFixed(2) : 'N/A';
+    const qboPhone = qbo.phone || 'N/A';
+    const qboEmail = qbo.email || 'N/A';
+    const syncDate = qbo.synced_at ? new Date(qbo.synced_at.seconds*1000).toLocaleDateString() : 'N/A';
+    qboHtml = `
+      <div class="qbo-section">
+        <div class="qbo-title">QuickBooks Info</div>
+        <div class="qbo-row"><span>Customer</span><span class="qbo-val">${qbo.display_name || qbo.company_name || ''}</span></div>
+        <div class="qbo-row"><span>QBO ID</span><span class="qbo-val">${qbo.qbo_id || 'N/A'}</span></div>
+        <div class="qbo-row"><span>Balance</span><span class="qbo-val">${bal}</span></div>
+        <div class="qbo-row"><span>Phone</span><span class="qbo-val">${qboPhone}</span></div>
+        <div class="qbo-row"><span>Email</span><span class="qbo-val">${qboEmail}</span></div>
+        <div class="qbo-row"><span>Last Sync</span><span class="qbo-val">${syncDate}</span></div>
+      </div>`;
+
+    // Load recent invoices
+    const invs = await loadInvoicesFor(qbo.display_name || qbo.company_name);
+    if (invs.length) {
+      invoiceHtml = `<div class="qbo-section" style="margin-top:6px">
+        <div class="qbo-title">Recent Invoices</div>
+        ${invs.map(inv => {
+          const d = inv.created_at ? new Date(inv.created_at.seconds*1000).toLocaleDateString() : '';
+          const t = inv.total != null ? '$' + Number(inv.total).toFixed(2) : '';
+          const items = (inv.line_items||[]).map(li => (li.brand||'')+' '+(li.size||'')).join(', ');
+          return `<div class="inv-item">${d} &mdash; ${t} ${items ? '('+items+')' : ''}</div>`;
+        }).join('')}
+      </div>`;
+    }
+  }
+
+  const addrEsc = loc.addr.replace(/'/g, "\\'");
   document.getElementById('sheetContent').innerHTML = `
     <div class="sheetName">${loc.name}</div>
     <span class="sheetBadge ${badgeClass}">${typeLabel}</span>
@@ -321,8 +387,18 @@ function openSheet(loc) {
     ${spendLine}
     <div class="sheetRow"><span class="icon">&#127981;</span>${loc.locType}</div>
     <div class="sheetNotes">${loc.notes}</div>
+    ${qboHtml}
+    ${invoiceHtml}
+    <div style="margin-top:10px">
+      <div style="color:#888;font-size:11px;font-weight:600;text-transform:uppercase;margin-bottom:4px">Your Notes</div>
+      <textarea class="notes-area" id="pinNotes" placeholder="Add call notes, follow-ups...">${savedNote}</textarea>
+      <div style="display:flex;align-items:center">
+        <button class="notes-save" onclick="saveMapNote('${pinKey}',document.getElementById('pinNotes'))">Save Note</button>
+        <span class="notes-status" id="noteStatus">Saved!</span>
+      </div>
+    </div>
     <div class="sheetActions">
-      <button id="navBtn" onclick="navigate('${loc.addr}')">&#128665; Navigate</button>
+      <button id="navBtn" onclick="navigate('${addrEsc}')">&#128665; Navigate</button>
       <button id="svBtn" onclick="showStreetView(${loc.lat},${loc.lng})">&#128064; Street View</button>
     </div>
     <div id="svContainer"></div>
@@ -426,6 +502,112 @@ document.addEventListener('click', e => {
 function gm_authFailure() {
   document.getElementById('map').innerHTML = '<div style="color:red;padding:40px;font-size:18px"><h2>Google Maps Auth Failure</h2><p>The API key was rejected. Check the Google Cloud Console.</p></div>';
 }
+
+// ─── Firebase Integration ───
+let fbAuth, fbDb, fbUser = null, qboCustomers = [], mapNotesCache = {};
+
+function initFirebase() {
+  const cfg = {
+    apiKey: "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E",
+    authDomain: "inventory-setup-b3f20.firebaseapp.com",
+    projectId: "inventory-setup-b3f20",
+    storageBucket: "inventory-setup-b3f20.firebasestorage.app",
+    messagingSenderId: "162750059985",
+    appId: "1:162750059985:web:bbe5328412c7ef49893cf0"
+  };
+  firebase.initializeApp(cfg);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+
+  fbAuth.onAuthStateChanged(user => {
+    if (user) {
+      fbUser = user;
+      document.getElementById('loginOverlay').classList.add('hidden');
+      loadQBOData();
+    } else {
+      fbUser = null;
+      document.getElementById('loginOverlay').classList.remove('hidden');
+    }
+  });
+}
+
+function mapLogin() {
+  const email = document.getElementById('mapEmail').value;
+  const pass = document.getElementById('mapPass').value;
+  const err = document.getElementById('mapLoginErr');
+  err.style.display = 'none';
+  fbAuth.signInWithEmailAndPassword(email, pass).catch(e => {
+    err.textContent = e.message;
+    err.style.display = 'block';
+  });
+}
+
+document.getElementById('mapPass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') mapLogin();
+});
+
+async function loadQBOData() {
+  try {
+    const [custSnap, noteSnap] = await Promise.all([
+      fbDb.collection('customers').get(),
+      fbDb.collection('map_notes').get()
+    ]);
+    qboCustomers = custSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    noteSnap.docs.forEach(d => { mapNotesCache[d.id] = d.data().notes || ''; });
+  } catch(e) { console.error('Firebase load error:', e); }
+}
+
+function findQBOMatch(pinName) {
+  const clean = s => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const pin = clean(pinName);
+  if (!pin) return null;
+  let best = null, bestScore = 0;
+  for (const c of qboCustomers) {
+    for (const field of [c.display_name, c.company_name]) {
+      const val = clean(field);
+      if (!val) continue;
+      if (val === pin || pin.includes(val) || val.includes(pin)) {
+        const score = val === pin ? 100 : Math.min(val.length, pin.length);
+        if (score > bestScore) { bestScore = score; best = c; }
+      }
+    }
+  }
+  return bestScore >= 3 ? best : null;
+}
+
+function getPinKey(loc) {
+  return loc.name.replace(/[^a-zA-Z0-9]/g,'_').substring(0,60);
+}
+
+async function loadInvoicesFor(customerName) {
+  if (!fbUser) return [];
+  try {
+    const snap = await fbDb.collection('invoices')
+      .where('customer_name','==',customerName)
+      .orderBy('created_at','desc').limit(5).get();
+    return snap.docs.map(d => d.data());
+  } catch(e) { return []; }
+}
+
+async function saveMapNote(pinKey, textarea) {
+  if (!fbUser) return;
+  const notes = textarea.value;
+  try {
+    await fbDb.collection('map_notes').doc(pinKey).set({
+      notes: notes,
+      updated_at: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    mapNotesCache[pinKey] = notes;
+    const status = document.getElementById('noteStatus');
+    if (status) { status.style.display = 'inline'; setTimeout(() => status.style.display = 'none', 2000); }
+  } catch(e) { console.error('Save note error:', e); }
+}
 </script>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>initFirebase();</script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap" async defer></script>
 </body></html>

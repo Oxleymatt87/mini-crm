@@ -24,6 +24,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .filterBtn[data-f="prospect"].active{background:#fdd835;border-color:#fdd835;color:#000}
 .filterBtn[data-f="cold"].active{background:#757575;border-color:#757575}
 .filterBtn[data-f="saved"].active{background:#ff9800;border-color:#ff9800;color:#000}
+.filterBtn[data-f="wantgo"].active{background:#ff6d00;border-color:#ff6d00;color:#fff}
 #statsBar{color:#888;font-size:11px;text-align:center;padding:0 0 2px}
 #sheet{position:fixed;bottom:0;left:0;right:0;z-index:20;background:#1a1a2e;border-radius:16px 16px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:70vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
 #sheet.open{transform:translateY(0)}
@@ -37,6 +38,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .badge-cold{background:#757575;color:#fff}
 .badge-home{background:#1e88e5;color:#fff}
 .badge-saved{background:#ff9800;color:#000}
+.badge-wantgo{background:#ff6d00;color:#fff}
 .sheetRow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #222;color:#ccc;font-size:14px}
 .sheetRow .icon{width:24px;text-align:center;font-size:16px;flex-shrink:0}
 .sheetRow a{color:#4a9eff;text-decoration:none}
@@ -91,6 +93,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <button class="filterBtn" data-f="customer">Customers</button>
     <button class="filterBtn" data-f="cold">Cold</button>
     <button class="filterBtn" data-f="saved">Saved</button>
+    <button class="filterBtn" data-f="wantgo">Want to Go</button>
   </div>
   <div id="statsBar"></div>
 </div>
@@ -278,8 +281,8 @@ const qboMapCustomers = [
 // Merge QBO customers into locations
 qboMapCustomers.forEach(qc => locations.push(qc));
 
-const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5',saved:'#ff9800'};
-const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26};
+const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5',saved:'#ff9800',wantgo:'#ff6d00'};
+const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26,wantgo:22};
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
 
 function initMap() {
@@ -336,6 +339,38 @@ function initMap() {
   });
 
   updateStats();
+
+  // Load additional prospects from JSON
+  fetch('/prospects.json')
+    .then(r => r.json())
+    .then(places => {
+      const size = SIZES.wantgo;
+      const color = COLORS.wantgo;
+      places.forEach(p => {
+        const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size+10}">
+          <circle cx="${size/2}" cy="${size/2}" r="${size/2-2}" fill="${color}" stroke="#fff" stroke-width="1.5"/>
+          <polygon points="${size/2},${size+8} ${size/2-4},${size-3} ${size/2+4},${size-3}" fill="${color}"/>
+        </svg>`;
+        const marker = new google.maps.Marker({
+          position:{lat:p.t,lng:p.g},
+          map:map,
+          title:p.n,
+          icon:{
+            url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg),
+            scaledSize:new google.maps.Size(size,size+10),
+            anchor:new google.maps.Point(size/2,size+8)
+          }
+        });
+        marker._loc = loc;
+        marker._idx = locations.length;
+        locations.push(loc);
+        marker.addListener('click', () => onMarkerClick(marker));
+        markers.push(marker);
+      });
+      updateStats();
+    })
+    .catch(e => console.error('Failed to load prospects.json:', e));
 }
 
 function onMarkerClick(marker) {
@@ -358,7 +393,7 @@ async function openSheet(loc) {
   const driverStr = loc.drivers ? ', ' + loc.drivers + ' drivers' : '';
   const phoneLink = loc.phone ? `<a href="tel:${loc.phone.replace(/[^\d+]/g,'')}">${loc.phone}</a>` : 'N/A';
   const badgeClass = 'badge-' + loc.type;
-  const typeLabel = loc.type.charAt(0).toUpperCase() + loc.type.slice(1);
+  const typeLabel = loc.type === 'wantgo' ? 'Want to Go' : loc.type.charAt(0).toUpperCase() + loc.type.slice(1);
   const spendLine = loc.spend ? `<div class="sheetRow"><span class="icon">&#128176;</span>${loc.spend} est. tire spend</div>` : '';
   const pinKey = getPinKey(loc);
   const savedNote = mapNotesCache[pinKey] || '';

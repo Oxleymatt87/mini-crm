@@ -256,6 +256,28 @@ savedPlaces.forEach(sp => {
   locations.push(sp);
 });
 
+// QBO CUSTOMERS with verified addresses (green pins)
+const qboMapCustomers = [
+  {name:"Interstate Tire & Mechanical",lat:30.056085,lng:-94.141665,addr:"4510 Washington Blvd, Beaumont TX",trucks:null,drivers:null,phone:"(409) 899-1116",type:"customer",notes:"24hr tire shop",spend:null,locType:"Tire shop"},
+  {name:"Evadale Service",lat:30.357236,lng:-94.073638,addr:"43630 US 96 S, Evadale TX",trucks:null,drivers:null,phone:"(409) 276-1718",type:"customer",notes:"Tire/mechanic opens 6AM",spend:null,locType:"Tire/mechanic"},
+  {name:"STI Group",lat:29.947913,lng:-94.034135,addr:"9561 Viterbo Rd, Beaumont TX",trucks:null,drivers:null,phone:"(409) 994-3570",type:"customer",notes:"Industrial services",spend:null,locType:"Industrial services"},
+  {name:"Peryn Services LLC",lat:30.108218,lng:-94.048346,addr:"500 Mockingbird Dr, Vidor TX",trucks:null,drivers:null,phone:"(409) 782-0301",type:"customer",notes:"Industrial. $4,436 balance",spend:null,locType:"Industrial"},
+  {name:"Noack Land Management",lat:30.436379,lng:-94.686755,addr:"21822 Old Hwy, Votaw TX",trucks:null,drivers:null,phone:"(409) 550-8107",type:"customer",notes:"Land clearing. $1,512 balance",spend:null,locType:"Land clearing"},
+  {name:"Gulf Coast Tire",lat:30.068829,lng:-94.169329,addr:"6560 College St, Beaumont TX",trucks:null,drivers:null,phone:"(409) 454-0557",type:"customer",notes:"24hr tire road service",spend:null,locType:"Tire shop"},
+  {name:"AMMCO Solutions Group",lat:30.065510,lng:-94.194715,addr:"1115 Wescalder Rd, Beaumont TX",trucks:null,drivers:null,phone:"(409) 724-0095",type:"customer",notes:"Industrial solutions",spend:null,locType:"Industrial solutions"},
+  {name:"Colgan Industries",lat:30.065217,lng:-94.121646,addr:"3165 Milam St, Beaumont TX",trucks:null,drivers:null,phone:"(409) 212-9467",type:"customer",notes:"Manufacturing",spend:null,locType:"Manufacturing"},
+  {name:"Wiggins Tractor & Dozer",lat:30.180051,lng:-94.717995,addr:"534 Co Rd 2060, Hull TX",trucks:null,drivers:null,phone:"(936) 334-3561",type:"customer",notes:"Heavy equipment",spend:null,locType:"Heavy equipment"},
+  {name:"Vision Industrial",lat:30.454931,lng:-93.393654,addr:"1451 LA-12, Dequincy LA",trucks:null,drivers:null,phone:"(337) 625-5757",type:"customer",notes:"Railroad division",spend:null,locType:"Railroad services"},
+  {name:"Ironman Tire",lat:30.068829,lng:-94.169329,addr:"Beaumont TX area",trucks:null,drivers:null,phone:"(409) 454-8817",type:"customer",notes:"Tire dealer. $6,924 balance",spend:null,locType:"Tire dealer"},
+  {name:"Paschal Welding",lat:30.141927,lng:-94.401005,addr:"185 E Crosby St, Sour Lake TX",trucks:null,drivers:null,phone:"(409) 287-3035",type:"customer",notes:"Welding/industrial",spend:null,locType:"Welding"},
+  {name:"Rocking M Tire",lat:30.233800,lng:-94.373465,addr:"12192 TX-326, Kountze TX",trucks:null,drivers:null,phone:"(409) 504-1198",type:"customer",notes:"24hr tire road service",spend:null,locType:"Tire shop"},
+  {name:"Thierry Transport LLC",lat:29.767932,lng:-94.956834,addr:"931 Christopher Ln, Baytown TX",trucks:null,drivers:null,phone:"(281) 837-7575",type:"customer",notes:"Trucking since 2006",spend:null,locType:"Trucking"},
+  {name:"CTW Group LLC",lat:30.489574,lng:-97.631220,addr:"2700 Louis Henna Blvd, Round Rock TX",trucks:null,drivers:null,phone:"(737) 738-1896",type:"customer",notes:"Tire wholesaler. $1,400 balance",spend:null,locType:"Tire wholesaler"}
+];
+
+// Merge QBO customers into locations
+qboMapCustomers.forEach(qc => locations.push(qc));
+
 const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5',saved:'#ff9800'};
 const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26};
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];

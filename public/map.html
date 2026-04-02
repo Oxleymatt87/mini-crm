@@ -111,6 +111,18 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <div class="legendDot"><span style="background:#43a047"></span>Customer</div>
     <div class="legendDot"><span style="background:#9e9e9e"></span>Unknown</div>
   </div>
+  <div id="industryLegend" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px;font-size:10px;color:#888">
+    <span><b>OIL</b>=Oil/Gas</span>
+    <span><b>TRK</b>=Trucking</span>
+    <span><b>CON</b>=Concrete</span>
+    <span><b>CRN</b>=Crane</span>
+    <span><b>IND</b>=Industrial</span>
+    <span><b>AGR</b>=Ag/Farm</span>
+    <span><b>MAT</b>=Materials</span>
+    <span><b>PRO</b>=Propane/Chem</span>
+    <span><b>SVC</b>=Service</span>
+    <span><b>???</b>=Other</span>
+  </div>
 </div>
 
 <div id="map"></div>
@@ -305,17 +317,17 @@ const TYPE_COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:
 const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26,wantgo:22};
 
 function getIndustryCode(loc) {
-  const s = ((loc.notes||'')+'|'+(loc.locType||'')).toLowerCase();
-  if (/oilfield|vacuum|wireline|drill|frac|pump/.test(s)) return 'OIL';
-  if (/trucking|hauling|freight|transport|carrier/.test(s)) return 'TRK';
-  if (/concrete|ready.?mix|batch|gravel/.test(s)) return 'MIX';
-  if (/agricultur|farm|ranch|livestock|honey|grain/.test(s)) return 'AG';
-  if (/chemical|petro|refinery|hazmat/.test(s)) return 'CHM';
-  if (/logging|lumber|pallet|timber/.test(s)) return 'LOG';
-  if (/tire|wheel|mechanic|road.?service/.test(s)) return 'TIR';
-  if (/manufactur|forge|metal|welding|steel/.test(s)) return 'IND';
-  if (/construct|building|excavat|crane/.test(s)) return 'BLD';
-  return '?';
+  const n = (loc.name||'').toLowerCase();
+  if (/vacuum|oilfield|oil|drilling|swabbing|well|petroleum|energy|pipeline|\bgas\b/.test(n)) return 'OIL';
+  if (/trucking|transport|freight|hauling|logistics|delivery|carrier|heavy haul/.test(n)) return 'TRK';
+  if (/concrete|ready.?mix|cement|paving|construction/.test(n)) return 'CON';
+  if (/crane|rigging|lifting|hoist/.test(n)) return 'CRN';
+  if (/industrial|manufactur|fabricat|welding|steel|iron|metal|tank|pipe/.test(n)) return 'IND';
+  if (/farm|ranch|cattle|grain|hay|\bag\b|feed|honey/.test(n)) return 'AGR';
+  if (/dirt|gravel|sand|rock|material|lumber|pallet|wood|recycl/.test(n)) return 'MAT';
+  if (/propane|chemical|refin|fuel/.test(n)) return 'PRO';
+  if (/tire|mechanic|repair|service|towing|septic|waste|environmental/.test(n)) return 'SVC';
+  return '???';
 }
 
 function getSpendColor(loc) {

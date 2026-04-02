@@ -383,10 +383,14 @@ function onMarkerClick(marker) {
     document.getElementById('routeInfo').textContent = routeStops.length + ' stop' + (routeStops.length!==1?'s':'') + ' selected';
     return;
   }
-  // Zoom to pin
-    map.panTo(marker.getPosition());
-    map.setZoom(16);
-    openSheet(loc);
+  // Zoom to pin with animation
+    const pos = marker.getPosition();
+    map.setZoom(12);
+    setTimeout(() => {
+      map.panTo(pos);
+      map.setZoom(17);
+    }, 300);
+    setTimeout(() => openSheet(loc), 600);
 }
 
 async function openSheet(loc) {

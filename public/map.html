@@ -50,10 +50,10 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
 #routeBanner{position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(255,74,74,0.95);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600}
 #routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
-#viewControls{position:fixed;bottom:60px;right:12px;z-index:15;display:flex;flex-direction:column;gap:8px}
-#viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid transparent;background:#1a1d27;color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
-#btn3D.active{border-color:#22c55e;color:#22c55e}
-#btnFly.active{border-color:#22c55e;color:#22c55e}
+#viewControls{position:fixed;bottom:80px;right:12px;z-index:15;display:flex;flex-direction:column;gap:8px}
+#viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#btn3D.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
+#btnFly.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
 #routeLaunch{background:#fff;color:#e53935}
 #routeCancel{background:rgba(255,255,255,0.2);color:#fff}
 #loginOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;background:rgba(15,17,23,0.97);display:flex;align-items:center;justify-content:center}
@@ -299,11 +299,11 @@ function initMap() {
   map = new google.maps.Map(document.getElementById('map'), {
     center: {lat:30.05, lng:-94.55}, zoom:10,
     mapTypeId: 'hybrid',
-    mapId: 'DEMO_MAP_ID',
-    heading: 0,
     tilt: 0,
+    heading: 0,
     disableDefaultUI: true, zoomControl: true,
-    gestureHandling: 'greedy'
+    gestureHandling: 'greedy',
+    rotateControl: true
   });
 
   locations.forEach((loc, i) => {
@@ -560,24 +560,39 @@ function gm_authFailure() {
 
 // ─── 3D / Fly Controls ───
 document.getElementById('btn3D').addEventListener('click', () => {
+  console.log('3D button tapped, isTilted:', isTilted);
   isTilted = !isTilted;
-  map.setTilt(isTilted ? 60 : 0);
+  if (isTilted) {
+    const z = map.getZoom();
+    map.moveCamera({tilt: 60, zoom: Math.max(z, 15), center: map.getCenter()});
+  } else {
+    map.moveCamera({tilt: 0});
+  }
   document.getElementById('btn3D').classList.toggle('active', isTilted);
+  console.log('3D tilt set to:', isTilted ? 60 : 0);
 });
 
 document.getElementById('btnFly').addEventListener('click', () => {
+  console.log('Fly button tapped, flyInterval:', flyInterval);
   const btn = document.getElementById('btnFly');
   if (flyInterval) {
     clearInterval(flyInterval);
     flyInterval = null;
     btn.classList.remove('active');
+    console.log('Fly stopped');
   } else {
-    if (!isTilted) { map.setTilt(60); isTilted = true; document.getElementById('btn3D').classList.add('active'); }
+    if (!isTilted) {
+      const z = map.getZoom();
+      map.moveCamera({tilt: 60, zoom: Math.max(z, 15), center: map.getCenter()});
+      isTilted = true;
+      document.getElementById('btn3D').classList.add('active');
+    }
     flyInterval = setInterval(() => {
-      const h = map.getHeading() || 0;
-      map.setHeading(h + 0.5);
+      const heading = (map.getHeading() || 0) + 0.5;
+      map.moveCamera({heading: heading});
     }, 50);
     btn.classList.add('active');
+    console.log('Fly started');
   }
 });
 
@@ -687,5 +702,5 @@ async function saveMapNote(pinKey, textarea) {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>initFirebase();</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&v=beta" async defer></script>
 </body></html>

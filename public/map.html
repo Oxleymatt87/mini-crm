@@ -103,21 +103,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <button class="filterBtn" data-f="wantgo">Want to Go</button>
   </div>
   <div id="statsBar"></div>
-  <div id="legendRow"></div>
-  <div id="industryLegend" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px">
-    <div class="legendDot"><span style="background:#43a047"></span>Customer</div>
-    <div class="legendDot"><span style="background:#e53935"></span>Whale</div>
-    <div class="legendDot"><span style="background:#000;border-color:#fff"></span>OIL</div>
-    <div class="legendDot"><span style="background:#1565C0"></span>TRK</div>
-    <div class="legendDot"><span style="background:#795548"></span>CON</div>
-    <div class="legendDot"><span style="background:#7B1FA2"></span>CRN</div>
-    <div class="legendDot"><span style="background:#616161"></span>IND</div>
-    <div class="legendDot"><span style="background:#C2B280"></span>MAT</div>
-    <div class="legendDot"><span style="background:#2E7D32"></span>LOG</div>
-    <div class="legendDot"><span style="background:#8BC34A"></span>AG</div>
-    <div class="legendDot"><span style="background:#E64A19"></span>FUL</div>
-    <div class="legendDot"><span style="background:#00897B"></span>SVC</div>
-    <div class="legendDot"><span style="background:#9E9E9E"></span>???</div>
+  <div id="industryLegend" style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px">
+    <div class="legendDot"><span style="background:#43a047;border-radius:50%"></span>Customer</div>
+    <div class="legendDot"><span style="background:#dc2626;border-radius:50%;width:13px;height:13px"></span>Whale</div>
+    <div class="legendDot"><span style="background:#000;border-radius:50%;border-color:#fff"></span>OIL</div>
+    <div class="legendDot"><span style="background:#2563eb;border-radius:2px"></span>TRK</div>
+    <div class="legendDot"><span style="background:#f97316;border-radius:0;transform:rotate(45deg);width:9px;height:9px"></span>CON</div>
+    <div class="legendDot"><span style="background:#a855f7;border-radius:0;clip-path:polygon(50% 0%,100% 100%,0% 100%)"></span>CRN</div>
+    <div class="legendDot"><span style="background:#64748b;border-radius:0;clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)"></span>IND</div>
+    <div class="legendDot"><span style="background:#92400e;border-radius:2px"></span>MAT</div>
+    <div class="legendDot"><span style="background:#166534;border-radius:50%"></span>LOG</div>
+    <div class="legendDot"><span style="background:#84cc16;border-radius:50%"></span>AG</div>
+    <div class="legendDot"><span style="background:#dc2626;border-radius:0;transform:rotate(45deg);width:9px;height:9px"></span>FUL</div>
+    <div class="legendDot"><span style="background:#0d9488;border-radius:2px"></span>SVC</div>
+    <div class="legendDot"><span style="background:#fff;border-color:#999;width:7px;height:7px;border-radius:50%"></span>???</div>
   </div>
 </div>
 
@@ -309,18 +308,25 @@ const qboMapCustomers = [
 // Merge QBO customers into locations
 qboMapCustomers.forEach(qc => locations.push(qc));
 
-const INDUSTRY_COLORS = {
-  'OIL':{bg:'#000000',text:'#fff'},'TRK':{bg:'#1565C0',text:'#fff'},'CON':{bg:'#795548',text:'#fff'},
-  'CRN':{bg:'#7B1FA2',text:'#fff'},'IND':{bg:'#616161',text:'#fff'},'MAT':{bg:'#C2B280',text:'#222'},
-  'LOG':{bg:'#2E7D32',text:'#fff'},'AGR':{bg:'#8BC34A',text:'#222'},'PRO':{bg:'#E64A19',text:'#fff'},
-  'SVC':{bg:'#00897B',text:'#fff'},'???':{bg:'#9E9E9E',text:'#fff'}
+// Industry config: color, text color, label text, SVG shape path
+const INDUSTRY = {
+  'OIL':{bg:'#000000',tx:'#fff',lbl:'OIL',shape:'circle'},
+  'TRK':{bg:'#2563eb',tx:'#fff',lbl:'TRK',shape:'square'},
+  'CON':{bg:'#f97316',tx:'#fff',lbl:'CON',shape:'diamond'},
+  'CRN':{bg:'#a855f7',tx:'#fff',lbl:'CRN',shape:'triangle'},
+  'IND':{bg:'#64748b',tx:'#fff',lbl:'IND',shape:'hexagon'},
+  'MAT':{bg:'#92400e',tx:'#fff',lbl:'MAT',shape:'square'},
+  'LOG':{bg:'#166534',tx:'#fff',lbl:'LOG',shape:'circle'},
+  'AGR':{bg:'#84cc16',tx:'#222',lbl:'AG',shape:'circle'},
+  'FUL':{bg:'#dc2626',tx:'#fff',lbl:'FUL',shape:'diamond'},
+  'SVC':{bg:'#0d9488',tx:'#fff',lbl:'SVC',shape:'square'},
+  '???':{bg:'#ffffff',tx:'#999',lbl:'?',shape:'circle'}
 };
-const INDUSTRY_LABELS = {'OIL':'OIL','TRK':'TRK','CON':'CON','CRN':'CRN','IND':'IND','MAT':'MAT','LOG':'LOG','AGR':'AG','PRO':'FUL','SVC':'SVC','???':''};
 
 function getIndustryCode(loc) {
   const n = ((loc.name||'')+' '+(loc.locType||'')).toLowerCase();
   if (/vacuum|oilfield|oil|drilling|swabbing|well|petroleum|energy|pipeline|\bgas\b|combustion/.test(n)) return 'OIL';
-  if (/trucking|transport|freight|hauling|logistics|delivery|carrier|heavy haul|hotshot/.test(n)) return 'TRK';
+  if (/trucking|transport|freight|hauling|logistics|delivery|carrier|heavy haul|hotshot|towing/.test(n)) return 'TRK';
   if (/concrete|ready.?mix|cement|paving|construction|excavat|dozer/.test(n)) return 'CON';
   if (/crane|rigging|lifting|hoist/.test(n)) return 'CRN';
   if (/logging|timber|\btree\b/.test(n)) return 'LOG';
@@ -328,27 +334,61 @@ function getIndustryCode(loc) {
   if (/gravel|sand|rock|material|lumber|pallet|wood|recycl|supply|\bmat\b/.test(n)) return 'MAT';
   if (/dirt/.test(n)) return 'CON';
   if (/farm|ranch|cattle|grain|hay|\bag\b|feed|honey/.test(n)) return 'AGR';
-  if (/propane|fuel|butane|gas co/.test(n)) return 'PRO';
-  if (/tire|mechanic|repair|towing|septic|waste|environmental|cleanup/.test(n)) return 'SVC';
+  if (/propane|fuel|butane|gas co/.test(n)) return 'FUL';
+  if (/tire|mechanic|repair|septic|waste|environmental|cleanup/.test(n)) return 'SVC';
   return '???';
 }
 
-function getMarkerStyle(loc) {
+// Build SVG data URI marker icon
+function buildSvgIcon(shape, bg, tx, label, sz) {
+  const s = sz, h = s/2;
+  let shapeSvg, tY = h + 1;
+  const fs = sz >= 36 ? 11 : sz >= 28 ? 9 : 7;
+  switch(shape) {
+    case 'circle':
+      shapeSvg = `<circle cx="${h}" cy="${h}" r="${h-1}" fill="${bg}" stroke="#fff" stroke-width="2"/>`;
+      break;
+    case 'square':
+      shapeSvg = `<rect x="1" y="1" width="${s-2}" height="${s-2}" rx="3" fill="${bg}" stroke="#fff" stroke-width="2"/>`;
+      break;
+    case 'diamond':
+      shapeSvg = `<polygon points="${h},1 ${s-1},${h} ${h},${s-1} 1,${h}" fill="${bg}" stroke="#fff" stroke-width="2"/>`;
+      break;
+    case 'triangle':
+      shapeSvg = `<polygon points="${h},2 ${s-2},${s-2} 2,${s-2}" fill="${bg}" stroke="#fff" stroke-width="2"/>`;
+      tY = h + 4;
+      break;
+    case 'hexagon':
+      const q = s*0.25, t = s*0.75;
+      shapeSvg = `<polygon points="${q},1 ${t},1 ${s-1},${h} ${t},${s-1} ${q},${s-1} 1,${h}" fill="${bg}" stroke="#fff" stroke-width="2"/>`;
+      break;
+    default:
+      shapeSvg = `<circle cx="${h}" cy="${h}" r="${h-1}" fill="${bg}" stroke="#fff" stroke-width="2"/>`;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}">${shapeSvg}<text x="${h}" y="${tY}" text-anchor="middle" fill="${tx}" font-size="${fs}" font-weight="bold" font-family="Arial,sans-serif">${label}</text></svg>`;
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(s, s),
+    anchor: new google.maps.Point(s/2, s/2)
+  };
+}
+
+function getMarkerIcon(loc) {
   const code = getIndustryCode(loc);
-  if (loc.type === 'home') return {color:'#1e88e5',text:'#fff',scale:14,label:'HQ',stroke:'#fff',strokeW:2};
+  if (loc.type === 'home') {
+    return buildSvgIcon('diamond', '#1e88e5', '#fff', 'HQ', 32);
+  }
   if (loc.type === 'whale') {
     const lbl = loc.trucks ? String(loc.trucks) : 'W';
-    return {color:'#e53935',text:'#fff',scale:16,label:lbl,stroke:'#fff',strokeW:2.5};
+    return buildSvgIcon('circle', '#dc2626', '#fff', lbl, 36);
   }
   if (loc.type === 'customer') {
-    const lbl = INDUSTRY_LABELS[code] || 'C';
-    return {color:'#43a047',text:'#fff',scale:14,label:lbl||'C',stroke:'#fff',strokeW:2};
+    return buildSvgIcon('circle', '#43a047', '#fff', '$', 28);
   }
-  // Prospects, saved, wantgo, cold — industry colors
-  const ind = INDUSTRY_COLORS[code] || INDUSTRY_COLORS['???'];
-  const lbl = INDUSTRY_LABELS[code] || '';
-  const sc = code === '???' ? 6 : 10;
-  return {color:ind.bg,text:ind.text,scale:sc,label:lbl,stroke:'#fff',strokeW:1.5};
+  // Prospects, saved, wantgo, cold — industry shapes
+  const ind = INDUSTRY[code] || INDUSTRY['???'];
+  const sz = code === '???' ? 18 : 28;
+  return buildSvgIcon(ind.shape, ind.bg, ind.tx, ind.lbl, sz);
 }
 
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
@@ -366,27 +406,11 @@ function initMap() {
   });
 
   locations.forEach((loc, i) => {
-    const s = getMarkerStyle(loc);
-    const fontSize = s.scale >= 16 ? '11' : s.scale >= 14 ? '9' : s.scale >= 10 ? '7' : '0';
     const marker = new google.maps.Marker({
       position: {lat:loc.lat, lng:loc.lng},
       map: map,
       title: loc.name,
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        fillColor: s.color,
-        fillOpacity: 1,
-        strokeColor: s.stroke,
-        strokeWeight: s.strokeW,
-        scale: s.scale
-      },
-      label: s.label ? {
-        text: s.label,
-        color: s.text,
-        fontSize: fontSize + 'px',
-        fontWeight: 'bold',
-        fontFamily: 'Arial,sans-serif'
-      } : undefined
+      icon: getMarkerIcon(loc)
     });
     marker._loc = loc;
     marker._idx = i;
@@ -402,27 +426,11 @@ function initMap() {
     .then(places => {
       places.forEach(p => {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
-        const s = getMarkerStyle(loc);
-        const fontSize = s.scale >= 10 ? '7' : '0';
         const marker = new google.maps.Marker({
           position:{lat:p.t,lng:p.g},
           map:map,
           title:p.n,
-          icon:{
-            path: google.maps.SymbolPath.CIRCLE,
-            fillColor: s.color,
-            fillOpacity: 1,
-            strokeColor: s.stroke,
-            strokeWeight: s.strokeW,
-            scale: s.scale
-          },
-          label: s.label ? {
-            text: s.label,
-            color: s.text,
-            fontSize: fontSize + 'px',
-            fontWeight: 'bold',
-            fontFamily: 'Arial,sans-serif'
-          } : undefined
+          icon: getMarkerIcon(loc)
         });
         marker._loc = loc;
         marker._idx = locations.length;

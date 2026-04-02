@@ -90,13 +90,14 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <input id="searchBar" type="text" placeholder="Search companies...">
     <button id="routeBtn" title="Route mode">&#9971;</button>
   </div>
-  <div id="legendRow" style="display:flex;gap:6px;padding:2px 0;font-size:10px;color:#aaa">
-    <span>\u{1F534} $200K+</span>
-    <span>\u{1F7E0} $100-200K</span>
-    <span>\u{1F7E1} $50-100K</span>
-    <span>\u{1F535} $25-50K</span>
-    <span>\u{1F7E2} Customer</span>
-    <span>\u26AA Unknown</span>
+  <div id="legendRow" style="display:flex;gap:4px;padding:2px 0;font-size:9px;color:#aaa;flex-wrap:wrap">
+    <span style="color:#e53935">⬤$200K+</span>
+    <span style="color:#ff6d00">⬤$100K</span>
+    <span style="color:#fdd835">⬤$50K</span>
+    <span style="color:#42a5f5">⬤$25K</span>
+    <span style="color:#43a047">⬤Cust</span>
+    <span style="color:#9e9e9e">⬤Unk</span>
+    <span style="color:#888">| OIL TRK MIX AG CHM LOG TIR IND BLD</span>
   </div>
   <div id="filterRow">
     <button class="filterBtn active" data-f="all">All</button>
@@ -328,7 +329,7 @@ function getIndustry(loc) {
   if (/home|house/.test(t)) return 'home';
   return 'other';
 }
-const IND_EMOJI = {oilfield:'\u{1F6E2}',trucking:'\u{1F69B}',concrete:'\u{1F3D7}',agriculture:'\u{1F33E}',chemical:'\u2697',logging:'\u{1FAB5}',tire:'\u{1F6DE}',industrial:'\u2699',construction:'\u{1F3D7}',railroad:'\u{1F682}',home:'\u{1F3E0}',other:'\u{1F4CD}'};
+const IND_CODES = {oilfield:'OIL',trucking:'TRK',concrete:'MIX',agriculture:'AG',chemical:'CHM',logging:'LOG',tire:'TIR',industrial:'IND',construction:'BLD',railroad:'RR',home:'H',other:'?'};
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
@@ -352,9 +353,11 @@ function initMap() {
 
     const spendColor = getSpendColor(loc);
     const emoji = IND_EMOJI[getIndustry(loc)] || '\u{1F4CD}';
+    const spendColor = getSpendColor(loc);
+    const indCode = IND_CODES[getIndustry(loc)] || '?';
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size+12}">
       <circle cx="${size/2}" cy="${size/2}" r="${size/2-2}" fill="${spendColor}" stroke="#fff" stroke-width="2"/>
-      <text x="${size/2}" y="${size/2+6}" text-anchor="middle" font-size="${Math.round(size*0.45)}">${emoji}</text>
+      <text x="${size/2}" y="${size/2+4}" text-anchor="middle" fill="#fff" font-size="${Math.round(size*0.3)}" font-weight="bold" font-family="Arial">${indCode}</text>
       <polygon points="${size/2},${size+10} ${size/2-5},${size-1} ${size/2+5},${size-1}" fill="${spendColor}"/>
     </svg>`;
 
@@ -387,9 +390,11 @@ function initMap() {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
         const spendColor2 = getSpendColor(loc);
           const emoji2 = IND_EMOJI[getIndustry(loc)] || '\u{1F4CD}';
+          const spendColor2 = getSpendColor(loc);
+          const indCode2 = IND_CODES[getIndustry(loc)] || '?';
           const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size+10}">
           <circle cx="${size/2}" cy="${size/2}" r="${size/2-2}" fill="${spendColor2}" stroke="#fff" stroke-width="1.5"/>
-          <text x="${size/2}" y="${size/2+5}" text-anchor="middle" font-size="${Math.round(size*0.4)}">${emoji2}</text>
+          <text x="${size/2}" y="${size/2+4}" text-anchor="middle" fill="#fff" font-size="${Math.round(size*0.35)}" font-weight="bold" font-family="Arial">${indCode2}</text>
           <polygon points="${size/2},${size+8} ${size/2-4},${size-3} ${size/2+4},${size-3}" fill="${spendColor2}"/>
           </svg>`;
         const marker = new google.maps.Marker({

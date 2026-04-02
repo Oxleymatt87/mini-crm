@@ -293,7 +293,7 @@ qboMapCustomers.forEach(qc => locations.push(qc));
 const COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5',saved:'#ff9800',wantgo:'#ff6d00'};
 const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26,wantgo:22};
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
-let flyInterval = null, isTilted = false;
+let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
 function initMap() {
   map = new google.maps.Map(document.getElementById('map'), {
@@ -559,41 +559,76 @@ function gm_authFailure() {
 }
 
 // ─── 3D / Fly Controls ───
+// Raster satellite supports tilt 0|45 and heading 0|90|180|270 at zoom >= 18.
+// For "fly" we orbit the center in a circle while stepping headings.
+
 document.getElementById('btn3D').addEventListener('click', () => {
-  console.log('3D button tapped, isTilted:', isTilted);
+  console.log('3D tapped, isTilted:', isTilted);
   isTilted = !isTilted;
+  const btn3D = document.getElementById('btn3D');
   if (isTilted) {
-    const z = map.getZoom();
-    map.moveCamera({tilt: 60, zoom: Math.max(z, 15), center: map.getCenter()});
+    preZoom = map.getZoom();
+    preCenter = map.getCenter().toJSON();
+    map.setZoom(18);
+    setTimeout(() => { map.setTilt(45); }, 300);
+    btn3D.classList.add('active');
+    btn3D.textContent = '2D';
   } else {
-    map.moveCamera({tilt: 0});
+    stopFly();
+    map.setTilt(0);
+    map.setHeading(0);
+    if (preZoom) map.setZoom(preZoom);
+    if (preCenter) map.setCenter(preCenter);
+    preZoom = null; preCenter = null;
+    btn3D.classList.remove('active');
+    btn3D.textContent = '3D';
   }
-  document.getElementById('btn3D').classList.toggle('active', isTilted);
-  console.log('3D tilt set to:', isTilted ? 60 : 0);
 });
 
-document.getElementById('btnFly').addEventListener('click', () => {
-  console.log('Fly button tapped, flyInterval:', flyInterval);
-  const btn = document.getElementById('btnFly');
+function stopFly() {
   if (flyInterval) {
     clearInterval(flyInterval);
     flyInterval = null;
-    btn.classList.remove('active');
-    console.log('Fly stopped');
-  } else {
-    if (!isTilted) {
-      const z = map.getZoom();
-      map.moveCamera({tilt: 60, zoom: Math.max(z, 15), center: map.getCenter()});
-      isTilted = true;
-      document.getElementById('btn3D').classList.add('active');
-    }
+    document.getElementById('btnFly').classList.remove('active');
+  }
+}
+
+document.getElementById('btnFly').addEventListener('click', () => {
+  console.log('Fly tapped, flyInterval:', flyInterval);
+  const btn = document.getElementById('btnFly');
+  if (flyInterval) {
+    stopFly();
+    return;
+  }
+  // Enter 3D if not already
+  if (!isTilted) {
+    document.getElementById('btn3D').click();
+  }
+  // Wait for zoom/tilt to settle, then start orbit
+  setTimeout(() => {
+    const orbitCenter = map.getCenter().toJSON();
+    const radius = 0.003; // ~300m orbit radius
+    flyAngle = 0;
+    const headings = [0, 90, 180, 270];
+    let hIdx = 0;
+    let stepCount = 0;
     flyInterval = setInterval(() => {
-      const heading = (map.getHeading() || 0) + 0.5;
-      map.moveCamera({heading: heading});
+      flyAngle += 0.6; // degrees per tick
+      if (flyAngle >= 360) flyAngle -= 360;
+      const rad = flyAngle * Math.PI / 180;
+      const lat = orbitCenter.lat + radius * Math.cos(rad);
+      const lng = orbitCenter.lng + radius * Math.sin(rad);
+      map.setCenter({lat, lng});
+      // Step heading every 90 degrees of orbit
+      stepCount++;
+      if (stepCount % 150 === 0) {
+        hIdx = (hIdx + 1) % 4;
+        map.setHeading(headings[hIdx]);
+      }
     }, 50);
     btn.classList.add('active');
-    console.log('Fly started');
-  }
+    console.log('Fly started — orbiting', orbitCenter);
+  }, 500);
 });
 
 // ─── Firebase Integration ───
@@ -702,5 +737,5 @@ async function saveMapNote(pinKey, textarea) {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>initFirebase();</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&v=beta" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap" async defer></script>
 </body></html>

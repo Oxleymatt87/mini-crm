@@ -103,25 +103,21 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <button class="filterBtn" data-f="wantgo">Want to Go</button>
   </div>
   <div id="statsBar"></div>
-  <div id="legendRow">
-    <div class="legendDot"><span style="background:#e53935"></span>$200K+</div>
-    <div class="legendDot"><span style="background:#ff6d00"></span>$100-200K</div>
-    <div class="legendDot"><span style="background:#fdd835"></span>$50-100K</div>
-    <div class="legendDot"><span style="background:#42a5f5"></span>$25-50K</div>
+  <div id="legendRow"></div>
+  <div id="industryLegend" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px">
     <div class="legendDot"><span style="background:#43a047"></span>Customer</div>
-    <div class="legendDot"><span style="background:#9e9e9e"></span>Unknown</div>
-  </div>
-  <div id="industryLegend" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px;font-size:10px;color:#888">
-    <span><b>OIL</b>=Oil/Gas</span>
-    <span><b>TRK</b>=Trucking</span>
-    <span><b>CON</b>=Concrete</span>
-    <span><b>CRN</b>=Crane</span>
-    <span><b>IND</b>=Industrial</span>
-    <span><b>AGR</b>=Ag/Farm</span>
-    <span><b>MAT</b>=Materials</span>
-    <span><b>PRO</b>=Propane/Chem</span>
-    <span><b>SVC</b>=Service</span>
-    <span><b>???</b>=Other</span>
+    <div class="legendDot"><span style="background:#e53935"></span>Whale</div>
+    <div class="legendDot"><span style="background:#000;border-color:#fff"></span>OIL</div>
+    <div class="legendDot"><span style="background:#1565C0"></span>TRK</div>
+    <div class="legendDot"><span style="background:#795548"></span>CON</div>
+    <div class="legendDot"><span style="background:#7B1FA2"></span>CRN</div>
+    <div class="legendDot"><span style="background:#616161"></span>IND</div>
+    <div class="legendDot"><span style="background:#C2B280"></span>MAT</div>
+    <div class="legendDot"><span style="background:#2E7D32"></span>LOG</div>
+    <div class="legendDot"><span style="background:#8BC34A"></span>AG</div>
+    <div class="legendDot"><span style="background:#E64A19"></span>FUL</div>
+    <div class="legendDot"><span style="background:#00897B"></span>SVC</div>
+    <div class="legendDot"><span style="background:#9E9E9E"></span>???</div>
   </div>
 </div>
 
@@ -313,35 +309,46 @@ const qboMapCustomers = [
 // Merge QBO customers into locations
 qboMapCustomers.forEach(qc => locations.push(qc));
 
-const TYPE_COLORS = {whale:'#e53935',customer:'#43a047',prospect:'#fdd835',cold:'#9e9e9e',home:'#1e88e5',saved:'#ff9800',wantgo:'#ff6d00'};
-const SIZES = {whale:44,customer:36,prospect:32,cold:28,home:40,saved:26,wantgo:22};
+const INDUSTRY_COLORS = {
+  'OIL':{bg:'#000000',text:'#fff'},'TRK':{bg:'#1565C0',text:'#fff'},'CON':{bg:'#795548',text:'#fff'},
+  'CRN':{bg:'#7B1FA2',text:'#fff'},'IND':{bg:'#616161',text:'#fff'},'MAT':{bg:'#C2B280',text:'#222'},
+  'LOG':{bg:'#2E7D32',text:'#fff'},'AGR':{bg:'#8BC34A',text:'#222'},'PRO':{bg:'#E64A19',text:'#fff'},
+  'SVC':{bg:'#00897B',text:'#fff'},'???':{bg:'#9E9E9E',text:'#fff'}
+};
+const INDUSTRY_LABELS = {'OIL':'OIL','TRK':'TRK','CON':'CON','CRN':'CRN','IND':'IND','MAT':'MAT','LOG':'LOG','AGR':'AG','PRO':'FUL','SVC':'SVC','???':''};
 
 function getIndustryCode(loc) {
-  const n = (loc.name||'').toLowerCase();
-  if (/vacuum|oilfield|oil|drilling|swabbing|well|petroleum|energy|pipeline|\bgas\b/.test(n)) return 'OIL';
-  if (/trucking|transport|freight|hauling|logistics|delivery|carrier|heavy haul/.test(n)) return 'TRK';
-  if (/concrete|ready.?mix|cement|paving|construction/.test(n)) return 'CON';
+  const n = ((loc.name||'')+' '+(loc.locType||'')).toLowerCase();
+  if (/vacuum|oilfield|oil|drilling|swabbing|well|petroleum|energy|pipeline|\bgas\b|combustion/.test(n)) return 'OIL';
+  if (/trucking|transport|freight|hauling|logistics|delivery|carrier|heavy haul|hotshot/.test(n)) return 'TRK';
+  if (/concrete|ready.?mix|cement|paving|construction|excavat|dozer/.test(n)) return 'CON';
   if (/crane|rigging|lifting|hoist/.test(n)) return 'CRN';
-  if (/industrial|manufactur|fabricat|welding|steel|iron|metal|tank|pipe/.test(n)) return 'IND';
+  if (/logging|timber|\btree\b/.test(n)) return 'LOG';
+  if (/industrial|manufactur|fabricat|welding|steel|iron|metal|tank|pipe|refin|chemical/.test(n)) return 'IND';
+  if (/gravel|sand|rock|material|lumber|pallet|wood|recycl|supply|\bmat\b/.test(n)) return 'MAT';
+  if (/dirt/.test(n)) return 'CON';
   if (/farm|ranch|cattle|grain|hay|\bag\b|feed|honey/.test(n)) return 'AGR';
-  if (/dirt|gravel|sand|rock|material|lumber|pallet|wood|recycl/.test(n)) return 'MAT';
-  if (/propane|chemical|refin|fuel/.test(n)) return 'PRO';
-  if (/tire|mechanic|repair|service|towing|septic|waste|environmental/.test(n)) return 'SVC';
+  if (/propane|fuel|butane|gas co/.test(n)) return 'PRO';
+  if (/tire|mechanic|repair|towing|septic|waste|environmental|cleanup/.test(n)) return 'SVC';
   return '???';
 }
 
-function getSpendColor(loc) {
-  if (loc.type === 'home') return '#1e88e5';
-  if (loc.type === 'customer') return '#43a047';
-  const sp = (loc.spend||'').replace(/[^0-9K\-\/]/gi,'');
-  const m = sp.match(/(\d+)K/i);
-  if (!m) return '#9e9e9e';
-  const k = parseInt(m[1]);
-  if (k >= 200) return '#e53935';
-  if (k >= 100) return '#ff6d00';
-  if (k >= 50) return '#fdd835';
-  if (k >= 25) return '#42a5f5';
-  return '#9e9e9e';
+function getMarkerStyle(loc) {
+  const code = getIndustryCode(loc);
+  if (loc.type === 'home') return {color:'#1e88e5',text:'#fff',scale:14,label:'HQ',stroke:'#fff',strokeW:2};
+  if (loc.type === 'whale') {
+    const lbl = loc.trucks ? String(loc.trucks) : 'W';
+    return {color:'#e53935',text:'#fff',scale:16,label:lbl,stroke:'#fff',strokeW:2.5};
+  }
+  if (loc.type === 'customer') {
+    const lbl = INDUSTRY_LABELS[code] || 'C';
+    return {color:'#43a047',text:'#fff',scale:14,label:lbl||'C',stroke:'#fff',strokeW:2};
+  }
+  // Prospects, saved, wantgo, cold — industry colors
+  const ind = INDUSTRY_COLORS[code] || INDUSTRY_COLORS['???'];
+  const lbl = INDUSTRY_LABELS[code] || '';
+  const sc = code === '???' ? 6 : 10;
+  return {color:ind.bg,text:ind.text,scale:sc,label:lbl,stroke:'#fff',strokeW:1.5};
 }
 
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
@@ -359,34 +366,28 @@ function initMap() {
   });
 
   locations.forEach((loc, i) => {
-    const size = SIZES[loc.type] || 32;
-    const color = getSpendColor(loc);
-    const code = getIndustryCode(loc);
-    const dark = (color==='#fdd835'||color==='#ff6d00'||color==='#ff9800');
-    const textFill = dark ? '#000' : '#fff';
-    const scale = size / 2 - 2;
-
+    const s = getMarkerStyle(loc);
+    const fontSize = s.scale >= 16 ? '11' : s.scale >= 14 ? '9' : s.scale >= 10 ? '7' : '0';
     const marker = new google.maps.Marker({
       position: {lat:loc.lat, lng:loc.lng},
       map: map,
       title: loc.name,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: color,
+        fillColor: s.color,
         fillOpacity: 1,
-        strokeColor: '#fff',
-        strokeWeight: 2,
-        scale: scale
+        strokeColor: s.stroke,
+        strokeWeight: s.strokeW,
+        scale: s.scale
       },
-      label: {
-        text: code,
-        color: textFill,
-        fontSize: (scale > 16 ? '11' : scale > 12 ? '9' : '8') + 'px',
+      label: s.label ? {
+        text: s.label,
+        color: s.text,
+        fontSize: fontSize + 'px',
         fontWeight: 'bold',
         fontFamily: 'Arial,sans-serif'
-      }
+      } : undefined
     });
-
     marker._loc = loc;
     marker._idx = i;
     marker.addListener('click', () => onMarkerClick(marker));
@@ -399,31 +400,29 @@ function initMap() {
   fetch('/prospects.json')
     .then(r => r.json())
     .then(places => {
-      const size = SIZES.wantgo;
       places.forEach(p => {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
-        const code = getIndustryCode(loc);
-        const color = '#ff6d00';
-        const scale = size / 2 - 2;
+        const s = getMarkerStyle(loc);
+        const fontSize = s.scale >= 10 ? '7' : '0';
         const marker = new google.maps.Marker({
           position:{lat:p.t,lng:p.g},
           map:map,
           title:p.n,
           icon:{
             path: google.maps.SymbolPath.CIRCLE,
-            fillColor: color,
+            fillColor: s.color,
             fillOpacity: 1,
-            strokeColor: '#fff',
-            strokeWeight: 1.5,
-            scale: scale
+            strokeColor: s.stroke,
+            strokeWeight: s.strokeW,
+            scale: s.scale
           },
-          label:{
-            text: code,
-            color: '#000',
-            fontSize: '8px',
+          label: s.label ? {
+            text: s.label,
+            color: s.text,
+            fontSize: fontSize + 'px',
             fontWeight: 'bold',
             fontFamily: 'Arial,sans-serif'
-          }
+          } : undefined
         });
         marker._loc = loc;
         marker._idx = locations.length;

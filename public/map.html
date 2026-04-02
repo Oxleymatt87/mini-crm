@@ -362,23 +362,28 @@ function initMap() {
     const size = SIZES[loc.type] || 32;
     const color = getSpendColor(loc);
     const code = getIndustryCode(loc);
-    const dark = (color==='#fdd835'||color==='#ff6d00');
+    const dark = (color==='#fdd835'||color==='#ff6d00'||color==='#ff9800');
     const textFill = dark ? '#000' : '#fff';
-
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size+12}">
-      <circle cx="${size/2}" cy="${size/2}" r="${size/2-2}" fill="${color}" stroke="#fff" stroke-width="2"/>
-      <text x="${size/2}" y="${size/2+4}" text-anchor="middle" fill="${textFill}" font-size="${size>36?11:size>28?9:8}" font-weight="bold" font-family="Arial,sans-serif">${code}</text>
-      <polygon points="${size/2},${size+10} ${size/2-5},${size-4} ${size/2+5},${size-4}" fill="${color}"/>
-    </svg>`;
+    const scale = size / 2 - 2;
 
     const marker = new google.maps.Marker({
       position: {lat:loc.lat, lng:loc.lng},
       map: map,
       title: loc.name,
       icon: {
-        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-        scaledSize: new google.maps.Size(size, size+12),
-        anchor: new google.maps.Point(size/2, size+10)
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: color,
+        fillOpacity: 1,
+        strokeColor: '#fff',
+        strokeWeight: 2,
+        scale: scale
+      },
+      label: {
+        text: code,
+        color: textFill,
+        fontSize: (scale > 16 ? '11' : scale > 12 ? '9' : '8') + 'px',
+        fontWeight: 'bold',
+        fontFamily: 'Arial,sans-serif'
       }
     });
 
@@ -399,19 +404,25 @@ function initMap() {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
         const code = getIndustryCode(loc);
         const color = '#ff6d00';
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size+10}">
-          <circle cx="${size/2}" cy="${size/2}" r="${size/2-2}" fill="${color}" stroke="#fff" stroke-width="1.5"/>
-          <text x="${size/2}" y="${size/2+3}" text-anchor="middle" fill="#000" font-size="7" font-weight="bold" font-family="Arial,sans-serif">${code}</text>
-          <polygon points="${size/2},${size+8} ${size/2-4},${size-3} ${size/2+4},${size-3}" fill="${color}"/>
-        </svg>`;
+        const scale = size / 2 - 2;
         const marker = new google.maps.Marker({
           position:{lat:p.t,lng:p.g},
           map:map,
           title:p.n,
           icon:{
-            url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg),
-            scaledSize:new google.maps.Size(size,size+10),
-            anchor:new google.maps.Point(size/2,size+8)
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeColor: '#fff',
+            strokeWeight: 1.5,
+            scale: scale
+          },
+          label:{
+            text: code,
+            color: '#000',
+            fontSize: '8px',
+            fontWeight: 'bold',
+            fontFamily: 'Arial,sans-serif'
           }
         });
         marker._loc = loc;

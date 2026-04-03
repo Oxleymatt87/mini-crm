@@ -584,7 +584,7 @@ function applyFilters() {
   markers.forEach(m => {
     const loc = m._loc;
     const matchFilter = activeFilter === 'all' || loc.type === activeFilter;
-    const matchSearch = !q || loc.name.toLowerCase().includes(q) || loc.addr.toLowerCase().includes(q) || (loc.notes && loc.notes.toLowerCase().includes(q));
+    const matchSearch = !q || loc.name.toLowerCase().includes(q) || (loc.addr && loc.addr.toLowerCase().includes(q)) || (loc.notes && loc.notes.toLowerCase().includes(q));
     const visible = matchFilter && matchSearch;
     m.map = visible ? map : null;
     m._visible = visible;

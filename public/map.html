@@ -76,6 +76,28 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .notes-area{width:100%;min-height:60px;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:#ccc;font-size:13px;font-family:inherit;resize:vertical;margin-top:8px}
 .notes-save{padding:8px 16px;border-radius:8px;border:none;background:#4a9eff;color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:6px}
 .notes-status{color:#43a047;font-size:11px;margin-left:8px;display:none}
+#micBtn{width:40px;height:40px;border-radius:50%;border:none;background:#333;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative;-webkit-tap-highlight-color:transparent}
+#micBtn.listening{background:#e53935}
+#micBtn .mic-dot{display:none;position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;background:#ff1744}
+#micBtn.listening .mic-dot{display:block;animation:pulse-dot 1s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.4)}}
+#voiceToast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:8px 18px;border-radius:20px;font-size:13px;z-index:50;display:none;max-width:80%;text-align:center;backdrop-filter:blur(6px)}
+#voiceToast.show{display:block;animation:toast-in .3s ease}
+@keyframes toast-in{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+#chatPanel{position:fixed;bottom:0;left:0;right:0;z-index:30;background:#111;border-radius:14px 14px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:30vh;display:flex;flex-direction:column;box-shadow:0 -4px 20px rgba(0,0,0,0.6)}
+#chatPanel.open{transform:translateY(0)}
+#chatHeader{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #222}
+#chatHeader span{color:#4a9eff;font-size:13px;font-weight:700}
+#chatMin{background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:4px 8px}
+#chatMessages{flex:1;overflow-y:auto;padding:8px 14px;font-size:13px;color:#ccc;min-height:40px}
+#chatMessages .msg-user{color:#4a9eff;margin-bottom:6px}
+#chatMessages .msg-ai{color:#ddd;margin-bottom:6px;line-height:1.4}
+#chatMessages .msg-thinking{color:#666;font-style:italic}
+#chatInputRow{display:flex;gap:6px;padding:8px 14px;border-top:1px solid #222}
+#chatInput{flex:1;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none}
+#chatInput::placeholder{color:#555}
+#chatSend{width:36px;height:36px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:16px;cursor:pointer;flex-shrink:0}
+#chatToggle{position:fixed;bottom:16px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 </style>
 </head><body>
 <div id="loginOverlay">
@@ -91,6 +113,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 <div id="topBar">
   <div id="searchRow">
     <input id="searchBar" type="text" placeholder="Search companies...">
+    <button id="micBtn" title="Voice command"><span class="mic-dot"></span>&#127908;</button>
     <button id="routeBtn" title="Route mode">&#9971;</button>
   </div>
   <div id="filterRow">
@@ -136,6 +159,17 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   <span id="routeInfo">Tap pins to add stops</span>
   <button id="routeLaunch">GO</button>
   <button id="routeCancel">Cancel</button>
+</div>
+
+<div id="voiceToast"></div>
+<button id="chatToggle" title="AI Chat">&#128172;</button>
+<div id="chatPanel">
+  <div id="chatHeader"><span>&#129302; Oxley AI Assistant</span><button id="chatMin">&#10005;</button></div>
+  <div id="chatMessages"></div>
+  <div id="chatInputRow">
+    <input id="chatInput" type="text" placeholder="Ask about prospects, routes...">
+    <button id="chatSend">&#9654;</button>
+  </div>
 </div>
 
 <script>
@@ -778,6 +812,202 @@ async function saveMapNote(pinKey, textarea) {
     const status = document.getElementById('noteStatus');
     if (status) { status.style.display = 'inline'; setTimeout(() => status.style.display = 'none', 2000); }
   } catch(e) { console.error('Save note error:', e); }
+}
+
+// ─── Voice Commands ───
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, isListening = false;
+
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('micBtn').classList.add('listening');
+  };
+  recognition.onend = () => {
+    isListening = false;
+    document.getElementById('micBtn').classList.remove('listening');
+  };
+  recognition.onerror = (e) => {
+    isListening = false;
+    document.getElementById('micBtn').classList.remove('listening');
+    if (e.error !== 'no-speech') showToast('Voice error: ' + e.error);
+  };
+  recognition.onresult = (e) => {
+    const transcript = e.results[0][0].transcript.trim();
+    showToast('"' + transcript + '"');
+    handleVoiceCommand(transcript);
+  };
+}
+
+document.getElementById('micBtn').addEventListener('click', () => {
+  if (!recognition) { showToast('Voice not supported'); return; }
+  if (isListening) { recognition.stop(); return; }
+  recognition.start();
+});
+
+function showToast(msg) {
+  const t = document.getElementById('voiceToast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function handleVoiceCommand(text) {
+  const t = text.toLowerCase();
+
+  const industryMap = {
+    'oil': 'OIL', 'oilfield': 'OIL',
+    'trucking': 'TRK', 'trucks': 'TRK',
+    'concrete': 'CON', 'crane': 'CRN',
+    'industrial': 'IND', 'materials': 'MAT',
+    'logging': 'LOG', 'ag': 'AGR', 'agriculture': 'AGR',
+    'fuel': 'FUL', 'service': 'SVC'
+  };
+
+  for (const [word, code] of Object.entries(industryMap)) {
+    if (t === 'show ' + word || t.startsWith('show ' + word + ' ') || t === 'show ' + word + 's') {
+      clickIndustryFilter(code); return;
+    }
+  }
+
+  if (/^show\s+customers?$/i.test(t)) { clickFilterBtn('customer'); return; }
+  if (/^show\s+whales?$/i.test(t)) { clickFilterBtn('whale'); return; }
+  if (/^show\s+prospects?$/i.test(t)) { clickFilterBtn('prospect'); return; }
+  if (/^show\s+all$/i.test(t)) { clickFilterBtn('all'); return; }
+
+  if (t.startsWith('zoom ')) { zoomToCompany(text.substring(5).trim()); return; }
+  if (t.startsWith('search ')) {
+    const sb = document.getElementById('searchBar');
+    sb.value = text.substring(7).trim();
+    sb.dispatchEvent(new Event('input'));
+    return;
+  }
+  if (/^route$/i.test(t)) { if (!routeMode) document.getElementById('routeBtn').click(); return; }
+  if (/^go$/i.test(t)) { document.getElementById('routeLaunch').click(); return; }
+
+  sendToChat(text);
+}
+
+function clickFilterBtn(filterVal) {
+  const btn = document.querySelector('.filterBtn[data-f="' + filterVal + '"]');
+  if (btn) btn.click();
+}
+
+function clickIndustryFilter(code) {
+  clickFilterBtn('all');
+  const codeToSearch = {
+    'OIL':'oilfield','TRK':'trucking','CON':'concrete','CRN':'crane',
+    'IND':'industrial','MAT':'material','LOG':'logging','AGR':'farm','FUL':'propane','SVC':'tire'
+  };
+  const sb = document.getElementById('searchBar');
+  sb.value = codeToSearch[code] || code;
+  sb.dispatchEvent(new Event('input'));
+}
+
+function zoomToCompany(name) {
+  const q = name.toLowerCase();
+  let best = null, bestScore = 0;
+  markers.forEach(m => {
+    const n = m._loc.name.toLowerCase();
+    if (n === q) { best = m; bestScore = 1000; return; }
+    if (n.includes(q) || q.includes(n)) {
+      const score = Math.min(n.length, q.length);
+      if (score > bestScore) { bestScore = score; best = m; }
+    }
+  });
+  if (best) {
+    map.panTo(best.position);
+    map.setZoom(17);
+    openSheet(best._loc);
+    showToast('Found: ' + best._loc.name);
+  } else {
+    showToast('Not found: ' + name);
+  }
+}
+
+// ─── Claude AI Chat ───
+const CLAUDE_WORKER_URL = 'https://claude-proxy.moxley.workers.dev';
+let chatHistory = [];
+
+document.getElementById('chatToggle').addEventListener('click', () => {
+  document.getElementById('chatPanel').classList.toggle('open');
+});
+document.getElementById('chatMin').addEventListener('click', () => {
+  document.getElementById('chatPanel').classList.remove('open');
+});
+document.getElementById('chatSend').addEventListener('click', () => {
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  sendToChat(msg);
+});
+document.getElementById('chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('chatSend').click();
+});
+
+function getVisiblePinContext() {
+  const data = [];
+  markers.forEach(m => {
+    if (!m._visible) return;
+    const l = m._loc;
+    const parts = [l.name + ' (' + l.type + ')'];
+    if (l.trucks) parts.push(l.trucks + ' trucks');
+    if (l.locType) parts.push(l.locType);
+    if (l.spend) parts.push(l.spend);
+    if (l.notes) parts.push(l.notes);
+    data.push(parts.join(', '));
+  });
+  return data.join('\n');
+}
+
+function sendToChat(userMsg) {
+  document.getElementById('chatPanel').classList.add('open');
+  const messagesEl = document.getElementById('chatMessages');
+
+  const userDiv = document.createElement('div');
+  userDiv.className = 'msg-user';
+  userDiv.textContent = 'You: ' + userMsg;
+  messagesEl.appendChild(userDiv);
+
+  const thinkDiv = document.createElement('div');
+  thinkDiv.className = 'msg-thinking';
+  thinkDiv.textContent = 'Thinking...';
+  messagesEl.appendChild(thinkDiv);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  chatHistory.push({ role: 'user', content: userMsg });
+
+  fetch(CLAUDE_WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: chatHistory.slice(-6), context: getVisiblePinContext() })
+  })
+  .then(r => r.json())
+  .then(data => {
+    thinkDiv.remove();
+    const reply = data.content && data.content[0] ? data.content[0].text : 'No response received.';
+    chatHistory.push({ role: 'assistant', content: reply });
+    const aiDiv = document.createElement('div');
+    aiDiv.className = 'msg-ai';
+    aiDiv.textContent = 'AI: ' + reply;
+    messagesEl.appendChild(aiDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  })
+  .catch(() => {
+    thinkDiv.remove();
+    const errDiv = document.createElement('div');
+    errDiv.className = 'msg-ai';
+    errDiv.textContent = 'Could not reach AI assistant.';
+    messagesEl.appendChild(errDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
 }
 </script>
 

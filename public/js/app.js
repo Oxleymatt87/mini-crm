@@ -942,3 +942,49 @@ function formatDate(ts) {
   if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+
+// Territory tab
+let territoryData = [], terrSortCol = 'Trucks', terrSortAsc = false;
+fetch('/territory-data.json').then(r=>r.json()).then(d=>{territoryData=d;renderTerritory()});
+
+function renderTerritory() {
+  let data = [...territoryData];
+  const q = (document.getElementById('territory-search')?.value || '').toLowerCase();
+  if (q) data = data.filter(r =>
+    (r['Company Name']||'').toLowerCase().includes(q) ||
+    (r.City||'').toLowerCase().includes(q) ||
+    (r.Notes||'').toLowerCase().includes(q) ||
+    (r.Address||'').toLowerCase().includes(q)
+  );
+  data.sort((a,b) => {
+    let va = a[terrSortCol] ?? '', vb = b[terrSortCol] ?? '';
+    if (typeof va === 'number' || typeof vb === 'number') { va = va || 0; vb = vb || 0; }
+    if (va < vb) return terrSortAsc ? -1 : 1;
+    if (va > vb) return terrSortAsc ? 1 : -1;
+    return 0;
+  });
+  const tbody = document.getElementById('territory-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = data.map(r => `<tr>
+    <td>${r['Company Name']||''}</td>
+    <td>${r.Status||''}</td>
+    <td>${r.City||''}</td>
+    <td>${r.Trucks||''}</td>
+    <td>${r.Phone ? '<a href="tel:'+r.Phone+'">'+r.Phone+'</a>' : ''}</td>
+    <td>${r['Est. Spend']||''}</td>
+    <td>${r.Notes||''}</td>
+  </tr>`).join('');
+}
+
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('sort-th')) {
+    const col = e.target.dataset.col;
+    if (terrSortCol === col) terrSortAsc = !terrSortAsc;
+    else { terrSortCol = col; terrSortAsc = true; }
+    renderTerritory();
+  }
+});
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'territory-search') renderTerritory();
+});

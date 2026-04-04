@@ -49,6 +49,7 @@
       <button class="tab-btn" data-tab="stock">Stock</button>
       <button class="tab-btn" data-tab="invoices">Invoices</button>
       <button class="tab-btn" onclick="window.location.href='/map.html'">Map</button>
+      <button class="tab-btn" data-tab="territory">Territory</button>
     </div>
 
     <!-- DASHBOARD TAB -->
@@ -237,6 +238,27 @@
         <div class="card-title">Recent Invoices</div>
         <div id="recent-invoices">
           <div class="empty-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TERRITORY TAB -->
+    <div class="tab-content" id="tab-territory">
+      <div class="card">
+        <input class="search-input" id="territory-search" placeholder="Search territory..." style="margin-bottom:12px">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th class="sort-th" data-col="Company Name" style="cursor:pointer">Company ⇅</th>
+              <th class="sort-th" data-col="Status" style="cursor:pointer">Status ⇅</th>
+              <th class="sort-th" data-col="City" style="cursor:pointer">City ⇅</th>
+              <th class="sort-th" data-col="Trucks" style="cursor:pointer">Trucks ⇅</th>
+              <th>Phone</th>
+              <th class="sort-th" data-col="Est. Spend" style="cursor:pointer">Spend ⇅</th>
+              <th>Notes</th>
+            </tr></thead>
+            <tbody id="territory-tbody"></tbody>
+          </table>
         </div>
       </div>
     </div>

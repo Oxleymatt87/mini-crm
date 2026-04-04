@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+<title>Fleet Command by Oxley Tire — Your Entire Operation on One Map</title>
+<meta name="description" content="Fleet Command puts every job site, customer yard, and disposal well on a single map with one-tap calling, routing, and site notes. Built for fleet operators by Oxley Tire.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0c10;--surface:#111318;--card:#161920;--border:#1e2230;--green:#22c55e;--green-dim:rgba(34,197,94,0.15);--text:#e4e4e7;--muted:#71717a;--white:#fff}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3,.badge,.stat-num,.price-amt,.step-num{font-family:'Archivo Black',sans-serif}
+section{padding:80px 20px}
+.wrap{max-width:640px;margin:0 auto}
+.green{color:var(--green)}
+
+/* ─── HERO ─── */
+.hero{padding:100px 20px 80px;text-align:center}
+.hero .badge{display:inline-block;padding:6px 16px;border-radius:20px;background:var(--green-dim);color:var(--green);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:24px}
+.hero h1{font-size:clamp(32px,8vw,52px);line-height:1.1;color:var(--white);margin-bottom:20px}
+.hero .sub{font-size:18px;color:var(--muted);max-width:420px;margin:0 auto 40px}
+
+/* Simulated map */
+.map-sim{position:relative;width:100%;max-width:500px;margin:0 auto;aspect-ratio:16/10;background:linear-gradient(135deg,#0d1520 0%,#131b2a 50%,#0f1822 100%);border-radius:16px;border:1px solid var(--border);overflow:hidden}
+.map-sim::before{content:'';position:absolute;inset:0;background:
+  linear-gradient(90deg,transparent 24%,rgba(34,197,94,0.03) 25%,transparent 25.5%,transparent 74%,rgba(34,197,94,0.03) 75%,transparent 75.5%),
+  linear-gradient(0deg,transparent 24%,rgba(34,197,94,0.03) 25%,transparent 25.5%,transparent 74%,rgba(34,197,94,0.03) 75%,transparent 75.5%);
+  background-size:60px 60px}
+.map-road{position:absolute;background:rgba(34,197,94,0.08);border-radius:2px}
+.road-h1{width:90%;height:2px;top:40%;left:5%}
+.road-h2{width:70%;height:2px;top:65%;left:15%}
+.road-v1{width:2px;height:80%;top:10%;left:30%}
+.road-v2{width:2px;height:60%;top:25%;left:70%}
+.pin{position:absolute;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.8)}
+.pin::after{content:'';position:absolute;inset:-6px;border-radius:50%;animation:pulse 2s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 currentColor}70%{box-shadow:0 0 0 10px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.pin-red{background:#e53935;color:rgba(229,57,53,0.4);top:25%;left:28%;animation-delay:0s}
+.pin-green{background:#22c55e;color:rgba(34,197,94,0.4);top:38%;left:55%;animation-delay:0.5s}
+.pin-yellow{background:#fdd835;color:rgba(253,216,53,0.4);top:55%;left:35%;animation-delay:1s}
+.pin-blue{background:#1e88e5;color:rgba(30,136,229,0.4);top:30%;left:72%;animation-delay:1.5s}
+.pin-orange{background:#ff6d00;color:rgba(255,109,0,0.4);top:62%;left:65%;animation-delay:0.3s}
+.pin-green2{background:#22c55e;color:rgba(34,197,94,0.4);top:45%;left:20%;animation-delay:0.8s}
+.pin-red2{background:#e53935;color:rgba(229,57,53,0.4);top:70%;left:48%;animation-delay:1.2s}
+.pin::after{animation:pulse 2s ease-out infinite}
+
+/* ─── PROBLEM ─── */
+.problem{background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.problem h2{font-size:clamp(22px,5vw,32px);color:var(--white);margin-bottom:20px;line-height:1.2}
+.problem p{font-size:17px;color:var(--muted);line-height:1.8}
+
+/* ─── SOLUTION ─── */
+.solution h2{font-size:clamp(22px,5vw,32px);color:var(--white);margin-bottom:20px;line-height:1.2}
+.solution p{font-size:17px;color:var(--text);line-height:1.8}
+
+/* ─── FEATURES ─── */
+.features{background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.features h2{font-size:clamp(22px,5vw,32px);color:var(--white);margin-bottom:32px;text-align:center}
+.feat-grid{display:flex;flex-direction:column;gap:16px}
+.feat-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px}
+.feat-icon{font-size:28px;margin-bottom:12px}
+.feat-card h3{font-size:17px;color:var(--white);margin-bottom:8px;font-family:'DM Sans',sans-serif;font-weight:700}
+.feat-card p{font-size:14px;color:var(--muted);line-height:1.5}
+
+/* ─── STATS ─── */
+.stats{text-align:center}
+.stat-row{display:flex;justify-content:center;gap:40px;flex-wrap:wrap}
+.stat{min-width:100px}
+.stat-num{font-size:clamp(28px,6vw,40px);color:var(--green)}
+.stat-label{font-size:13px;color:var(--muted);margin-top:4px}
+
+/* ─── HOW IT WORKS ─── */
+.how{background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.how h2{font-size:clamp(22px,5vw,32px);color:var(--white);margin-bottom:36px;text-align:center}
+.steps{display:flex;flex-direction:column;gap:24px}
+.step{display:flex;gap:20px;align-items:flex-start}
+.step-num{width:48px;height:48px;border-radius:50%;background:var(--green-dim);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.step-text h3{font-size:17px;color:var(--white);margin-bottom:4px;font-family:'DM Sans',sans-serif;font-weight:700}
+.step-text p{font-size:14px;color:var(--muted)}
+
+/* ─── PRICING ─── */
+.pricing{text-align:center}
+.price-box{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:40px 24px;max-width:440px;margin:0 auto}
+.price-amt{font-size:clamp(40px,10vw,56px);color:var(--white)}
+.price-period{font-size:16px;color:var(--muted);margin-bottom:16px}
+.price-detail{font-size:15px;color:var(--muted);line-height:1.7}
+
+/* ─── CTA ─── */
+.cta{text-align:center;padding:60px 20px 40px}
+.cta-btn{display:inline-block;padding:18px 48px;border-radius:14px;background:var(--green);color:#000;font-family:'Archivo Black',sans-serif;font-size:18px;text-decoration:none;transition:transform 0.2s,box-shadow 0.2s;box-shadow:0 0 30px rgba(34,197,94,0.3)}
+.cta-btn:active{transform:scale(0.97)}
+.cta-sub{font-size:14px;color:var(--muted);margin-top:20px;line-height:1.6}
+
+/* ─── FOOTER ─── */
+footer{text-align:center;padding:40px 20px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--green)}
+</style>
+</head><body>
+
+<!-- HERO -->
+<section class="hero">
+<div class="wrap">
+  <div class="badge">Built for the field</div>
+  <h1>Your entire operation. <span class="green">One map.</span></h1>
+  <p class="sub">Every job site, customer yard, and truck — right on your phone.</p>
+  <div class="map-sim">
+    <div class="map-road road-h1"></div>
+    <div class="map-road road-h2"></div>
+    <div class="map-road road-v1"></div>
+    <div class="map-road road-v2"></div>
+    <div class="pin pin-red"></div>
+    <div class="pin pin-green"></div>
+    <div class="pin pin-yellow"></div>
+    <div class="pin pin-blue"></div>
+    <div class="pin pin-orange"></div>
+    <div class="pin pin-green2"></div>
+    <div class="pin pin-red2"></div>
+  </div>
+</div>
+</section>
+
+<!-- THE PROBLEM -->
+<section class="problem">
+<div class="wrap">
+  <h2>The problem</h2>
+  <p>Your dispatcher plans routes from a whiteboard. Your drivers call in asking for gate codes. Nobody knows which truck is closest to the next job.</p>
+</div>
+</section>
+
+<!-- THE SOLUTION -->
+<section class="solution">
+<div class="wrap">
+  <h2>The solution</h2>
+  <p>Fleet Command puts every job site, customer yard, and disposal well on a single map — with one-tap calling, routing, and site notes.</p>
+</div>
+</section>
+
+<!-- FEATURES -->
+<section class="features">
+<div class="wrap">
+  <h2>What you get</h2>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon">&#128205;</div>
+      <h3>Every site on one map</h3>
+      <p>Customer yards, job sites, disposal wells — all color-coded pins on a single view.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">&#128222;</div>
+      <h3>Tap to call</h3>
+      <p>Site contact, gate code, and special instructions right on the pin. One tap to call.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">&#128663;</div>
+      <h3>Multi-stop routing</h3>
+      <p>Tap 5 pins, hit Go, and Google Maps opens with the full route ready to drive.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">&#128221;</div>
+      <h3>Site notes</h3>
+      <p>"Use back gate after 5pm" — notes right on the pin, visible to everyone on the team.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">&#128269;</div>
+      <h3>Filter &amp; search</h3>
+      <p>Show only active jobs. Search by customer name. Find what you need in seconds.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- STATS -->
+<section class="stats">
+<div class="wrap">
+  <div class="stat-row">
+    <div class="stat">
+      <div class="stat-num">10 min</div>
+      <div class="stat-label">Setup time</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">$0</div>
+      <div class="stat-label">Hardware</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">24/7</div>
+      <div class="stat-label">Access</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how">
+<div class="wrap">
+  <h2>How it works</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <h3>Send me your site list</h3>
+        <p>Spreadsheet, text message, napkin photo — whatever you've got.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <h3>I build your map</h3>
+        <p>Every site pinned, color-coded, with contacts and notes attached.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-text">
+        <h3>Open it on any phone</h3>
+        <p>Works on iPhone, Android, tablet, desktop — no app to install.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing">
+<div class="wrap">
+  <div class="price-box">
+    <div class="price-amt">$199<span style="font-size:24px;color:var(--muted)">/mo</span></div>
+    <div class="price-period">Cancel anytime</div>
+    <p class="price-detail">Less than one tire per month. Setup included. Unlimited users. I add new sites and updates for you — just text me.</p>
+  </div>
+</div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+<div class="wrap">
+  <a href="tel:+19037149375" class="cta-btn">CALL MATT — (903) 714-9375</a>
+  <p class="cta-sub">Oxley Tire Inc. &middot; Beaumont, TX<br>Built by a fleet operator, for fleet operators.</p>
+</div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  Fleet Command by Oxley Tire Inc. &middot; <a href="mailto:moxley@oxleytireinc.com">moxley@oxleytireinc.com</a> &middot; <a href="tel:+19037149375">(903) 714-9375</a>
+</footer>
+
+</body></html>

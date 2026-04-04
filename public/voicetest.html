@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><meta name="viewport" content="width=device-width"><title>Mic Test</title></head>
+<body style="background:#111;color:#fff;text-align:center;padding:40px;font-family:sans-serif">
+<h2>Mic Test</h2>
+<p id="status">Tap Start</p>
+<button onclick="go()" style="padding:20px 40px;font-size:24px">Start</button>
+<p id="result" style="font-size:20px;color:lime"></p>
+<script>
+function go(){
+  var s=document.getElementById("status");
+  var r=document.getElementById("result");
+  s.textContent="Listening...";
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  var rec=new SR();
+  rec.lang="en-US";
+  rec.onresult=function(e){r.textContent="HEARD: "+e.results[0][0].transcript;s.textContent="Done";};
+  rec.onerror=function(e){s.textContent="ERROR: "+e.error;};
+  rec.onend=function(){s.textContent="Ended";};
+  rec.start();
+}
+</script>
+</body>
+</html>

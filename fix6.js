@@ -1,0 +1,8 @@
+var fs=require("fs");
+var j=fs.readFileSync("public/main.js","utf8");
+j=j.replace(
+  'var prompt="TBR tire parser. or/are=R, by/buy=/, point=. JSON:{brand,model,size,quantity,position,condition}. Commands:{command:stop|undo}. Brands:Amulet(AT505,AD507,AA610,AA612,AD515),Royal Black(SL101,SL102,DL301,AM201,AV211),Jinyu,Atlas,Lancaster.";var resp=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key="+key,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:[{parts:[{text:text}]}],generationConfig:{temperature:0.05,responseMimeType:"application/json"}})});if(!resp.ok)throw new Error("API "+resp.status);var data=await resp.json();var t=data.candidates[0].content.parts[0].text;return JSON.parse(t);',
+  'var prompt="Parse this voice input into a tire inventory entry. Return JSON with brand, model, size (like 11R22.5 or 295/75R22.5), quantity, position, condition. Known brands: Amulet(AT505,AD507,AA610,AA612,AD515), Royal Black(SL101,SL102,DL301,AM201,AV211), Jinyu, Atlas, Lancaster. Voice may say or/are for R, by for slash. Input: "+text;var resp=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key="+key,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.05}})});if(!resp.ok)throw new Error("API "+resp.status);var data=await resp.json();var t=data.candidates[0].content.parts[0].text;var m=t.match(/\\{[\\s\\S]*\\}/);if(m)return JSON.parse(m[0]);return JSON.parse(t);'
+);
+fs.writeFileSync("public/main.js",j);
+console.log("DONE");

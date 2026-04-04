@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Oxley Tire - Sales Territory Map</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden;background:#1a1a2e}
+#map{width:100%;height:100%}
+#topBar{position:fixed;top:0;left:0;right:0;z-index:10;background:rgba(16,16,32,0.95);backdrop-filter:blur(10px);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+#searchRow{display:flex;gap:8px;align-items:center}
+#searchBar{flex:1;padding:8px 12px;border-radius:20px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:14px;outline:none}
+#searchBar::placeholder{color:#666}
+#searchBar:focus{border-color:#4a9eff}
+#routeBtn{width:40px;height:40px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+#routeBtn.active{background:#ff4a4a}
+#filterRow{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+#filterRow::-webkit-scrollbar{display:none}
+.filterBtn{padding:6px 14px;border-radius:16px;border:1px solid #444;background:transparent;color:#ccc;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s}
+.filterBtn.active{color:#fff;border-color:#fff}
+.filterBtn[data-f="all"].active{background:#4a9eff;border-color:#4a9eff}
+.filterBtn[data-f="whale"].active{background:#e53935;border-color:#e53935}
+.filterBtn[data-f="customer"].active{background:#43a047;border-color:#43a047}
+.filterBtn[data-f="prospect"].active{background:#fdd835;border-color:#fdd835;color:#000}
+.filterBtn[data-f="cold"].active{background:#757575;border-color:#757575}
+.filterBtn[data-f="saved"].active{background:#ff9800;border-color:#ff9800;color:#000}
+.filterBtn[data-f="wantgo"].active{background:#ff6d00;border-color:#ff6d00;color:#fff}
+#statsBar{color:#888;font-size:11px;text-align:center;padding:0 0 2px}
+#legendRow{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px}
+.legendDot{display:flex;align-items:center;gap:3px;font-size:10px;color:#888}
+.legendDot span{width:10px;height:10px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,0.3)}
+#sheet{position:fixed;bottom:0;left:0;right:0;z-index:20;background:#1a1a2e;border-radius:16px 16px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:70vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)}
+#sheet.open{transform:translateY(0)}
+#sheetHandle{width:40px;height:4px;background:#444;border-radius:2px;margin:10px auto 6px}
+#sheetContent{padding:0 16px 24px}
+.sheetName{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px}
+.sheetBadge{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:10px}
+.badge-whale{background:#e53935;color:#fff}
+.badge-customer{background:#43a047;color:#fff}
+.badge-prospect{background:#fdd835;color:#000}
+.badge-cold{background:#757575;color:#fff}
+.badge-home{background:#1e88e5;color:#fff}
+.badge-saved{background:#ff9800;color:#000}
+.badge-wantgo{background:#ff6d00;color:#fff}
+.sheetRow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #222;color:#ccc;font-size:14px}
+.sheetRow .icon{width:24px;text-align:center;font-size:16px;flex-shrink:0}
+.sheetRow a{color:#4a9eff;text-decoration:none}
+.sheetNotes{background:#111;border-radius:10px;padding:10px 12px;color:#aaa;font-size:13px;margin-top:10px;line-height:1.4}
+.sheetActions{display:flex;gap:10px;margin-top:14px}
+.sheetActions button{flex:1;padding:12px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer}
+#navBtn{background:#4a9eff;color:#fff}
+#svBtn{background:#333;color:#fff}
+#svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
+#routeBanner{position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(255,74,74,0.95);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600}
+#routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
+#viewControls{position:fixed;bottom:80px;right:12px;z-index:15;display:flex;flex-direction:column;gap:8px}
+#viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#btn3D.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
+#btnFly.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
+#routeLaunch{background:#fff;color:#e53935}
+#routeCancel{background:rgba(255,255,255,0.2);color:#fff}
+#loginOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;background:rgba(15,17,23,0.97);display:flex;align-items:center;justify-content:center}
+#loginOverlay.hidden{display:none}
+#loginBox{background:#1a1d27;border:1px solid #2e3345;border-radius:16px;padding:28px 24px;width:320px;text-align:center}
+#loginBox h2{color:#d4a12a;margin-bottom:16px;font-size:1.1rem}
+#loginBox input{width:100%;padding:10px 12px;margin-bottom:10px;border-radius:8px;border:1px solid #333;background:#0f1117;color:#fff;font-size:14px}
+#loginBox button{width:100%;padding:12px;border-radius:10px;border:none;background:#d4a12a;color:#000;font-weight:700;font-size:14px;cursor:pointer}
+#loginBox .err{color:#e74c3c;font-size:12px;margin-top:6px;display:none}
+.qbo-section{background:#0d1520;border:1px solid #1e3a5f;border-radius:10px;padding:10px 12px;margin-top:10px}
+.qbo-title{color:#4a9eff;font-size:12px;font-weight:700;text-transform:uppercase;margin-bottom:6px;letter-spacing:0.5px}
+.qbo-row{display:flex;justify-content:space-between;padding:4px 0;color:#aaa;font-size:13px;border-bottom:1px solid #1a2a3e}
+.qbo-row:last-child{border:none}
+.qbo-val{color:#fff;font-weight:600}
+.inv-item{padding:4px 0;color:#aaa;font-size:12px;border-bottom:1px solid #1a2a3e}
+.inv-item:last-child{border:none}
+.notes-area{width:100%;min-height:60px;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:#ccc;font-size:13px;font-family:inherit;resize:vertical;margin-top:8px}
+.notes-save{padding:8px 16px;border-radius:8px;border:none;background:#4a9eff;color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:6px}
+.notes-status{color:#43a047;font-size:11px;margin-left:8px;display:none}
+#micBtn{width:40px;height:40px;border-radius:50%;border:none;background:#333;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative;-webkit-tap-highlight-color:transparent}
+#micBtn.listening{background:#e53935}
+#micBtn .mic-dot{display:none;position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;background:#ff1744}
+#micBtn.listening .mic-dot{display:block;animation:pulse-dot 1s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.4)}}
+#voiceToast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:8px 18px;border-radius:20px;font-size:13px;z-index:50;display:none;max-width:80%;text-align:center;backdrop-filter:blur(6px)}
+#voiceToast.show{display:block;animation:toast-in .3s ease}
+@keyframes toast-in{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+#chatPanel{position:fixed;bottom:0;left:0;right:0;z-index:30;background:#111;border-radius:14px 14px 0 0;transform:translateY(100%);transition:transform .3s ease;max-height:30vh;display:flex;flex-direction:column;box-shadow:0 -4px 20px rgba(0,0,0,0.6)}
+#chatPanel.open{transform:translateY(0)}
+#chatHeader{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #222}
+#chatHeader span{color:#4a9eff;font-size:13px;font-weight:700}
+#chatMin{background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:4px 8px}
+#chatMessages{flex:1;overflow-y:auto;padding:8px 14px;font-size:13px;color:#ccc;min-height:40px}
+#chatMessages .msg-user{color:#4a9eff;margin-bottom:6px}
+#chatMessages .msg-ai{color:#ddd;margin-bottom:6px;line-height:1.4}
+#chatMessages .msg-thinking{color:#666;font-style:italic}
+#chatInputRow{display:flex;gap:6px;padding:8px 14px;border-top:1px solid #222}
+#chatInput{flex:1;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none}
+#chatInput::placeholder{color:#555}
+#chatSend{width:36px;height:36px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:16px;cursor:pointer;flex-shrink:0}
+#chatToggle{position:fixed;bottom:16px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+.gps-dot{width:44px;height:44px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 8px rgba(37,99,235,0.7);position:relative;overflow:hidden}
+.gps-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.gps-dot::after{content:'';position:absolute;top:50%;left:50%;width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.25);transform:translate(-50%,-50%);animation:gps-pulse 2s ease-out infinite;pointer-events:none}
+@keyframes gps-pulse{0%{width:16px;height:16px;opacity:.8}100%{width:48px;height:48px;opacity:0}}
+</style>
+</head><body>
+<div id="loginOverlay">
+  <div id="loginBox">
+    <h2>Oxley Tire Map</h2>
+    <input type="email" id="mapEmail" value="moxley@oxleytireinc.com" placeholder="Email">
+    <input type="password" id="mapPass" placeholder="Password">
+    <button onclick="mapLogin()">Sign In</button>
+    <div class="err" id="mapLoginErr"></div>
+  </div>
+</div>
+
+<div id="topBar">
+  <div id="searchRow">
+    <input id="searchBar" type="text" placeholder="Search companies...">
+    <button id="micBtn" title="Voice command"><span class="mic-dot"></span>&#127908;</button>
+    <button id="routeBtn" title="Route mode">&#9971;</button>
+  </div>
+  <div id="filterRow">
+    <button class="filterBtn active" data-f="all">All</button>
+    <button class="filterBtn" data-f="whale">Whales</button>
+    <button class="filterBtn" data-f="prospect">Prospects</button>
+    <button class="filterBtn" data-f="customer">Customers</button>
+    <button class="filterBtn" data-f="cold">Cold</button>
+    <button class="filterBtn" data-f="saved">Saved</button>
+    <button class="filterBtn" data-f="wantgo">Want to Go</button>
+  </div>
+  <div id="statsBar"></div>
+  <div id="industryLegend" style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;padding:2px 8px 4px">
+    <div class="legendDot"><span style="background:#22c55e;font-size:7px;line-height:10px;text-align:center">💰</span>Cust</div>
+    <div class="legendDot"><span style="background:#dc2626;font-size:6px;color:#fff;font-weight:900;line-height:10px;text-align:center">84</span>Whale</div>
+    <div class="legendDot"><span style="background:#000;font-size:7px;line-height:10px;text-align:center">🛢️</span>Oil</div>
+    <div class="legendDot"><span style="background:#2563eb;font-size:7px;line-height:10px;text-align:center">🚛</span>Truck</div>
+    <div class="legendDot"><span style="background:#f97316;font-size:7px;line-height:10px;text-align:center">🏗️</span>Conc</div>
+    <div class="legendDot"><span style="background:#a855f7;font-size:7px;line-height:10px;text-align:center">🏗️</span>Crane</div>
+    <div class="legendDot"><span style="background:#475569;font-size:7px;line-height:10px;text-align:center">⚙️</span>Ind</div>
+    <div class="legendDot"><span style="background:#92400e;font-size:7px;line-height:10px;text-align:center">🪨</span>Mat</div>
+    <div class="legendDot"><span style="background:#166534;font-size:7px;line-height:10px;text-align:center">🌲</span>Log</div>
+    <div class="legendDot"><span style="background:#65a30d;font-size:7px;line-height:10px;text-align:center">🌾</span>Ag</div>
+    <div class="legendDot"><span style="background:#dc2626;font-size:7px;line-height:10px;text-align:center">⛽</span>Fuel</div>
+    <div class="legendDot"><span style="background:#0d9488;font-size:7px;line-height:10px;text-align:center">🔧</span>Svc</div>
+    <div class="legendDot"><span style="background:#d1d5db;width:7px;height:7px"></span>???</div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div id="sheet">
+  <div id="sheetHandle"></div>
+  <div id="sheetContent"></div>
+</div>
+
+<div id="viewControls">
+  <button id="btnLocate" title="My location">&#9678;</button>
+  <button id="btn3D" title="Toggle 3D tilt">3D</button>
+  <button id="btnFly" title="Auto-rotate fly mode">Fly</button>
+</div>
+
+<div id="routeBanner">
+  <span id="routeInfo">Tap pins to add stops</span>
+  <button id="routeLaunch">GO</button>
+  <button id="routeCancel">Cancel</button>
+</div>
+
+<div id="voiceToast"></div>
+<button id="chatToggle" title="AI Chat">&#128172;</button>
+<div id="chatPanel">
+  <div id="chatHeader"><span>&#129302; Oxley AI Assistant</span><button id="chatMin">&#10005;</button></div>
+  <div id="chatMessages"></div>
+  <div id="chatInputRow">
+    <input id="chatInput" type="text" placeholder="Ask about prospects, routes...">
+    <button id="chatSend">&#9654;</button>
+  </div>
+</div>
+
+<script>
+const API_KEY = 'AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E';
+const HOME = {lat:30.0702,lng:-94.1631};
+const HOME_ADDR = '655 Langham Rd, Beaumont TX';
+
+const locations = [
+  // CUSTOMERS (green)
+  {name:"Curtis & Son Companies",lat:30.0904,lng:-94.7575,addr:"4408 N Main St, Liberty TX",trucks:84,drivers:null,phone:"(936) 334-1188",type:"customer",notes:"Oilfield services. $342K all-time.",spend:"$150K-$200K/yr",locType:"Oilfield services"},
+  {name:"Shamrock Vacuum Service",lat:30.0461,lng:-94.7050,addr:"11616 US-90, Liberty TX",trucks:60,drivers:4,phone:"(936) 334-8100",type:"customer",notes:"Oilfield fluid hauling. 24hrs.",spend:"$110K-$140K/yr",locType:"Oilfield fluid hauling"},
+  // WHALES (red)
+  {name:"Axis Power Generation",lat:30.0786,lng:-94.7704,addr:"Mizell Rd area, Liberty TX",trucks:223,drivers:200,phone:"(936) 336-6700",type:"whale",notes:"Oilfield generators, lowboy/flatbed.",spend:"$400K-$500K+/yr",locType:"Oilfield generators"},
+  {name:"Bright Star Solutions",lat:30.14,lng:-94.39,addr:"18788 Hwy 105, Sour Lake TX",trucks:187,drivers:186,phone:"(409) 287-3662",type:"whale",notes:"Logging/utility fleet. 89 trailers.",spend:"$350K-$450K+/yr",locType:"Logging/utility fleet"},
+  {name:"Huntsman Petrochemical",lat:29.9697,lng:-93.9292,addr:"6001 FM 366, Port Neches TX",trucks:137,drivers:104,phone:"(409) 724-4430",type:"whale",notes:"Fortune 500 chemical co.",spend:"$250K-$350K+/yr",locType:"Chemical manufacturing"},
+  // PROSPECTS (yellow)
+  {name:"Standard Supply",lat:30.0445,lng:-94.7057,addr:"11562 US-90, Liberty TX",trucks:27,drivers:27,phone:"(936) 336-6200",type:"prospect",notes:"Industrial supply on Hwy 90.",spend:"$48K-$65K/yr",locType:"Industrial supply"},
+  {name:"Thomas Honey Farms",lat:30.1246,lng:-94.7677,addr:"1700 FM 1011, Liberty TX",trucks:23,drivers:26,phone:"(936) 334-7823",type:"prospect",notes:"Livestock + bee equip. Call first.",spend:"$40K-$55K/yr",locType:"Livestock + bee equipment"},
+  {name:"Smart Materials Inc",lat:30.0194,lng:-94.7768,addr:"1404 Wallisville Rd, Liberty TX",trucks:22,drivers:18,phone:"(936) 336-3026",type:"prospect",notes:"Rock yard. Mark Joines/Arnold Smart. Since 1979.",spend:"$38K-$50K/yr",locType:"Rock yard"},
+  {name:"Smart Oilfield Services",lat:30.0786,lng:-94.7704,addr:"2251 Mizell Rd, Liberty TX",trucks:null,drivers:null,phone:"(936) 336-3768",type:"prospect",notes:"Absorbed B&J Vac. Opens 5:30AM.",spend:"TBD",locType:"Oilfield services"},
+  {name:"Curtis Oilfield Services",lat:30.3572,lng:-94.1098,addr:"4779 US-96, Silsbee TX",trucks:27,drivers:27,phone:"(409) 385-2937",type:"prospect",notes:"Oilfield on US-96.",spend:"$48K-$65K/yr",locType:"Oilfield services"},
+  {name:"Clean Combustion Inc",lat:29.8885,lng:-94.8944,addr:"14210 TX-146, Dayton TX",trucks:26,drivers:29,phone:"(281) 385-0111",type:"prospect",notes:"Verified yard on 146.",spend:"$45K-$60K/yr",locType:"Oilfield services"},
+  {name:"Orange County Building Materials",lat:30.13,lng:-93.98,addr:"365 Old Hwy 90 W, Vidor TX",trucks:21,drivers:25,phone:"(409) 769-2410",type:"prospect",notes:"Building materials. 500K mi/yr.",spend:"$38K-$50K/yr",locType:"Building materials"},
+  {name:"South Hampton Resources",lat:30.35,lng:-94.18,addr:"7752 Farm Rd 418 W, Silsbee TX",trucks:19,drivers:19,phone:"(409) 385-8300",type:"prospect",notes:"HAZMAT chemical hauler. 2M mi/yr.",spend:"$35K-$45K/yr",locType:"Chemical hauling"},
+  {name:"Apache Products Acme Skid",lat:30.34,lng:-94.17,addr:"1012 John Hare Rd, Silsbee TX",trucks:19,drivers:14,phone:"(409) 385-7021",type:"prospect",notes:"Pallets/lumber.",spend:"$33K-$42K/yr",locType:"Pallets/lumber"},
+  {name:"Liberty Ready Mix",lat:30.0604,lng:-94.7694,addr:"3301 Beaumont Ave, Liberty TX",trucks:10,drivers:8,phone:"(936) 334-0304",type:"prospect",notes:"Concrete batch plant. M-Sat 7-5.",spend:"$18K-$25K/yr",locType:"Concrete batch plant"},
+  {name:"Triangle Petroleum",lat:30.058,lng:-94.798,addr:"902 Layl Dr, Liberty TX",trucks:9,drivers:5,phone:"(936) 336-7373",type:"prospect",notes:"Oilfield vacuum. Call first.",spend:"$16K-$22K/yr",locType:"Oilfield vacuum"},
+  {name:"Blackgold Services",lat:30.0564,lng:-94.7643,addr:"3608 US-90, Liberty TX",trucks:8,drivers:5,phone:"(936) 336-9600",type:"prospect",notes:"Oilfield since 1997. M-F 8-5.",spend:"$14K-$20K/yr",locType:"Oilfield services"},
+  {name:"4KBC Trucking",lat:30.0712,lng:-94.7871,addr:"2004 N Main St, Liberty TX",trucks:7,drivers:7,phone:"(936) 336-6275",type:"prospect",notes:"Downtown Liberty.",spend:"$12K-$18K/yr",locType:"Trucking"},
+  {name:"Quikrete Plant",lat:30.0434,lng:-94.6800,addr:"13174 US-90, Raywood TX",trucks:null,drivers:null,phone:"(936) 587-4450",type:"prospect",notes:"Concrete mfg. M-F 7-4:30.",spend:"TBD",locType:"Concrete manufacturing"},
+  {name:"Liberty Forge",lat:30.0486,lng:-94.8157,addr:"1507 Fort Worth St, Liberty TX",trucks:5,drivers:5,phone:"(936) 336-5785",type:"prospect",notes:"Metal forging. M-F 7:30-5.",spend:"$9K-$14K/yr",locType:"Metal forging"},
+  // COLD (gray)
+  {name:"C6 Logistics",lat:30.065,lng:-94.785,addr:"202 Mockingbird Ln, Liberty TX",trucks:5,drivers:null,phone:"(936) 334-4335",type:"cold",notes:"House. Phone only.",spend:null,locType:"Logistics"},
+  {name:"936 Logistics",lat:30.07,lng:-94.79,addr:"2075 CR 2107, Liberty TX",trucks:5,drivers:null,phone:"(832) 581-6037",type:"cold",notes:"Phone only.",spend:null,locType:"Logistics"},
+  {name:"Helena Chemical",lat:30.0419,lng:-94.6721,addr:"206629 Hwy 90 E, Raywood TX",trucks:null,drivers:null,phone:"(936) 549-7336",type:"cold",notes:"Ag chemical. Small fleet.",spend:null,locType:"Ag chemical"},
+  {name:"Ellerbee Services",lat:30.0358,lng:-94.4244,addr:"1552 2nd St, Nome TX",trucks:4,drivers:2,phone:"(409) 253-2165",type:"cold",notes:"Oilfield+livestock+grain.",spend:null,locType:"Oilfield/livestock/grain"},
+  // HOME (blue)
+  {name:"Oxley Tire Inc",lat:30.0702,lng:-94.1631,addr:"655 Langham Rd, Beaumont TX",trucks:null,drivers:null,phone:null,type:"home",notes:"Home base.",spend:null,locType:"Home base"}
+];
+
+const savedPlaces = [
+  {name:"M&D Supply Ace Hardware",lat:30.0687179,lng:-94.1426162,addr:"4580 College St, Beaumont, TX 77707",type:"saved"},
+  {name:"Elite Recovery Services",lat:30.1307416,lng:-94.213134,addr:"11181 N Keith Rd, Beaumont, TX 77713",type:"saved"},
+  {name:"Anahuac Transport",lat:29.8344071,lng:-94.5759266,addr:"309 FM 1724, Hankamer, TX 77560",type:"saved"},
+  {name:"C Hill Propane LLC",lat:30.1544797,lng:-94.6482235,addr:"2221 Farm to Market Rd 770, Hull, TX 77564",type:"saved"},
+  {name:"Alliance Industrial Group",lat:30.2845868,lng:-94.2328293,addr:"570 N Lhs Dr, Lumberton, TX 77657",type:"saved"},
+  {name:"A & P Oil And Gas Company Llc",lat:30.9482544,lng:-95.9134714,addr:"101 W Trinity St, Madisonville, TX 77864",type:"saved"},
+  {name:"MATHESON",lat:30.0842661,lng:-94.1067589,addr:"1170 Liberty Ave, Beaumont, TX 77701",type:"saved"},
+  {name:"Giglio Distributing Co.",lat:30.0809704,lng:-94.1068837,addr:"155 S M L King Jr Pkwy, Beaumont, TX 77701",type:"saved"},
+  {name:"DRUM OIL & GAS INC",lat:30.0241188,lng:-94.7976465,addr:"311 River Bend Rd, Liberty, TX 77575",type:"saved"},
+  {name:"Gary Whitman Materials Inc",lat:30.2158994,lng:-94.3802663,addr:"13766 TX-326, Kountze, TX 77625",type:"saved"},
+  {name:"Vickery Dirt",lat:30.7004954,lng:-94.9330206,addr:"141 Pan American Dr, Livingston, TX 77351",type:"saved"},
+  {name:"Green Tree Transportation",lat:29.8296025,lng:-94.8223767,addr:"15009 I-10, Baytown, TX 77523",type:"saved"},
+  {name:"RedZone Towing",lat:29.841182,lng:-94.67381,addr:"24015 I-10 B, Wallisville, TX 77597",type:"saved"},
+  {name:"RWS Crane & Rigging",lat:29.785279,lng:-95.0161693,addr:"5800 Wade Rd, Baytown, TX 77521",type:"saved"},
+  {name:"Transwood",lat:29.8184476,lng:-94.881061,addr:"8703 Unity Dr, Baytown, TX 77523",type:"saved"},
+  {name:"STS Tank Leasing LLC",lat:29.8249271,lng:-94.8782336,addr:"11603 I-10 building 2, Baytown, TX 77523",type:"saved"},
+  {name:"Hydro Spy LLC",lat:29.7128125,lng:-95.2190433,addr:"808 W Shaw Ave, Pasadena, TX 77506",type:"saved"},
+  {name:"Apache Industrial",lat:29.9740788,lng:-94.2114129,addr:"11165 TX-124, Beaumont, TX 77705",type:"saved"},
+  {name:"Bryant Oilfield Resources Llc",lat:29.9916023,lng:-94.202866,addr:"6344 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Intergrity Heavy Haul",lat:29.984093,lng:-94.1959949,addr:"Garth St, Beaumont, TX 77705",type:"saved"},
+  {name:"Definitive Industrial Group",lat:29.9866383,lng:-94.2075578,addr:"6980 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Tank Solutions",lat:29.9828293,lng:-94.198063,addr:"7572 Garth St, Taylor Landing, TX 77705",type:"saved"},
+  {name:"Chaparral Industrial Shop Services",lat:29.9861787,lng:-94.1972685,addr:"157 Garth St, Beaumont, TX 77705",type:"saved"},
+  {name:"Nitro-Lift Technologies LLC",lat:29.988552,lng:-94.2056503,addr:"6742 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"O'Rourke Petroleum",lat:29.9910307,lng:-94.2037203,addr:"6454 Industrial Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Crabtree Barricade Systems",lat:30.001587,lng:-94.1789876,addr:"7375 Frint Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Neches Management Services",lat:30.0288953,lng:-94.06624,addr:"1325 Spindletop Ave, Beaumont, TX 77705",type:"saved"},
+  {name:"Safety-Kleen Systems",lat:30.1192136,lng:-93.8068909,addr:"3454 Womack Rd, Orange, TX 77632",type:"saved"},
+  {name:"TAS Environmental Services LP",lat:30.1288653,lng:-93.8813756,addr:"12273 I-10, Orange, TX 77630",type:"saved"},
+  {name:"GHX Industrial LLC",lat:30.0380638,lng:-94.1168033,addr:"3155 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Acme Truck Line Inc",lat:30.0391302,lng:-94.1236205,addr:"3825 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Beaumont Solid Waste Department",lat:30.0397361,lng:-94.1320704,addr:"4955 Lafin Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"I-Corp Industrial Services",lat:30.0376518,lng:-94.142852,addr:"4933 Fannett Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Piping Specialists",lat:30.037264,lng:-94.1432593,addr:"4945 Fannett Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Beaumont Pallet Company",lat:30.0779064,lng:-94.1344417,addr:"20 I-10, Beaumont, TX 77702",type:"saved"},
+  {name:"Certified Crane and Rigging Services LLC",lat:30.0187397,lng:-94.0437746,addr:"6405 TX-347, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Pipe & Valve",lat:30.0186244,lng:-94.0439299,addr:"6405 TX-347, Beaumont, TX 77705",type:"saved"},
+  {name:"X L Systems",lat:30.0293902,lng:-94.0920367,addr:"5780 Hagner Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Superior Waste Solutions LLC",lat:30.0324218,lng:-94.1001771,addr:"5565 Erie St, Beaumont, TX 77705",type:"saved"},
+  {name:"Mc Kenzie Tank Lines",lat:30.0361644,lng:-94.1087589,addr:"2465 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Fast Trac Transportation Inc",lat:30.0381829,lng:-94.1079841,addr:"2430 W Cardinal Dr suite h, Beaumont, TX 77705",type:"saved"},
+  {name:"Rain for Rent",lat:29.9363145,lng:-93.8969262,addr:"6401 Gulfway Dr, Groves, TX 77619",type:"saved"},
+  {name:"RCS Refractory Construction Services",lat:29.929168,lng:-94.0077864,addr:"960 FM 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Southern Crane Works",lat:29.9278424,lng:-94.0094795,addr:"8725 Industrial Ct, Port Arthur, TX 77640",type:"saved"},
+  {name:"Knight Industrial Services",lat:29.9272035,lng:-94.0129079,addr:"401 Marcontell Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"Total Safety",lat:29.9264723,lng:-94.0141554,addr:"365 FM 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Standard Crane & Hoist LLC",lat:29.9704702,lng:-94.0280197,addr:"4536 Hodgson Rd, Nederland, TX 77627",type:"saved"},
+  {name:"J. Johnnie On The Spot",lat:29.9707385,lng:-94.0303136,addr:"4635 Hodgson Rd, Nederland, TX 77627",type:"saved"},
+  {name:"Gore Propane",lat:29.8449143,lng:-94.6992721,addr:"6837 Farm to Market Rd 563, Wallisville, TX 77597",type:"saved"},
+  {name:"Sabine Environmental Services LLC",lat:29.8825261,lng:-94.6951477,addr:"9480 Farm to Market Rd 563, Wallisville, TX 77597",type:"saved"},
+  {name:"Superior Supply & Steel",lat:30.039989,lng:-94.135827,addr:"4855 Fannett Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Kilgore Industrial",lat:30.0411067,lng:-94.1282468,addr:"4245 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Taylor Bus Sales",lat:30.0105841,lng:-94.0817534,addr:"529 Hillebrandt Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Industrial Scaffolding",lat:30.0247015,lng:-94.0871262,addr:"6164 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Port Arthur Recycling",lat:29.9151515,lng:-94.0363998,addr:"2901 W Farm to Market Rd 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Ohmstede Industrial Service",lat:29.9275553,lng:-94.0282434,addr:"950 Jade Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"Phoenix Industrial Water Works",lat:29.9253145,lng:-94.0335188,addr:"9501 Jade Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"B&B Ice & Water",lat:29.9257331,lng:-94.0355873,addr:"9555 Richard Wycoff Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"BioMedical Waste Solutions LLC",lat:29.9272032,lng:-94.0320565,addr:"9665 Jade Ave, Port Arthur, TX 77642",type:"saved"},
+  {name:"GFL Environmental",lat:29.9241409,lng:-94.0320205,addr:"1000 S Business Park Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"Dashiell Corp & Dacon LLC",lat:29.9244394,lng:-94.0272321,addr:"930 S Business Park Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"Coastal Industrial Services Inc",lat:29.9283563,lng:-94.0287781,addr:"955 West Jade Ave, Port Arthur, TX 77640",type:"saved"},
+  {name:"Sandifers LP Gas",lat:29.9281303,lng:-93.9031681,addr:"5812 Gulfway Dr, Port Arthur, TX 77642",type:"saved"},
+  {name:"War Horse Industrial",lat:30.0403712,lng:-94.1323696,addr:"4849 Lafin Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Core Safety LLC",lat:30.0358172,lng:-94.100964,addr:"1910 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Deep South Crane & Rigging",lat:30.0295166,lng:-94.0541217,addr:"6135 TX-347, Beaumont, TX 77705",type:"saved"},
+  {name:"ABC Supply Co Inc",lat:29.9713694,lng:-94.0258855,addr:"7620 Beauxart Garden Rd, Nederland, TX 77627",type:"saved"},
+  {name:"Elite Turnaround Specialist",lat:29.974463,lng:-94.0275043,addr:"5043 Bourque Rd, Nederland, TX 77627",type:"saved"},
+  {name:"409 Demolition & Tree Service",lat:29.9504417,lng:-94.0017399,addr:"9501 Memorial Blvd, Port Arthur, TX 77640",type:"saved"},
+  {name:"Extra Mile Roll Off Dumpster",lat:29.9491269,lng:-93.9998527,addr:"9501 US-69, Port Arthur, TX 77640",type:"saved"},
+  {name:"M&S Unlimited Services LLC",lat:29.923489,lng:-94.0161439,addr:"115 FM 365, Port Arthur, TX 77640",type:"saved"},
+  {name:"Price & Co",lat:30.041368,lng:-94.1220255,addr:"3530 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Lone Star Rigging LP",lat:30.0407569,lng:-94.1277035,addr:"4175 W Cardinal Dr, Beaumont, TX 77705",type:"saved"},
+  {name:"Greenco",lat:30.0246877,lng:-94.0863004,addr:"6164 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Tri-Con Inc",lat:30.0160956,lng:-94.0809518,addr:"7076 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Red Bear Industries Inc",lat:30.0098499,lng:-94.0786497,addr:"7822 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Elite Turnaround Specialists",lat:29.9607604,lng:-94.0514918,addr:"3400 Knauth Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Trinity Industrial Services LLC",lat:29.9594706,lng:-94.0454882,addr:"13071 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"PalletOne Inc",lat:29.9520699,lng:-94.0393342,addr:"1212 Brai Dr, Port Arthur, TX 77640",type:"saved"},
+  {name:"Thomas Petroleum",lat:29.9465271,lng:-94.0379168,addr:"11703 W Port Arthur Rd, Beaumont, TX 77705",type:"saved"},
+  {name:"Baker Distributing Company",lat:29.9415462,lng:-93.91699,addr:"3500 E Parkway St, Groves, TX 77619",type:"saved"},
+  {name:"Fusion Mechanical",lat:30.1790773,lng:-94.0245691,addr:"3995 N Main St, Vidor, TX 77662",type:"saved"},
+  {name:"Aegis Chemical Solutions",lat:30.0413617,lng:-94.6682024,addr:"3876 US-90, Liberty, TX 77575",type:"saved"},
+  {name:"Quality Mat Co",lat:30.1716089,lng:-94.1770408,addr:"6550 Tram Rd, Beaumont, TX 77713",type:"saved"},
+  {name:"Triple S Industrial Corporation",lat:30.2704931,lng:-94.2159873,addr:"860 W Chance Cutoff, Lumberton, TX 77657",type:"saved"},
+  {name:"ClearWell Dynamics Liberty",lat:30.0671313,lng:-94.7720306,addr:"1593 TX-146, Liberty, TX 77575",type:"saved"},
+  {name:"American Cementing",lat:30.0897681,lng:-94.7585648,addr:"4402 N Main St, Liberty, TX 77575",type:"saved"},
+  {name:"Pipeline Integrity Group LLC",lat:29.9155498,lng:-94.8993741,addr:"12614 TX-146, Dayton, TX 77535",type:"saved"},
+  {name:"Bennett Motor Express",lat:29.9117936,lng:-94.8980546,addr:"12859 TX-146, Dayton, TX 77535",type:"saved"},
+  {name:"AmeriGas Propane Silsbee",lat:30.3548145,lng:-94.1760848,addr:"811 N 5th St, Silsbee, TX 77656",type:"saved"},
+  {name:"Elite Septic Solutions",lat:30.355301,lng:-94.2804125,addr:"2171 Gates Rd, Kountze, TX 77625",type:"saved"},
+  {name:"Muddy Mutt Rentals LLC",lat:30.3442891,lng:-94.2859801,addr:"3928 US-69, Kountze, TX 77625",type:"saved"},
+  {name:"W.I.T. Development and Contracting Inc",lat:30.2156873,lng:-94.2892755,addr:"7092 TX-421, Kountze, TX 77625",type:"saved"},
+  {name:"B & J Vacuum Tank Services",lat:30.1783891,lng:-94.6384111,addr:"3957 Farm to Market Rd 770, Hull, TX 77564",type:"saved"},
+  {name:"Barnharts Welding",lat:30.1558141,lng:-94.7185115,addr:"1395 FM 834, Liberty, TX 77575",type:"saved"},
+  {name:"Tanner Services LLC",lat:30.3449285,lng:-94.2483164,addr:"4527 TX-327, Kountze, TX 77625",type:"saved"},
+  {name:"A.G.Y. Transport",lat:30.2994848,lng:-94.2405731,addr:"9667 Hwy 69 S Bldg, Kountze, TX 77625",type:"saved"},
+  {name:"Lumberton Culvert & Tank",lat:30.2892084,lng:-94.2359312,addr:"770 N Lhs Dr, Lumberton, TX 77657",type:"saved"},
+  {name:"Enterprise Products",lat:29.766649,lng:-95.0125771,addr:"4225 Decker Dr, Baytown, TX 77520",type:"saved"},
+  {name:"South Hampton Refinery",lat:30.37467,lng:-94.171005,addr:"92 hwy, Silsbee, TX 77656",type:"saved"}
+];
+
+// Merge saved places into locations
+savedPlaces.forEach(sp => {
+  sp.trucks = null; sp.drivers = null; sp.phone = null;
+  sp.notes = 'Google Maps saved place'; sp.spend = null; sp.locType = 'Saved place';
+  locations.push(sp);
+});
+
+// QBO CUSTOMERS with verified addresses (green pins)
+const qboMapCustomers = [
+  {name:"Interstate Tire & Mechanical",lat:30.056085,lng:-94.141665,addr:"4510 Washington Blvd, Beaumont TX",trucks:null,drivers:null,phone:"(409) 899-1116",type:"customer",notes:"24hr tire shop",spend:null,locType:"Tire shop"},
+  {name:"Evadale Service",lat:30.357236,lng:-94.073638,addr:"43630 US 96 S, Evadale TX",trucks:null,drivers:null,phone:"(409) 276-1718",type:"customer",notes:"Tire/mechanic opens 6AM",spend:null,locType:"Tire/mechanic"},
+  {name:"STI Group",lat:29.947913,lng:-94.034135,addr:"9561 Viterbo Rd, Beaumont TX",trucks:null,drivers:null,phone:"(409) 994-3570",type:"customer",notes:"Industrial services",spend:null,locType:"Industrial services"},
+  {name:"Peryn Services LLC",lat:30.108218,lng:-94.048346,addr:"500 Mockingbird Dr, Vidor TX",trucks:null,drivers:null,phone:"(409) 782-0301",type:"customer",notes:"Industrial. $4,436 balance",spend:null,locType:"Industrial"},
+  {name:"Noack Land Management",lat:30.436379,lng:-94.686755,addr:"21822 Old Hwy, Votaw TX",trucks:null,drivers:null,phone:"(409) 550-8107",type:"customer",notes:"Land clearing. $1,512 balance",spend:null,locType:"Land clearing"},
+  {name:"Gulf Coast Tire",lat:30.068829,lng:-94.169329,addr:"6560 College St, Beaumont TX",trucks:null,drivers:null,phone:"(409) 454-0557",type:"customer",notes:"24hr tire road service",spend:null,locType:"Tire shop"},
+  {name:"AMMCO Solutions Group",lat:30.065510,lng:-94.194715,addr:"1115 Wescalder Rd, Beaumont TX",trucks:null,drivers:null,phone:"(409) 724-0095",type:"customer",notes:"Industrial solutions",spend:null,locType:"Industrial solutions"},
+  {name:"Colgan Industries",lat:30.065217,lng:-94.121646,addr:"3165 Milam St, Beaumont TX",trucks:null,drivers:null,phone:"(409) 212-9467",type:"customer",notes:"Manufacturing",spend:null,locType:"Manufacturing"},
+  {name:"Wiggins Tractor & Dozer",lat:30.180051,lng:-94.717995,addr:"534 Co Rd 2060, Hull TX",trucks:null,drivers:null,phone:"(936) 334-3561",type:"customer",notes:"Heavy equipment",spend:null,locType:"Heavy equipment"},
+  {name:"Vision Industrial",lat:30.454931,lng:-93.393654,addr:"1451 LA-12, Dequincy LA",trucks:null,drivers:null,phone:"(337) 625-5757",type:"customer",notes:"Railroad division",spend:null,locType:"Railroad services"},
+  {name:"Ironman Tire",lat:30.068829,lng:-94.169329,addr:"Beaumont TX area",trucks:null,drivers:null,phone:"(409) 454-8817",type:"customer",notes:"Tire dealer. $6,924 balance",spend:null,locType:"Tire dealer"},
+  {name:"Paschal Welding",lat:30.141927,lng:-94.401005,addr:"185 E Crosby St, Sour Lake TX",trucks:null,drivers:null,phone:"(409) 287-3035",type:"customer",notes:"Welding/industrial",spend:null,locType:"Welding"},
+  {name:"Rocking M Tire",lat:30.233800,lng:-94.373465,addr:"12192 TX-326, Kountze TX",trucks:null,drivers:null,phone:"(409) 504-1198",type:"customer",notes:"24hr tire road service",spend:null,locType:"Tire shop"},
+  {name:"Thierry Transport LLC",lat:29.767932,lng:-94.956834,addr:"931 Christopher Ln, Baytown TX",trucks:null,drivers:null,phone:"(281) 837-7575",type:"customer",notes:"Trucking since 2006",spend:null,locType:"Trucking"},
+  {name:"CTW Group LLC",lat:30.489574,lng:-97.631220,addr:"2700 Louis Henna Blvd, Round Rock TX",trucks:null,drivers:null,phone:"(737) 738-1896",type:"customer",notes:"Tire wholesaler. $1,400 balance",spend:null,locType:"Tire wholesaler"}
+];
+
+// Merge QBO customers into locations
+qboMapCustomers.forEach(qc => locations.push(qc));
+
+// Industry config with emoji icons and high-saturation colors
+const INDUSTRY = {
+  'OIL':{bg:'#000000',emoji:'🛢️'},
+  'TRK':{bg:'#2563eb',emoji:'🚛'},
+  'CON':{bg:'#f97316',emoji:'🏗️'},
+  'CRN':{bg:'#a855f7',emoji:'🏗️'},
+  'IND':{bg:'#475569',emoji:'⚙️'},
+  'MAT':{bg:'#92400e',emoji:'🪨'},
+  'LOG':{bg:'#166534',emoji:'🌲'},
+  'AGR':{bg:'#65a30d',emoji:'🌾'},
+  'FUL':{bg:'#dc2626',emoji:'⛽'},
+  'SVC':{bg:'#0d9488',emoji:'🔧'},
+  '???':{bg:'#d1d5db',emoji:''}
+};
+
+function getIndustryCode(loc) {
+  const n = ((loc.name||'')+' '+(loc.locType||'')).toLowerCase();
+  if (/vacuum|oilfield|oil|drilling|swabbing|well|petroleum|energy|pipeline|\bgas\b|combustion/.test(n)) return 'OIL';
+  if (/trucking|transport|freight|hauling|logistics|delivery|carrier|heavy haul|hotshot|towing/.test(n)) return 'TRK';
+  if (/concrete|ready.?mix|cement|paving|construction|excavat|dozer/.test(n)) return 'CON';
+  if (/crane|rigging|lifting|hoist/.test(n)) return 'CRN';
+  if (/logging|timber|\btree\b/.test(n)) return 'LOG';
+  if (/industrial|manufactur|fabricat|welding|steel|iron|metal|tank|pipe|refin|chemical/.test(n)) return 'IND';
+  if (/gravel|sand|rock|material|lumber|pallet|wood|recycl|supply|\bmat\b/.test(n)) return 'MAT';
+  if (/dirt/.test(n)) return 'CON';
+  if (/farm|ranch|cattle|grain|hay|\bag\b|feed|honey/.test(n)) return 'AGR';
+  if (/propane|fuel|butane|gas co/.test(n)) return 'FUL';
+  if (/tire|mechanic|repair|septic|waste|environmental|cleanup/.test(n)) return 'SVC';
+  return '???';
+}
+
+// Create a styled HTML circle element for AdvancedMarkerElement content
+function pinEl(bg, content, sz, isText) {
+  const el = document.createElement('div');
+  const efs = isText ? Math.round(sz * 0.38) : Math.round(sz * 0.5);
+  el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
+  el.textContent = content;
+  return el;
+}
+
+function getMarkerContent(loc) {
+  const code = getIndustryCode(loc);
+  if (loc.type === 'home') return pinEl('#3b82f6', '🏠', 40, false);
+  if (loc.type === 'whale') return pinEl('#dc2626', loc.trucks ? String(loc.trucks) : 'W', 48, true);
+  if (loc.type === 'customer') return pinEl('#22c55e', '💰', 40, false);
+  if (code === '???') {
+    const el = document.createElement('div');
+    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#d1d5db;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;';
+    return el;
+  }
+  const ind = INDUSTRY[code];
+  return pinEl(ind.bg, ind.emoji, 36, false);
+}
+
+let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
+let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById('map'), {
+    center: {lat:30.05, lng:-94.55}, zoom:10,
+    mapTypeId: 'hybrid',
+    mapId: 'DEMO_MAP_ID',
+    tilt: 0,
+    heading: 0,
+    disableDefaultUI: true, zoomControl: true,
+    gestureHandling: 'greedy',
+    rotateControl: true
+  });
+
+  locations.forEach((loc, i) => {
+    const marker = new google.maps.marker.AdvancedMarkerElement({
+      position: {lat:loc.lat, lng:loc.lng},
+      map: map,
+      title: loc.name,
+      content: getMarkerContent(loc)
+    });
+    marker._loc = loc;
+    marker._idx = i;
+    marker._visible = true;
+    marker.addListener('click', () => onMarkerClick(marker));
+    markers.push(marker);
+  });
+
+  updateStats();
+
+  // Load additional prospects from JSON
+  fetch('/prospects.json')
+    .then(r => r.json())
+    .then(places => {
+      places.forEach(p => {
+        const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
+        const marker = new google.maps.marker.AdvancedMarkerElement({
+          position:{lat:p.t,lng:p.g},
+          map:map,
+          title:p.n,
+          content: getMarkerContent(loc)
+        });
+        marker._loc = loc;
+        marker._idx = locations.length;
+        marker._visible = true;
+        locations.push(loc);
+        marker.addListener('click', () => onMarkerClick(marker));
+        markers.push(marker);
+      });
+      updateStats();
+    })
+    .catch(e => console.error('Failed to load prospects.json:', e));
+}
+
+function onMarkerClick(marker) {
+  const loc = marker._loc;
+  if (routeMode) {
+    const exists = routeStops.findIndex(s => s._idx === marker._idx);
+    if (exists > -1) {
+      routeStops.splice(exists, 1);
+    } else {
+      routeStops.push(marker);
+    }
+    document.getElementById('routeInfo').textContent = routeStops.length + ' stop' + (routeStops.length!==1?'s':'') + ' selected';
+    return;
+  }
+  map.panTo(marker.position);
+  if (map.getZoom() < 17) map.setZoom(17);
+  openSheet(loc);
+}
+
+async function openSheet(loc) {
+  const truckStr = loc.trucks ? loc.trucks + ' trucks' : 'Trucks unknown';
+  const driverStr = loc.drivers ? ', ' + loc.drivers + ' drivers' : '';
+  const phoneLink = loc.phone ? `<a href="tel:${loc.phone.replace(/[^\d+]/g,'')}">${loc.phone}</a>` : 'N/A';
+  const badgeClass = 'badge-' + loc.type;
+  const typeLabel = loc.type === 'wantgo' ? 'Want to Go' : loc.type.charAt(0).toUpperCase() + loc.type.slice(1);
+  const spendLine = loc.spend ? `<div class="sheetRow"><span class="icon">&#128176;</span>${loc.spend} est. tire spend</div>` : '';
+  const pinKey = getPinKey(loc);
+  const savedNote = mapNotesCache[pinKey] || '';
+
+  // QBO match
+  const qbo = findQBOMatch(loc.name);
+  let qboHtml = '';
+  let invoiceHtml = '';
+
+  if (qbo) {
+    const bal = qbo.balance != null ? '$' + Number(qbo.balance).toFixed(2) : 'N/A';
+    const qboPhone = qbo.phone || 'N/A';
+    const qboEmail = qbo.email || 'N/A';
+    const syncDate = qbo.synced_at ? new Date(qbo.synced_at.seconds*1000).toLocaleDateString() : 'N/A';
+    qboHtml = `
+      <div class="qbo-section">
+        <div class="qbo-title">QuickBooks Info</div>
+        <div class="qbo-row"><span>Customer</span><span class="qbo-val">${qbo.display_name || qbo.company_name || ''}</span></div>
+        <div class="qbo-row"><span>QBO ID</span><span class="qbo-val">${qbo.qbo_id || 'N/A'}</span></div>
+        <div class="qbo-row"><span>Balance</span><span class="qbo-val">${bal}</span></div>
+        <div class="qbo-row"><span>Phone</span><span class="qbo-val">${qboPhone}</span></div>
+        <div class="qbo-row"><span>Email</span><span class="qbo-val">${qboEmail}</span></div>
+        <div class="qbo-row"><span>Last Sync</span><span class="qbo-val">${syncDate}</span></div>
+      </div>`;
+
+    // Load recent invoices
+    const invs = await loadInvoicesFor(qbo.display_name || qbo.company_name);
+    if (invs.length) {
+      invoiceHtml = `<div class="qbo-section" style="margin-top:6px">
+        <div class="qbo-title">Recent Invoices</div>
+        ${invs.map(inv => {
+          const d = inv.created_at ? new Date(inv.created_at.seconds*1000).toLocaleDateString() : '';
+          const t = inv.total != null ? '$' + Number(inv.total).toFixed(2) : '';
+          const items = (inv.line_items||[]).map(li => (li.brand||'')+' '+(li.size||'')).join(', ');
+          return `<div class="inv-item">${d} &mdash; ${t} ${items ? '('+items+')' : ''}</div>`;
+        }).join('')}
+      </div>`;
+    }
+  }
+
+  const addrEsc = loc.addr.replace(/'/g, "\\'");
+  document.getElementById('sheetContent').innerHTML = `
+    <div class="sheetName">${loc.name}</div>
+    <span class="sheetBadge ${badgeClass}">${typeLabel}</span>
+    <div class="sheetRow"><span class="icon">&#128666;</span>${truckStr}${driverStr}</div>
+    <div class="sheetRow"><span class="icon">&#128222;</span>${phoneLink}</div>
+    <div class="sheetRow"><span class="icon">&#128205;</span>${loc.addr}</div>
+    ${spendLine}
+    <div class="sheetRow"><span class="icon">&#127981;</span>${loc.locType}</div>
+    <div class="sheetNotes">${loc.notes}</div>
+    ${qboHtml}
+    ${invoiceHtml}
+    <div style="margin-top:10px">
+      <div style="color:#888;font-size:11px;font-weight:600;text-transform:uppercase;margin-bottom:4px">Your Notes</div>
+      <textarea class="notes-area" id="pinNotes" placeholder="Add call notes, follow-ups...">${savedNote}</textarea>
+      <div style="display:flex;align-items:center">
+        <button class="notes-save" onclick="saveMapNote('${pinKey}',document.getElementById('pinNotes'))">Save Note</button>
+        <span class="notes-status" id="noteStatus">Saved!</span>
+      </div>
+    </div>
+    <div class="sheetActions">
+      <button id="navBtn" onclick="navigate('${addrEsc}')">&#128665; Navigate</button>
+      <button id="svBtn" onclick="showStreetView(${loc.lat},${loc.lng})">&#128064; Street View</button>
+    </div>
+    <div id="svContainer"></div>
+  `;
+  document.getElementById('sheet').classList.add('open');
+}
+
+function navigate(addr) {
+  window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr), '_blank');
+}
+
+function showStreetView(lat, lng) {
+  const svContainer = document.getElementById('svContainer');
+  if (svContainer.style.display === 'block') {
+    svContainer.style.display = 'none';
+    return;
+  }
+  svContainer.style.display = 'block';
+  new google.maps.StreetViewPanorama(svContainer, {
+    position: {lat, lng},
+    pov: {heading:0, pitch:0},
+    zoom: 1,
+    disableDefaultUI: true,
+    showRoadLabels: false
+  });
+}
+
+// Filters
+document.getElementById('filterRow').addEventListener('click', e => {
+  if (!e.target.classList.contains('filterBtn')) return;
+  document.querySelectorAll('.filterBtn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  activeFilter = e.target.dataset.f;
+  applyFilters();
+});
+
+document.getElementById('searchBar').addEventListener('input', () => applyFilters());
+
+function applyFilters() {
+  const q = document.getElementById('searchBar').value.toLowerCase();
+  let shown = 0, totalTrucks = 0;
+  markers.forEach(m => {
+    const loc = m._loc;
+    const matchFilter = activeFilter === 'all' || loc.type === activeFilter;
+    const matchSearch = !q || loc.name.toLowerCase().includes(q) || (loc.addr && loc.addr.toLowerCase().includes(q)) || (loc.notes && loc.notes.toLowerCase().includes(q));
+    const visible = matchFilter && matchSearch;
+    m.map = visible ? map : null;
+    m._visible = visible;
+    if (visible) { shown++; totalTrucks += loc.trucks || 0; }
+  });
+  document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
+}
+
+function updateStats() {
+  let shown = 0, totalTrucks = 0;
+  markers.forEach(m => {
+    if (m._visible) { shown++; totalTrucks += m._loc.trucks || 0; }
+  });
+  document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
+}
+
+// Close sheet on map click
+document.getElementById('map').addEventListener('click', e => {
+  if (e.target === document.getElementById('map')) {
+    document.getElementById('sheet').classList.remove('open');
+  }
+});
+
+// Route mode
+document.getElementById('routeBtn').addEventListener('click', () => {
+  routeMode = !routeMode;
+  routeStops = [];
+  document.getElementById('routeBtn').classList.toggle('active', routeMode);
+  document.getElementById('routeBanner').style.display = routeMode ? 'flex' : 'none';
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('routeInfo').textContent = 'Tap pins to add stops';
+});
+
+document.getElementById('routeCancel').addEventListener('click', () => {
+  routeMode = false;
+  routeStops = [];
+  document.getElementById('routeBtn').classList.remove('active');
+  document.getElementById('routeBanner').style.display = 'none';
+});
+
+document.getElementById('routeLaunch').addEventListener('click', () => {
+  if (!routeStops.length) return;
+  const origin = encodeURIComponent(HOME_ADDR);
+  const dest = encodeURIComponent(HOME_ADDR);
+  const waypoints = routeStops.map(s => encodeURIComponent(s._loc.addr)).join('|');
+  window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&waypoints=${waypoints}`, '_blank');
+});
+
+// Close sheet by tapping outside
+document.addEventListener('click', e => {
+  const sheet = document.getElementById('sheet');
+  if (sheet.classList.contains('open') && !sheet.contains(e.target) && !e.target.closest('.gm-style')) {
+    sheet.classList.remove('open');
+  }
+});
+
+function gm_authFailure() {
+  document.getElementById('map').innerHTML = '<div style="color:red;padding:40px;font-size:18px"><h2>Google Maps Auth Failure</h2><p>The API key was rejected. Check the Google Cloud Console.</p></div>';
+}
+
+// ─── 3D / Fly Controls ───
+// Raster satellite supports tilt 0|45 and heading 0|90|180|270 at zoom >= 18.
+// For "fly" we orbit the center in a circle while stepping headings.
+
+document.getElementById('btn3D').addEventListener('click', () => {
+  console.log('3D tapped, isTilted:', isTilted);
+  isTilted = !isTilted;
+  const btn3D = document.getElementById('btn3D');
+  if (isTilted) {
+    preZoom = map.getZoom();
+    preCenter = map.getCenter().toJSON();
+    map.setZoom(18);
+    setTimeout(() => { map.setTilt(45); }, 300);
+    btn3D.classList.add('active');
+    btn3D.textContent = '2D';
+  } else {
+    stopFly();
+    map.setTilt(0);
+    map.setHeading(0);
+    if (preZoom) map.setZoom(preZoom);
+    if (preCenter) map.setCenter(preCenter);
+    preZoom = null; preCenter = null;
+    btn3D.classList.remove('active');
+    btn3D.textContent = '3D';
+  }
+});
+
+function stopFly() {
+  if (flyInterval) {
+    clearInterval(flyInterval);
+    flyInterval = null;
+    document.getElementById('btnFly').classList.remove('active');
+  }
+}
+
+document.getElementById('btnFly').addEventListener('click', () => {
+  console.log('Fly tapped, flyInterval:', flyInterval);
+  const btn = document.getElementById('btnFly');
+  if (flyInterval) {
+    stopFly();
+    return;
+  }
+  // Enter 3D if not already
+  if (!isTilted) {
+    document.getElementById('btn3D').click();
+  }
+  // Wait for zoom/tilt to settle, then start orbit
+  setTimeout(() => {
+    const orbitCenter = map.getCenter().toJSON();
+    const radius = 0.003; // ~300m orbit radius
+    flyAngle = 0;
+    const headings = [0, 90, 180, 270];
+    let hIdx = 0;
+    let stepCount = 0;
+    flyInterval = setInterval(() => {
+      flyAngle += 0.6; // degrees per tick
+      if (flyAngle >= 360) flyAngle -= 360;
+      const rad = flyAngle * Math.PI / 180;
+      const lat = orbitCenter.lat + radius * Math.cos(rad);
+      const lng = orbitCenter.lng + radius * Math.sin(rad);
+      map.setCenter({lat, lng});
+      // Step heading every 90 degrees of orbit
+      stepCount++;
+      if (stepCount % 150 === 0) {
+        hIdx = (hIdx + 1) % 4;
+        map.setHeading(headings[hIdx]);
+      }
+    }, 50);
+    btn.classList.add('active');
+    console.log('Fly started — orbiting', orbitCenter);
+  }, 500);
+});
+
+// ─── Firebase Integration ───
+let fbAuth, fbDb, fbUser = null, qboCustomers = [], mapNotesCache = {};
+
+function initFirebase() {
+  const cfg = {
+    apiKey: "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E",
+    authDomain: "inventory-setup-b3f20.firebaseapp.com",
+    projectId: "inventory-setup-b3f20",
+    storageBucket: "inventory-setup-b3f20.firebasestorage.app",
+    messagingSenderId: "162750059985",
+    appId: "1:162750059985:web:bbe5328412c7ef49893cf0"
+  };
+  firebase.initializeApp(cfg);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+
+  fbAuth.onAuthStateChanged(user => {
+    if (user) {
+      fbUser = user;
+      document.getElementById('loginOverlay').classList.add('hidden');
+      loadQBOData();
+    } else {
+      fbUser = null;
+      document.getElementById('loginOverlay').classList.remove('hidden');
+    }
+  });
+}
+
+function mapLogin() {
+  const email = document.getElementById('mapEmail').value;
+  const pass = document.getElementById('mapPass').value;
+  const err = document.getElementById('mapLoginErr');
+  err.style.display = 'none';
+  fbAuth.signInWithEmailAndPassword(email, pass).catch(e => {
+    err.textContent = e.message;
+    err.style.display = 'block';
+  });
+}
+
+document.getElementById('mapPass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') mapLogin();
+});
+
+async function loadQBOData() {
+  try {
+    const [custSnap, noteSnap] = await Promise.all([
+      fbDb.collection('customers').get(),
+      fbDb.collection('map_notes').get()
+    ]);
+    qboCustomers = custSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    noteSnap.docs.forEach(d => { mapNotesCache[d.id] = d.data().notes || ''; });
+  } catch(e) { console.error('Firebase load error:', e); }
+}
+
+function findQBOMatch(pinName) {
+  const clean = s => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const pin = clean(pinName);
+  if (!pin) return null;
+  let best = null, bestScore = 0;
+  for (const c of qboCustomers) {
+    for (const field of [c.display_name, c.company_name]) {
+      const val = clean(field);
+      if (!val) continue;
+      if (val === pin || pin.includes(val) || val.includes(pin)) {
+        const score = val === pin ? 100 : Math.min(val.length, pin.length);
+        if (score > bestScore) { bestScore = score; best = c; }
+      }
+    }
+  }
+  return bestScore >= 3 ? best : null;
+}
+
+function getPinKey(loc) {
+  return loc.name.replace(/[^a-zA-Z0-9]/g,'_').substring(0,60);
+}
+
+async function loadInvoicesFor(customerName) {
+  if (!fbUser) return [];
+  try {
+    const snap = await fbDb.collection('invoices')
+      .where('customer_name','==',customerName)
+      .orderBy('created_at','desc').limit(5).get();
+    return snap.docs.map(d => d.data());
+  } catch(e) { return []; }
+}
+
+async function saveMapNote(pinKey, textarea) {
+  if (!fbUser) return;
+  const notes = textarea.value;
+  try {
+    await fbDb.collection('map_notes').doc(pinKey).set({
+      notes: notes,
+      updated_at: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    mapNotesCache[pinKey] = notes;
+    const status = document.getElementById('noteStatus');
+    if (status) { status.style.display = 'inline'; setTimeout(() => status.style.display = 'none', 2000); }
+  } catch(e) { console.error('Save note error:', e); }
+}
+
+// ─── Voice Commands ───
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, isListening = false;
+
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('micBtn').classList.add('listening');
+  };
+  recognition.onend = () => {
+    isListening = false;
+    document.getElementById('micBtn').classList.remove('listening');
+  };
+  recognition.onerror = (e) => {
+    isListening = false;
+    document.getElementById('micBtn').classList.remove('listening');
+    if (e.error !== 'no-speech') showToast('Voice error: ' + e.error);
+  };
+  recognition.onresult = (e) => {
+    const transcript = e.results[0][0].transcript.trim();
+    showToast('"' + transcript + '"');
+    handleVoiceCommand(transcript);
+  };
+}
+
+document.getElementById('micBtn').addEventListener('click', () => {
+  if (!recognition) { showToast('Voice not supported'); return; }
+  if (isListening) { recognition.stop(); return; }
+  recognition.start();
+});
+
+function showToast(msg) {
+  const t = document.getElementById('voiceToast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function handleVoiceCommand(text) {
+  const t = text.toLowerCase();
+
+  const industryMap = {
+    'oil': 'OIL', 'oilfield': 'OIL',
+    'trucking': 'TRK', 'trucks': 'TRK',
+    'concrete': 'CON', 'crane': 'CRN',
+    'industrial': 'IND', 'materials': 'MAT',
+    'logging': 'LOG', 'ag': 'AGR', 'agriculture': 'AGR',
+    'fuel': 'FUL', 'service': 'SVC'
+  };
+
+  for (const [word, code] of Object.entries(industryMap)) {
+    if (t === 'show ' + word || t.startsWith('show ' + word + ' ') || t === 'show ' + word + 's') {
+      clickIndustryFilter(code); return;
+    }
+  }
+
+  if (/^show\s+customers?$/i.test(t)) { clickFilterBtn('customer'); return; }
+  if (/^show\s+whales?$/i.test(t)) { clickFilterBtn('whale'); return; }
+  if (/^show\s+prospects?$/i.test(t)) { clickFilterBtn('prospect'); return; }
+  if (/^show\s+all$/i.test(t)) { clickFilterBtn('all'); return; }
+
+  if (t.startsWith('zoom ')) { zoomToCompany(text.substring(5).trim()); return; }
+  if (t.startsWith('search ')) {
+    const sb = document.getElementById('searchBar');
+    sb.value = text.substring(7).trim();
+    sb.dispatchEvent(new Event('input'));
+    return;
+  }
+  if (/^route$/i.test(t)) { if (!routeMode) document.getElementById('routeBtn').click(); return; }
+  if (/^go$/i.test(t)) { document.getElementById('routeLaunch').click(); return; }
+
+  sendToChat(text);
+}
+
+function clickFilterBtn(filterVal) {
+  const btn = document.querySelector('.filterBtn[data-f="' + filterVal + '"]');
+  if (btn) btn.click();
+}
+
+function clickIndustryFilter(code) {
+  clickFilterBtn('all');
+  const codeToSearch = {
+    'OIL':'oilfield','TRK':'trucking','CON':'concrete','CRN':'crane',
+    'IND':'industrial','MAT':'material','LOG':'logging','AGR':'farm','FUL':'propane','SVC':'tire'
+  };
+  const sb = document.getElementById('searchBar');
+  sb.value = codeToSearch[code] || code;
+  sb.dispatchEvent(new Event('input'));
+}
+
+function zoomToCompany(name) {
+  const q = name.toLowerCase();
+  let best = null, bestScore = 0;
+  markers.forEach(m => {
+    const n = m._loc.name.toLowerCase();
+    if (n === q) { best = m; bestScore = 1000; return; }
+    if (n.includes(q) || q.includes(n)) {
+      const score = Math.min(n.length, q.length);
+      if (score > bestScore) { bestScore = score; best = m; }
+    }
+  });
+  if (best) {
+    map.panTo(best.position);
+    map.setZoom(17);
+    openSheet(best._loc);
+    showToast('Found: ' + best._loc.name);
+  } else {
+    showToast('Not found: ' + name);
+  }
+}
+
+// ─── Claude AI Chat ───
+const CLAUDE_WORKER_URL = 'https://claude-proxy.moxley.workers.dev';
+let chatHistory = [];
+
+document.getElementById('chatToggle').addEventListener('click', () => {
+  document.getElementById('chatPanel').classList.toggle('open');
+});
+document.getElementById('chatMin').addEventListener('click', () => {
+  document.getElementById('chatPanel').classList.remove('open');
+});
+document.getElementById('chatSend').addEventListener('click', () => {
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  sendToChat(msg);
+});
+document.getElementById('chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('chatSend').click();
+});
+
+function getVisiblePinContext() {
+  const data = [];
+  markers.forEach(m => {
+    if (!m._visible) return;
+    const l = m._loc;
+    const parts = [l.name + ' (' + l.type + ')'];
+    if (l.trucks) parts.push(l.trucks + ' trucks');
+    if (l.locType) parts.push(l.locType);
+    if (l.spend) parts.push(l.spend);
+    if (l.notes) parts.push(l.notes);
+    data.push(parts.join(', '));
+  });
+  return data.join('\n');
+}
+
+function sendToChat(userMsg) {
+  document.getElementById('chatPanel').classList.add('open');
+  const messagesEl = document.getElementById('chatMessages');
+
+  const userDiv = document.createElement('div');
+  userDiv.className = 'msg-user';
+  userDiv.textContent = 'You: ' + userMsg;
+  messagesEl.appendChild(userDiv);
+
+  const thinkDiv = document.createElement('div');
+  thinkDiv.className = 'msg-thinking';
+  thinkDiv.textContent = 'Thinking...';
+  messagesEl.appendChild(thinkDiv);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  chatHistory.push({ role: 'user', content: userMsg });
+
+  fetch(CLAUDE_WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: chatHistory.slice(-6), context: getVisiblePinContext() })
+  })
+  .then(r => r.json())
+  .then(data => {
+    thinkDiv.remove();
+    const reply = data.content && data.content[0] ? data.content[0].text : 'No response received.';
+    chatHistory.push({ role: 'assistant', content: reply });
+    const aiDiv = document.createElement('div');
+    aiDiv.className = 'msg-ai';
+    aiDiv.textContent = 'AI: ' + reply;
+    messagesEl.appendChild(aiDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  })
+  .catch(() => {
+    thinkDiv.remove();
+    const errDiv = document.createElement('div');
+    errDiv.className = 'msg-ai';
+    errDiv.textContent = 'Could not reach AI assistant.';
+    messagesEl.appendChild(errDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
+}
+
+// ─── Live GPS Tracking ───
+let gpsMarker = null, gpsPos = null;
+
+function createGpsDotEl() {
+  const el = document.createElement('div');
+  el.className = 'gps-dot';
+  const img = document.createElement('img');
+  img.src = 'data:image/jpeg;base64,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';
+  el.appendChild(img);
+  return el;
+}
+
+function startGPS() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.watchPosition(
+    pos => {
+      gpsPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      if (!gpsMarker && map) {
+        gpsMarker = new google.maps.marker.AdvancedMarkerElement({
+          position: gpsPos,
+          map: map,
+          content: createGpsDotEl(),
+          zIndex: 9999
+        });
+      } else if (gpsMarker) {
+        gpsMarker.position = gpsPos;
+      }
+    },
+    err => console.warn('GPS error:', err.message),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+document.getElementById('btnLocate').addEventListener('click', () => {
+  if (gpsPos && map) {
+    map.panTo(gpsPos);
+    map.setZoom(15);
+  } else if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        gpsPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        map.panTo(gpsPos);
+        map.setZoom(15);
+      },
+      () => showToast('Location unavailable')
+    );
+  } else {
+    showToast('GPS not supported');
+  }
+});
+
+// Start GPS after map loads
+const _origInitMap = initMap;
+initMap = function() {
+  _origInitMap();
+  startGPS();
+};
+</script>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>initFirebase();</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker&v=beta" async defer></script>
+</body></html>

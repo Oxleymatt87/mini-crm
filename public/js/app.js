@@ -42,7 +42,7 @@ function doLogin() {
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('login-error');
   errEl.style.display = 'none';
-  auth.signInWithEmailAndPassword(email, pass).catch(err => {
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => auth.signInWithEmailAndPassword(email, pass)).catch(err => {
     errEl.textContent = err.message;
     errEl.style.display = 'block';
   });
@@ -947,7 +947,7 @@ function formatDate(ts) {
 let territoryData = [], terrSortCol = 'Trucks', terrSortAsc = false;
 fetch('/territory-data.json').then(r=>r.json()).then(d=>{territoryData=d;renderTerritory()});
 
-function renderTerritory() { alert("RT called, tbody=" + document.getElementById("territory-tbody"));
+
   let data = [...territoryData];
   const q = (document.getElementById('territory-search')?.value || '').toLowerCase();
   if (q) data = data.filter(r => 
@@ -964,7 +964,7 @@ function renderTerritory() { alert("RT called, tbody=" + document.getElementById
     return 0;
   });
   const tbody = document.getElementById('territory-tbody');
-  if (!tbody) return; alert("rows:"+data.length);
+  if (!tbody) return;
   tbody.innerHTML = data.map(r => `<tr>
     <td>${r['Company Name']||''}</td>
     <td>${r.Status||''}</td>

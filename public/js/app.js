@@ -947,7 +947,7 @@ function formatDate(ts) {
 let territoryData = [], terrSortCol = 'Trucks', terrSortAsc = false;
 fetch('/territory-data.json').then(r=>r.json()).then(d=>{territoryData=d;renderTerritory()});
 
-function renderTerritory() {
+function renderTerritory() { alert("RT called, tbody=" + document.getElementById("territory-tbody"));
   let data = [...territoryData];
   const q = (document.getElementById('territory-search')?.value || '').toLowerCase();
   if (q) data = data.filter(r => 

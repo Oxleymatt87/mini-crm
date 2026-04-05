@@ -964,7 +964,7 @@ function renderTerritory() {
     return 0;
   });
   const tbody = document.getElementById('territory-tbody');
-  if (!tbody) return;
+  if (!tbody) return; alert("rows:"+data.length);
   tbody.innerHTML = data.map(r => `<tr>
     <td>${r['Company Name']||''}</td>
     <td>${r.Status||''}</td>

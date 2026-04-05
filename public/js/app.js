@@ -948,6 +948,7 @@ let territoryData = [], terrSortCol = 'Trucks', terrSortAsc = false;
 fetch('/territory-data.json').then(r=>r.json()).then(d=>{territoryData=d;renderTerritory()});
 
 
+function renderTerritory() {
   let data = [...territoryData];
   const q = (document.getElementById('territory-search')?.value || '').toLowerCase();
   if (q) data = data.filter(r => 

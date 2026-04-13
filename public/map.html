@@ -453,8 +453,11 @@ function getIndustryCode(loc) {
 function pinEl(bg, content, sz, isText) {
   const el = document.createElement('div');
   const efs = isText ? Math.round(sz * 0.38) : Math.round(sz * 0.5);
-  el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
+  el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;transition:width .15s,height .15s,font-size .15s,border-width .15s;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
   el.textContent = content;
+  el._baseSz = sz;
+  el._baseFontSz = efs;
+  el._isText = isText;
   return el;
 }
 
@@ -465,7 +468,10 @@ function getMarkerContent(loc) {
   if (loc.type === 'customer') return pinEl('#22c55e', '💰', 40, false);
   if (code === '???') {
     const el = document.createElement('div');
-    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#d1d5db;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;';
+    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#d1d5db;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;transition:width .15s,height .15s,border-width .15s;';
+    el._baseSz = 20;
+    el._baseFontSz = 0;
+    el._isText = false;
     return el;
   }
   const ind = INDUSTRY[code];
@@ -474,6 +480,24 @@ function getMarkerContent(loc) {
 
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
+
+function scaleMarkers() {
+  if (!map) return;
+  const z = map.getZoom();
+  // scale: 0.4 at zoom 8, 1.0 at zoom 16+, linear between
+  const scale = Math.min(1, Math.max(0.4, 0.4 + (z - 8) * 0.075));
+  for (const m of markers) {
+    const el = m.content;
+    if (!el || el._baseSz == null) continue;
+    const sz = Math.round(el._baseSz * scale);
+    const fs = Math.round(el._baseFontSz * scale);
+    const bw = Math.max(1, Math.round(3 * scale));
+    el.style.width = sz + 'px';
+    el.style.height = sz + 'px';
+    el.style.fontSize = fs + 'px';
+    el.style.borderWidth = bw + 'px';
+  }
+}
 
 function initMap() {
   map = new google.maps.Map(document.getElementById('map'), {
@@ -503,6 +527,10 @@ function initMap() {
 
   updateStats();
 
+  // Scale markers with zoom level
+  map.addListener('zoom_changed', scaleMarkers);
+  scaleMarkers();
+
   // Load additional prospects from JSON
   fetch('/prospects.json')
     .then(r => r.json())
@@ -523,6 +551,7 @@ function initMap() {
         markers.push(marker);
       });
       updateStats();
+      scaleMarkers();
     })
     .catch(e => console.error('Failed to load prospects.json:', e));
 }

@@ -776,6 +776,13 @@ def startup():
     threading.Thread(target=_stock_cron_thread, daemon=True, name="stock-cron").start()
     print("Stock catalog cron thread started (runs every Monday at 05:00 Central).")
 
+    # Start background QB token refresh worker
+    global _sync_thread
+    _sync_stop_event.clear()
+    _sync_thread = threading.Thread(target=_background_sync_worker, daemon=True, name="qb-sync")
+    _sync_thread.start()
+    print(f"QB sync worker started (interval: {_sync_interval_minutes} minutes).")
+
 
 # Routes - Health
 @app.get("/")

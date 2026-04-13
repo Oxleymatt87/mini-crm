@@ -98,6 +98,51 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #chatInput::placeholder{color:#555}
 #chatSend{width:36px;height:36px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:16px;cursor:pointer;flex-shrink:0}
 #chatToggle{position:fixed;bottom:16px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+/* ─── Territory Table Panel ─── */
+#territoryBtn{position:fixed;bottom:72px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#territoryBtn.active{border-color:#4a9eff;color:#4a9eff;background:rgba(26,29,39,0.95)}
+#territoryPanel{position:fixed;top:0;left:0;right:0;bottom:0;z-index:35;background:rgba(15,17,23,0.98);transform:translateY(100%);transition:transform .3s ease;display:flex;flex-direction:column;overflow:hidden}
+#territoryPanel.open{transform:translateY(0)}
+#territoryHeader{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #222;flex-shrink:0}
+#territoryHeader h2{color:#fff;font-size:16px;margin:0;font-weight:700}
+#territoryHeader .subtitle{color:#888;font-size:11px}
+#territoryControls{display:flex;gap:8px;align-items:center}
+#territoryClose{background:none;border:none;color:#888;font-size:22px;cursor:pointer;padding:4px 8px}
+#liveToggle{display:flex;align-items:center;gap:6px;font-size:12px;color:#888;cursor:pointer;user-select:none}
+#liveToggle input{display:none}
+#liveToggle .toggle-track{width:36px;height:20px;border-radius:10px;background:#333;position:relative;transition:background .2s}
+#liveToggle input:checked + .toggle-track{background:#4a9eff}
+#liveToggle .toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s}
+#liveToggle input:checked + .toggle-track .toggle-thumb{left:18px}
+#liveDot{width:8px;height:8px;border-radius:50%;background:#333;display:inline-block}
+#liveDot.active{background:#4a9eff;animation:pulse-dot 1.5s infinite}
+#territoryFilter{display:flex;gap:6px;padding:8px 16px;overflow-x:auto;flex-shrink:0;border-bottom:1px solid #1a1a2e}
+#territoryFilter::-webkit-scrollbar{display:none}
+.tFilterBtn{padding:5px 12px;border-radius:14px;border:1px solid #444;background:transparent;color:#ccc;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s}
+.tFilterBtn.active{color:#fff;border-color:#4a9eff;background:#4a9eff}
+#territorySearch{margin:8px 16px;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none;flex-shrink:0}
+#territorySearch::placeholder{color:#555}
+#territorySearch:focus{border-color:#4a9eff}
+#territoryCount{color:#888;font-size:11px;padding:0 16px 6px;flex-shrink:0}
+#territoryTableWrap{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#territoryTable{width:100%;border-collapse:collapse}
+#territoryTable th{position:sticky;top:0;background:#111;color:#888;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:8px 10px;text-align:left;border-bottom:1px solid #222;z-index:1;white-space:nowrap}
+#territoryTable td{padding:10px;border-bottom:1px solid #1a1a2e;font-size:13px;color:#ccc;vertical-align:middle}
+#territoryTable tr{cursor:pointer;transition:background .15s}
+#territoryTable tr:active{background:rgba(74,158,255,0.15)}
+.t-name{font-weight:600;color:#fff;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-dist{color:#4a9eff;font-weight:700;font-size:12px;white-space:nowrap}
+.t-badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;text-transform:uppercase}
+.t-badge-whale{background:#e53935;color:#fff}
+.t-badge-customer{background:#43a047;color:#fff}
+.t-badge-prospect{background:#fdd835;color:#000}
+.t-badge-cold{background:#757575;color:#fff}
+.t-badge-saved{background:#ff9800;color:#000}
+.t-badge-wantgo{background:#ff6d00;color:#fff}
+.t-badge-home{background:#1e88e5;color:#fff}
+.t-trucks{color:#aaa;font-size:12px;text-align:center}
+.t-addr{color:#777;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#territoryRefreshInfo{color:#555;font-size:10px;text-align:center;padding:6px;flex-shrink:0}
 .gps-dot{width:44px;height:44px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 8px rgba(37,99,235,0.7);position:relative;overflow:hidden}
 .gps-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .gps-dot::after{content:'';position:absolute;top:50%;left:50%;width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.25);transform:translate(-50%,-50%);animation:gps-pulse 2s ease-out infinite;pointer-events:none}
@@ -167,6 +212,40 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 </div>
 
 <div id="voiceToast"></div>
+<button id="territoryBtn" title="Territory Table">&#128203;</button>
+<div id="territoryPanel">
+  <div id="territoryHeader">
+    <div>
+      <h2>Territory <span id="liveDot"></span></h2>
+      <div class="subtitle" id="territoryRefreshInfo">Tap row to zoom &middot; sorted by distance</div>
+    </div>
+    <div id="territoryControls">
+      <label id="liveToggle">
+        <span>Live</span>
+        <input type="checkbox" id="liveCheck">
+        <div class="toggle-track"><div class="toggle-thumb"></div></div>
+      </label>
+      <button id="territoryClose">&#10005;</button>
+    </div>
+  </div>
+  <div id="territoryFilter">
+    <button class="tFilterBtn active" data-tf="all">All</button>
+    <button class="tFilterBtn" data-tf="whale">Whales</button>
+    <button class="tFilterBtn" data-tf="customer">Customers</button>
+    <button class="tFilterBtn" data-tf="prospect">Prospects</button>
+    <button class="tFilterBtn" data-tf="cold">Cold</button>
+    <button class="tFilterBtn" data-tf="saved">Saved</button>
+    <button class="tFilterBtn" data-tf="wantgo">Want to Go</button>
+  </div>
+  <input id="territorySearch" type="text" placeholder="Search territory...">
+  <div id="territoryCount"></div>
+  <div id="territoryTableWrap">
+    <table id="territoryTable">
+      <thead><tr><th>Dist</th><th>Company</th><th>Type</th><th>Trucks</th><th>Address</th></tr></thead>
+      <tbody id="territoryBody"></tbody>
+    </table>
+  </div>
+</div>
 <button id="chatToggle" title="AI Chat">&#128172;</button>
 <div id="chatPanel">
   <div id="chatHeader"><span>&#129302; Oxley AI Assistant</span><button id="chatMin">&#10005;</button></div>
@@ -1014,6 +1093,144 @@ function sendToChat(userMsg) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   });
 }
+
+// ─── Territory Table ───
+let territoryOpen = false, territoryFilter = 'all', territoryRefreshTimer = null;
+const LIVE_INTERVAL = 60000;    // 60 seconds when live enabled
+const IDLE_INTERVAL = 180000;   // 3 minutes otherwise
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function renderTerritoryTable() {
+  const origin = gpsPos || HOME;
+  const q = document.getElementById('territorySearch').value.toLowerCase();
+  const tbody = document.getElementById('territoryBody');
+
+  // Build rows from all locations
+  let rows = locations.map((loc, i) => {
+    const dist = haversine(origin.lat, origin.lng, loc.lat, loc.lng);
+    return { loc, dist, idx: i };
+  });
+
+  // Filter by type
+  if (territoryFilter !== 'all') {
+    rows = rows.filter(r => r.loc.type === territoryFilter);
+  }
+  // Filter by search
+  if (q) {
+    rows = rows.filter(r =>
+      r.loc.name.toLowerCase().includes(q) ||
+      (r.loc.addr && r.loc.addr.toLowerCase().includes(q)) ||
+      (r.loc.notes && r.loc.notes.toLowerCase().includes(q))
+    );
+  }
+
+  // Sort by distance
+  rows.sort((a, b) => a.dist - b.dist);
+
+  // Update count
+  const totalTrucks = rows.reduce((s, r) => s + (r.loc.trucks || 0), 0);
+  document.getElementById('territoryCount').textContent = rows.length + ' locations \u00B7 ' + totalTrucks + ' trucks \u00B7 from ' + (gpsPos ? 'GPS' : 'home base');
+
+  // Render
+  let html = '';
+  for (const r of rows) {
+    const distStr = r.dist < 1 ? (r.dist * 5280).toFixed(0) + ' ft' : r.dist.toFixed(1) + ' mi';
+    const typeLabel = r.loc.type === 'wantgo' ? 'Want to Go' : r.loc.type.charAt(0).toUpperCase() + r.loc.type.slice(1);
+    const trucks = r.loc.trucks ? r.loc.trucks : '–';
+    const addr = r.loc.addr || '';
+    html += `<tr data-tidx="${r.idx}">
+      <td class="t-dist">${distStr}</td>
+      <td class="t-name">${r.loc.name}</td>
+      <td><span class="t-badge t-badge-${r.loc.type}">${typeLabel}</span></td>
+      <td class="t-trucks">${trucks}</td>
+      <td class="t-addr">${addr}</td>
+    </tr>`;
+  }
+  tbody.innerHTML = html;
+
+  // Update refresh timestamp
+  const now = new Date();
+  const isLive = document.getElementById('liveCheck').checked;
+  const nextSec = isLive ? 60 : 180;
+  document.getElementById('territoryRefreshInfo').textContent = 'Updated ' + now.toLocaleTimeString() + ' \u00B7 next in ' + nextSec + 's \u00B7 sorted by distance';
+}
+
+function startTerritoryRefresh() {
+  stopTerritoryRefresh();
+  const isLive = document.getElementById('liveCheck').checked;
+  const interval = isLive ? LIVE_INTERVAL : IDLE_INTERVAL;
+  territoryRefreshTimer = setInterval(() => {
+    if (territoryOpen) renderTerritoryTable();
+  }, interval);
+}
+
+function stopTerritoryRefresh() {
+  if (territoryRefreshTimer) { clearInterval(territoryRefreshTimer); territoryRefreshTimer = null; }
+}
+
+// Toggle territory panel
+document.getElementById('territoryBtn').addEventListener('click', () => {
+  territoryOpen = !territoryOpen;
+  document.getElementById('territoryPanel').classList.toggle('open', territoryOpen);
+  document.getElementById('territoryBtn').classList.toggle('active', territoryOpen);
+  if (territoryOpen) {
+    renderTerritoryTable();
+    startTerritoryRefresh();
+  } else {
+    stopTerritoryRefresh();
+  }
+});
+
+document.getElementById('territoryClose').addEventListener('click', () => {
+  territoryOpen = false;
+  document.getElementById('territoryPanel').classList.remove('open');
+  document.getElementById('territoryBtn').classList.remove('active');
+  stopTerritoryRefresh();
+});
+
+// Territory filter buttons
+document.getElementById('territoryFilter').addEventListener('click', e => {
+  if (!e.target.classList.contains('tFilterBtn')) return;
+  document.querySelectorAll('.tFilterBtn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  territoryFilter = e.target.dataset.tf;
+  renderTerritoryTable();
+});
+
+// Territory search
+document.getElementById('territorySearch').addEventListener('input', () => renderTerritoryTable());
+
+// Live toggle
+document.getElementById('liveCheck').addEventListener('change', () => {
+  const isLive = document.getElementById('liveCheck').checked;
+  document.getElementById('liveDot').classList.toggle('active', isLive);
+  if (territoryOpen) startTerritoryRefresh();
+  renderTerritoryTable();
+});
+
+// Tap row to zoom on map
+document.getElementById('territoryBody').addEventListener('click', e => {
+  const row = e.target.closest('tr');
+  if (!row) return;
+  const idx = parseInt(row.dataset.tidx);
+  const loc = locations[idx];
+  if (!loc) return;
+  // Close panel, zoom to location, open its detail sheet
+  territoryOpen = false;
+  document.getElementById('territoryPanel').classList.remove('open');
+  document.getElementById('territoryBtn').classList.remove('active');
+  stopTerritoryRefresh();
+  map.panTo({ lat: loc.lat, lng: loc.lng });
+  map.setZoom(17);
+  openSheet(loc);
+});
 
 // ─── Live GPS Tracking ───
 let gpsMarker = null, gpsPos = null;

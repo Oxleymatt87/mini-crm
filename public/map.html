@@ -484,14 +484,14 @@ let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyA
 function scaleMarkers() {
   if (!map) return;
   const z = map.getZoom();
-  // scale: 0.4 at zoom 8, 1.0 at zoom 16+, linear between
-  const scale = Math.min(1, Math.max(0.4, 0.4 + (z - 8) * 0.075));
+  // Subtle scale: 0.75 at zoom 8, 1.0 at zoom 14+, ~0.87 at zoom 10-12
+  const scale = Math.min(1, Math.max(0.75, 0.75 + (z - 8) * (0.25 / 6)));
   for (const m of markers) {
     const el = m.content;
     if (!el || el._baseSz == null) continue;
     const sz = Math.round(el._baseSz * scale);
     const fs = Math.round(el._baseFontSz * scale);
-    const bw = Math.max(1, Math.round(3 * scale));
+    const bw = Math.max(2, Math.round(3 * scale));
     el.style.width = sz + 'px';
     el.style.height = sz + 'px';
     el.style.fontSize = fs + 'px';

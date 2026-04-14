@@ -491,9 +491,12 @@ function updateMarkerScale() {
 
 function scaleMarkers() {
   updateMarkerScale();
+  console.log('zoom:', map.getZoom(), 'scale:', markerScale);
   for (const m of markers) {
     // Rebuild content at current scale — replaces the DOM element entirely
     const el = getMarkerContent(m._loc);
+    const sz = el.style.width;
+    console.log('marker content set:', m._loc.name, sz);
     m.content = el;
     m._el = el;
   }

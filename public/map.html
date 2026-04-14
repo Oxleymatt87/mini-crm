@@ -53,6 +53,16 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
 #routeBanner{position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(255,74,74,0.95);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600}
 #routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
+#routeBadge{position:fixed;bottom:120px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
+.t-check{width:22px;height:22px;border-radius:6px;border:2px solid #444;background:transparent;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:14px;color:transparent;-webkit-tap-highlight-color:transparent}
+.t-check.checked{background:#4a9eff;border-color:#4a9eff;color:#fff}
+#routeBar{display:none;padding:10px 16px;border-top:1px solid #222;flex-shrink:0;gap:8px;align-items:center;background:#111}
+#routeBar.active{display:flex}
+#routeBar button{padding:10px 16px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+#routeLaunchTable{background:#4a9eff;color:#fff;flex:1}
+#routeClearTable{background:#333;color:#fff}
+#routeBarInfo{color:#ccc;font-size:13px;flex:1}
+#addRouteBtn{background:#e53935;color:#fff}
 #viewControls{position:fixed;bottom:80px;right:12px;z-index:15;display:flex;flex-direction:column;gap:8px}
 #viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 #btn3D.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
@@ -203,10 +213,11 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 </div>
 
 <div id="routeBanner">
-  <span id="routeInfo">Tap pins to add stops</span>
-  <button id="routeLaunch">GO</button>
-  <button id="routeCancel">Cancel</button>
+  <span id="routeInfo">0 stops</span>
+  <button id="routeLaunch">GO &#128640;</button>
+  <button id="routeCancel">Clear</button>
 </div>
+<div id="routeBadge"></div>
 
 <div id="voiceToast"></div>
 <button id="territoryBtn" title="Territory Table">&#128203;</button>
@@ -237,6 +248,11 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   <input id="territorySearch" type="text" placeholder="Search territory...">
   <div id="territoryCount"></div>
   <div id="territoryList"></div>
+  <div id="routeBar">
+    <span id="routeBarInfo">0 stops selected</span>
+    <button id="routeLaunchTable">GO &#128640;</button>
+    <button id="routeClearTable">Clear</button>
+  </div>
 </div>
 <button id="chatToggle" title="AI Chat">&#128172;</button>
 <div id="chatPanel">
@@ -472,7 +488,7 @@ function getMarkerContent(loc) {
   return pinEl(ind.bg, ind.emoji, 36, false);
 }
 
-let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
+let map, markers = [], activeFilter = 'all';
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
 function initMap() {
@@ -498,6 +514,7 @@ function initMap() {
     marker._idx = i;
     marker._visible = true;
     marker.addListener('click', () => onMarkerClick(marker));
+    setupMarkerLongPress(marker);
     markers.push(marker);
   });
 
@@ -520,6 +537,7 @@ function initMap() {
         marker._visible = true;
         locations.push(loc);
         marker.addListener('click', () => onMarkerClick(marker));
+        setupMarkerLongPress(marker);
         markers.push(marker);
       });
       updateStats();
@@ -527,24 +545,116 @@ function initMap() {
     .catch(e => console.error('Failed to load prospects.json:', e));
 }
 
+// ─── Route System ───
+let routeLocations = []; // array of location objects in route
+
+function addToRoute(loc) {
+  if (routeLocations.find(r => r.name === loc.name)) return;
+  routeLocations.push(loc);
+  updateRouteBadge();
+}
+
+function removeFromRoute(loc) {
+  routeLocations = routeLocations.filter(r => r.name !== loc.name);
+  updateRouteBadge();
+}
+
+function toggleRoute(loc) {
+  if (routeLocations.find(r => r.name === loc.name)) {
+    removeFromRoute(loc);
+    return false;
+  } else {
+    addToRoute(loc);
+    return true;
+  }
+}
+
+function clearRoute() {
+  routeLocations = [];
+  updateRouteBadge();
+}
+
+function updateRouteBadge() {
+  const n = routeLocations.length;
+  const badge = document.getElementById('routeBadge');
+  const banner = document.getElementById('routeBanner');
+  const bar = document.getElementById('routeBar');
+  // Floating badge on map
+  badge.textContent = n;
+  badge.style.display = n > 0 ? 'flex' : 'none';
+  // Bottom banner on map
+  if (n > 0) {
+    banner.style.display = 'flex';
+    document.getElementById('routeInfo').textContent = n + ' stop' + (n !== 1 ? 's' : '');
+  } else {
+    banner.style.display = 'none';
+  }
+  // Route bar in territory table
+  bar.classList.toggle('active', n > 0);
+  document.getElementById('routeBarInfo').textContent = n + ' stop' + (n !== 1 ? 's' : '') + ' selected';
+  // Re-render territory table to update checkboxes
+  if (territoryOpen) renderTerritoryTable();
+}
+
+function launchRoute() {
+  if (!routeLocations.length) return;
+  const origin = gpsPos
+    ? encodeURIComponent(gpsPos.lat + ',' + gpsPos.lng)
+    : encodeURIComponent(HOME_ADDR);
+  const dest = encodeURIComponent(HOME_ADDR);
+  const waypoints = routeLocations.map(r => encodeURIComponent(r.addr)).join('|');
+  window.open('https://www.google.com/maps/dir/?api=1&origin=' + origin + '&destination=' + dest + '&waypoints=' + waypoints + '&travelmode=driving', '_blank');
+}
+
+function buildNearestRoute(count, typeFilter) {
+  const origin = gpsPos || {lat:30.0688, lng:-94.1777};
+  let candidates = locations.filter(l => l.type !== 'home');
+  if (typeFilter) candidates = candidates.filter(l => l.type === typeFilter);
+  candidates = candidates.map(loc => ({
+    loc,
+    dist: haversine(origin.lat, origin.lng, loc.lat, loc.lng)
+  }));
+  candidates.sort((a, b) => a.dist - b.dist);
+  clearRoute();
+  candidates.slice(0, count).forEach(c => addToRoute(c.loc));
+  showToast('Route: ' + routeLocations.length + ' nearest ' + (typeFilter || 'stops'));
+}
+
+// Long-press on markers to add to route
+let longPressTimer = null;
+function setupMarkerLongPress(marker) {
+  const el = marker.content;
+  if (!el) return;
+  el.addEventListener('pointerdown', (e) => {
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      const added = toggleRoute(marker._loc);
+      showToast(added ? '+ ' + marker._loc.name : '- ' + marker._loc.name);
+    }, 500);
+  });
+  el.addEventListener('pointerup', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+  el.addEventListener('pointerleave', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+  el.addEventListener('pointermove', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+}
+
 function onMarkerClick(marker) {
   const loc = marker._loc;
-  if (routeMode) {
-    const exists = routeStops.findIndex(s => s._idx === marker._idx);
-    if (exists > -1) {
-      routeStops.splice(exists, 1);
-    } else {
-      routeStops.push(marker);
-    }
-    document.getElementById('routeInfo').textContent = routeStops.length + ' stop' + (routeStops.length!==1?'s':'') + ' selected';
-    return;
-  }
   map.panTo(marker.position);
   if (map.getZoom() < 17) map.setZoom(17);
   openSheet(loc);
 }
 
+let currentSheetLoc = null;
+
+function toggleRouteFromSheet() {
+  if (!currentSheetLoc) return;
+  const added = toggleRoute(currentSheetLoc);
+  const btn = document.getElementById('addRouteBtn');
+  if (btn) btn.textContent = added ? '\uD83D\uDE80 Remove from Route' : '\uD83D\uDE80 Add to Route';
+}
+
 async function openSheet(loc) {
+  currentSheetLoc = loc;
   const truckStr = loc.trucks ? loc.trucks + ' trucks' : 'Trucks unknown';
   const driverStr = loc.drivers ? ', ' + loc.drivers + ' drivers' : '';
   const phoneLink = loc.phone ? `<a href="tel:${loc.phone.replace(/[^\d+]/g,'')}">${loc.phone}</a>` : 'N/A';
@@ -612,6 +722,7 @@ async function openSheet(loc) {
     </div>
     <div class="sheetActions">
       <button id="navBtn" onclick="navigate('${addrEsc}')">&#128665; Navigate</button>
+      <button id="addRouteBtn" onclick="toggleRouteFromSheet()">&#128640; ${routeLocations.find(r => r.name === loc.name) ? 'Remove from Route' : 'Add to Route'}</button>
       <button id="svBtn" onclick="showStreetView(${loc.lat},${loc.lng})">&#128064; Street View</button>
     </div>
     <div id="svContainer"></div>
@@ -680,30 +791,14 @@ document.getElementById('map').addEventListener('click', e => {
   }
 });
 
-// Route mode
+// Route banner buttons
 document.getElementById('routeBtn').addEventListener('click', () => {
-  routeMode = !routeMode;
-  routeStops = [];
-  document.getElementById('routeBtn').classList.toggle('active', routeMode);
-  document.getElementById('routeBanner').style.display = routeMode ? 'flex' : 'none';
-  document.getElementById('sheet').classList.remove('open');
-  document.getElementById('routeInfo').textContent = 'Tap pins to add stops';
+  // Open territory table for route building
+  if (!territoryOpen) document.getElementById('territoryBtn').click();
 });
 
-document.getElementById('routeCancel').addEventListener('click', () => {
-  routeMode = false;
-  routeStops = [];
-  document.getElementById('routeBtn').classList.remove('active');
-  document.getElementById('routeBanner').style.display = 'none';
-});
-
-document.getElementById('routeLaunch').addEventListener('click', () => {
-  if (!routeStops.length) return;
-  const origin = encodeURIComponent(HOME_ADDR);
-  const dest = encodeURIComponent(HOME_ADDR);
-  const waypoints = routeStops.map(s => encodeURIComponent(s._loc.addr)).join('|');
-  window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&waypoints=${waypoints}`, '_blank');
-});
+document.getElementById('routeCancel').addEventListener('click', () => clearRoute());
+document.getElementById('routeLaunch').addEventListener('click', () => launchRoute());
 
 // Close sheet by tapping outside
 document.addEventListener('click', e => {
@@ -964,8 +1059,18 @@ function handleVoiceCommand(text) {
     sb.dispatchEvent(new Event('input'));
     return;
   }
-  if (/^route$/i.test(t)) { if (!routeMode) document.getElementById('routeBtn').click(); return; }
-  if (/^go$/i.test(t)) { document.getElementById('routeLaunch').click(); return; }
+  // Route voice commands: "route nearest 5", "route nearest 10 prospects", "route 5 customers"
+  const routeMatch = t.match(/route\s+(?:nearest\s+)?(\d+)\s*(prospect|customer|whale|cold|saved)?s?/i);
+  if (routeMatch) {
+    const count = parseInt(routeMatch[1]);
+    const typeMap = {prospect:'prospect',customer:'customer',whale:'whale',cold:'cold',saved:'saved'};
+    const typeFilter = routeMatch[2] ? typeMap[routeMatch[2].toLowerCase()] : null;
+    buildNearestRoute(count, typeFilter);
+    return;
+  }
+  if (/^route$/i.test(t)) { document.getElementById('routeBtn').click(); return; }
+  if (/^go$/i.test(t) || /^launch\s*route$/i.test(t)) { launchRoute(); return; }
+  if (/^clear\s*route$/i.test(t)) { clearRoute(); showToast('Route cleared'); return; }
 
   sendToChat(text);
 }
@@ -1132,7 +1237,7 @@ function renderTerritoryTable() {
   const totalTrucks = rows.reduce((s, r) => s + (r.loc.trucks || 0), 0);
   document.getElementById('territoryCount').textContent = rows.length + ' locations \u00B7 ' + totalTrucks + ' trucks \u00B7 from ' + (gpsPos ? 'GPS' : 'home base');
 
-  // Render card list
+  // Render card list with route checkboxes
   let html = '';
   for (const r of rows) {
     const distStr = r.dist < 1 ? (r.dist * 5280).toFixed(0) + ' ft' : r.dist.toFixed(1) + ' mi';
@@ -1140,7 +1245,10 @@ function renderTerritoryTable() {
     const trucksStr = r.loc.trucks ? r.loc.trucks + ' trucks' : '';
     const locType = r.loc.locType || '';
     const sub = [locType, trucksStr].filter(Boolean).join(' \u00B7 ');
+    const inRoute = routeLocations.find(rl => rl.name === r.loc.name);
+    const checkClass = inRoute ? 't-check checked' : 't-check';
     html += `<div class="t-row" data-tidx="${r.idx}">
+      <div class="${checkClass}" data-rname="${r.loc.name.replace(/"/g,'&quot;')}">\u2713</div>
       <div class="t-emoji t-emoji-${r.loc.type}">${emoji}</div>
       <div class="t-info">
         <div class="t-name">${r.loc.name}</div>
@@ -1211,14 +1319,24 @@ document.getElementById('liveCheck').addEventListener('change', () => {
   renderTerritoryTable();
 });
 
-// Tap row to zoom on map
+// Territory list interactions
 document.getElementById('territoryList').addEventListener('click', e => {
+  // Checkbox tap — toggle route
+  const check = e.target.closest('.t-check');
+  if (check) {
+    const row = check.closest('.t-row');
+    const idx = parseInt(row.dataset.tidx);
+    const loc = locations[idx];
+    if (!loc) return;
+    toggleRoute(loc);
+    return;
+  }
+  // Row tap — zoom to pin on map
   const row = e.target.closest('.t-row');
   if (!row) return;
   const idx = parseInt(row.dataset.tidx);
   const loc = locations[idx];
   if (!loc) return;
-  // Close panel, zoom to location, open its detail sheet
   territoryOpen = false;
   document.getElementById('territoryPanel').classList.remove('open');
   document.getElementById('territoryBtn').classList.remove('active');
@@ -1227,6 +1345,10 @@ document.getElementById('territoryList').addEventListener('click', e => {
   map.setZoom(17);
   openSheet(loc);
 });
+
+// Route bar buttons in territory panel
+document.getElementById('routeLaunchTable').addEventListener('click', launchRoute);
+document.getElementById('routeClearTable').addEventListener('click', () => { clearRoute(); renderTerritoryTable(); });
 
 // ─── Live GPS Tracking ───
 let gpsMarker = null, gpsPos = null;

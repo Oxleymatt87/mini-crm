@@ -450,10 +450,15 @@ function getIndustryCode(loc) {
 }
 
 // Create a styled HTML circle element for AdvancedMarkerElement content
+// Current zoom-based scale factor — read by pinEl/getMarkerContent
+let markerScale = 1;
+
 function pinEl(bg, content, sz, isText) {
+  const s = Math.round(sz * markerScale);
+  const bw = Math.max(2, Math.round(3 * markerScale));
+  const efs = isText ? Math.round(sz * 0.38 * markerScale) : Math.round(sz * 0.5 * markerScale);
   const el = document.createElement('div');
-  const efs = isText ? Math.round(sz * 0.38) : Math.round(sz * 0.5);
-  el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
+  el.style.cssText = `width:${s}px;height:${s}px;border-radius:50%;background:${bg};border:${bw}px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
   el.textContent = content;
   return el;
 }
@@ -464,8 +469,10 @@ function getMarkerContent(loc) {
   if (loc.type === 'whale') return pinEl('#dc2626', loc.trucks ? String(loc.trucks) : 'W', 48, true);
   if (loc.type === 'customer') return pinEl('#22c55e', '💰', 40, false);
   if (code === '???') {
+    const s = Math.round(20 * markerScale);
+    const bw = Math.max(1, Math.round(2 * markerScale));
     const el = document.createElement('div');
-    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#d1d5db;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;';
+    el.style.cssText = `width:${s}px;height:${s}px;border-radius:50%;background:#d1d5db;border:${bw}px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;
     return el;
   }
   const ind = INDUSTRY[code];
@@ -475,13 +482,20 @@ function getMarkerContent(loc) {
 let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
-function scaleMarkers() {
+function updateMarkerScale() {
   if (!map) return;
   const z = map.getZoom();
-  // 0.7 at zoom 8, 1.0 at zoom 13+, smooth in between
-  const scale = Math.min(1, Math.max(0.7, 0.7 + (z - 8) * 0.06));
+  // 0.7 at zoom 8, 1.0 at zoom 13+
+  markerScale = Math.min(1, Math.max(0.7, 0.7 + (z - 8) * 0.06));
+}
+
+function scaleMarkers() {
+  updateMarkerScale();
   for (const m of markers) {
-    if (m._el) m._el.style.transform = 'scale(' + scale + ')';
+    // Rebuild content at current scale — replaces the DOM element entirely
+    const el = getMarkerContent(m._loc);
+    m.content = el;
+    m._el = el;
   }
 }
 
@@ -496,6 +510,9 @@ function initMap() {
     gestureHandling: 'greedy',
     rotateControl: true
   });
+
+  // Set initial scale before creating any markers
+  updateMarkerScale();
 
   locations.forEach((loc, i) => {
     const el = getMarkerContent(loc);
@@ -515,9 +532,8 @@ function initMap() {
 
   updateStats();
 
-  // Scale markers with zoom level — idle fires after zoom animation settles
+  // Rebuild markers after zoom settles — idle fires once after all animation
   map.addListener('idle', scaleMarkers);
-  scaleMarkers();
 
   // Load additional prospects from JSON
   fetch('/prospects.json')
@@ -541,7 +557,6 @@ function initMap() {
         markers.push(marker);
       });
       updateStats();
-      scaleMarkers();
     })
     .catch(e => console.error('Failed to load prospects.json:', e));
 }

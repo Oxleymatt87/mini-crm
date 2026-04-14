@@ -453,11 +453,8 @@ function getIndustryCode(loc) {
 function pinEl(bg, content, sz, isText) {
   const el = document.createElement('div');
   const efs = isText ? Math.round(sz * 0.38) : Math.round(sz * 0.5);
-  el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;transition:width .15s,height .15s,font-size .15s,border-width .15s;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
+  el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;transition:transform .15s ease;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
   el.textContent = content;
-  el._baseSz = sz;
-  el._baseFontSz = efs;
-  el._isText = isText;
   return el;
 }
 
@@ -468,10 +465,7 @@ function getMarkerContent(loc) {
   if (loc.type === 'customer') return pinEl('#22c55e', '💰', 40, false);
   if (code === '???') {
     const el = document.createElement('div');
-    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#d1d5db;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;transition:width .15s,height .15s,border-width .15s;';
-    el._baseSz = 20;
-    el._baseFontSz = 0;
-    el._isText = false;
+    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#d1d5db;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;transition:transform .15s ease;';
     return el;
   }
   const ind = INDUSTRY[code];
@@ -484,18 +478,10 @@ let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyA
 function scaleMarkers() {
   if (!map) return;
   const z = map.getZoom();
-  // Subtle scale: 0.75 at zoom 8, 1.0 at zoom 14+, ~0.87 at zoom 10-12
-  const scale = Math.min(1, Math.max(0.75, 0.75 + (z - 8) * (0.25 / 6)));
+  // 0.7 at zoom 8, 1.0 at zoom 13+, smooth in between
+  const scale = Math.min(1, Math.max(0.7, 0.7 + (z - 8) * 0.06));
   for (const m of markers) {
-    const el = m.content;
-    if (!el || el._baseSz == null) continue;
-    const sz = Math.round(el._baseSz * scale);
-    const fs = Math.round(el._baseFontSz * scale);
-    const bw = Math.max(2, Math.round(3 * scale));
-    el.style.width = sz + 'px';
-    el.style.height = sz + 'px';
-    el.style.fontSize = fs + 'px';
-    el.style.borderWidth = bw + 'px';
+    if (m._el) m._el.style.transform = 'scale(' + scale + ')';
   }
 }
 
@@ -512,15 +498,17 @@ function initMap() {
   });
 
   locations.forEach((loc, i) => {
+    const el = getMarkerContent(loc);
     const marker = new google.maps.marker.AdvancedMarkerElement({
       position: {lat:loc.lat, lng:loc.lng},
       map: map,
       title: loc.name,
-      content: getMarkerContent(loc)
+      content: el
     });
     marker._loc = loc;
     marker._idx = i;
     marker._visible = true;
+    marker._el = el;
     marker.addListener('click', () => onMarkerClick(marker));
     markers.push(marker);
   });
@@ -537,15 +525,17 @@ function initMap() {
     .then(places => {
       places.forEach(p => {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
+        const el = getMarkerContent(loc);
         const marker = new google.maps.marker.AdvancedMarkerElement({
           position:{lat:p.t,lng:p.g},
           map:map,
           title:p.n,
-          content: getMarkerContent(loc)
+          content: el
         });
         marker._loc = loc;
         marker._idx = locations.length;
         marker._visible = true;
+        marker._el = el;
         locations.push(loc);
         marker.addListener('click', () => onMarkerClick(marker));
         markers.push(marker);

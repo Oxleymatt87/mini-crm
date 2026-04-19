@@ -60,7 +60,15 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:sans-serif;min-height:100vh;di
 #btnCapture{width:72px;height:72px;border-radius:50%;border:4px solid #fff;background:#d4a12a;font-size:28px;cursor:pointer}
 #btnCameraClose{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:20px;cursor:pointer;z-index:51}
 #scanStatus{color:#888;font-size:13px;text-align:center;flex:1}
-canvas{display:none}
+canvas#snapCanvas{display:none}
+#previewOverlay{display:none;position:fixed;inset:0;background:#000;z-index:55;flex-direction:column}
+#previewOverlay.show{display:flex}
+#previewImg{width:100%;flex:1;object-fit:contain;background:#000}
+#previewMeta{color:#888;font-size:11px;text-align:center;padding:6px 10px;background:#0a0c0f;border-bottom:1px solid #1e2229}
+#previewControls{display:flex;gap:10px;padding:14px 16px 20px;background:#0a0c0f}
+#previewControls button{flex:1;padding:14px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+#btnPreviewSend{background:#22c55e;color:#000}
+#btnPreviewRetake{background:#1e2229;color:#e8eaf0}
 /* Manual modal */
 #manualModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:50;align-items:flex-end}
 #manualModal.show{display:flex}
@@ -99,11 +107,21 @@ canvas{display:none}
 <!-- Camera overlay -->
 <div id="cameraOverlay">
   <button id="btnCameraClose">&#10005;</button>
-  <video id="videoEl" autoplay playsinline muted></video>
+  <video id="videoEl" autoplay playsinline muted webkit-playsinline></video>
   <canvas id="snapCanvas"></canvas>
   <div id="cameraControls">
     <div id="scanStatus">Point at tire sidewall — tap shutter</div>
     <button id="btnCapture">&#128247;</button>
+  </div>
+</div>
+
+<!-- Preview overlay (debug + confirm before sending to Gemini) -->
+<div id="previewOverlay">
+  <div id="previewMeta">Preview — confirm image is sharp & upright before sending</div>
+  <img id="previewImg" alt="Captured frame">
+  <div id="previewControls">
+    <button id="btnPreviewRetake">↺ Retake</button>
+    <button id="btnPreviewSend">Send to Gemini</button>
   </div>
 </div>
 
@@ -263,34 +281,130 @@ document.getElementById('btnDiscard').addEventListener('click',()=>{clearParsed(
 document.getElementById('btnCamera').addEventListener('click',openCamera);
 document.getElementById('btnCameraClose').addEventListener('click',closeCamera);
 
+let captureReady=false,pendingBase64=null;
+
 async function openCamera(){
+  const video=document.getElementById('videoEl');
+  // Required by iOS Safari and some Android WebViews to prevent fullscreen takeover
+  video.setAttribute('playsinline','');
+  video.setAttribute('webkit-playsinline','');
+  video.muted=true;
+  captureReady=false;
+  document.getElementById('scanStatus').textContent='Starting camera…';
   try{
-    videoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false});
-    document.getElementById('videoEl').srcObject=videoStream;
+    videoStream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:'environment'},
+        width:{ideal:1920},
+        height:{ideal:1080},
+        frameRate:{ideal:30}
+      },
+      audio:false
+    });
+    video.srcObject=videoStream;
+    // Wait for the first frame before allowing capture — otherwise videoWidth/Height can be 0 on Android
+    video.onloadedmetadata=()=>{
+      video.play().catch(()=>{});
+      captureReady=true;
+      const track=videoStream.getVideoTracks()[0];
+      const s=track&&track.getSettings?track.getSettings():{};
+      document.getElementById('scanStatus').textContent=`Ready — ${video.videoWidth}×${video.videoHeight}${s.facingMode?' ('+s.facingMode+')':''}`;
+    };
     document.getElementById('cameraOverlay').classList.add('show');
   }catch(e){showToast('Camera error: '+e.message,'err');}
 }
 
 function closeCamera(){
   if(videoStream){videoStream.getTracks().forEach(t=>t.stop());videoStream=null;}
+  captureReady=false;
   document.getElementById('cameraOverlay').classList.remove('show');
 }
 
-document.getElementById('btnCapture').addEventListener('click',async()=>{
+// Blob→base64 conversion (safer than toDataURL, avoids canvas tainting edge-cases on Chrome Android)
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>{const s=r.result||'';const i=s.indexOf(',');resolve(i>=0?s.slice(i+1):s);};
+    r.onerror=()=>reject(new Error('FileReader failed'));
+    r.readAsDataURL(blob);
+  });
+}
+
+// Decide if the decoded stream needs a 90° rotation so text reads upright.
+// On Android Chrome, getUserMedia typically returns a landscape buffer (e.g. 1920×1080)
+// even when the device is held portrait, so text on the sidewall ends up sideways —
+// Gemini then reads blanks. We rotate based on the viewport orientation at capture time.
+function needsPortraitRotation(w,h){
+  const portraitScreen=window.matchMedia('(orientation: portrait)').matches||window.innerHeight>window.innerWidth;
+  return portraitScreen && w>h;
+}
+
+async function captureFrame(){
   const video=document.getElementById('videoEl');
   const canvas=document.getElementById('snapCanvas');
-  canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-  canvas.getContext('2d').drawImage(video,0,0);
-  const base64=canvas.toDataURL('image/jpeg',0.85).split(',')[1];
+  const w=video.videoWidth,h=video.videoHeight;
+  if(!w||!h)throw new Error('no video frame (width/height=0)');
+  const ctx=canvas.getContext('2d');
+  if(needsPortraitRotation(w,h)){
+    canvas.width=h;canvas.height=w;
+    ctx.save();
+    ctx.translate(h/2,w/2);
+    ctx.rotate(Math.PI/2);
+    ctx.drawImage(video,-w/2,-h/2,w,h);
+    ctx.restore();
+  }else{
+    canvas.width=w;canvas.height=h;
+    ctx.drawImage(video,0,0,w,h);
+  }
+  const blob=await new Promise((res,rej)=>{
+    // toBlob gives us the raw-encoded JPEG without the base64 decode/re-encode round-trip,
+    // which on Android Chrome can otherwise collapse to a near-empty image.
+    canvas.toBlob(b=>b?res(b):rej(new Error('toBlob returned null')),'image/jpeg',0.95);
+  });
+  const base64=await blobToBase64(blob);
+  return {base64,blob,width:canvas.width,height:canvas.height,bytes:blob.size};
+}
+
+document.getElementById('btnCapture').addEventListener('click',async()=>{
+  if(!captureReady){showToast('Camera still starting…','err');return;}
+  let frame;
+  try{frame=await captureFrame();}
+  catch(e){showToast('Capture failed: '+e.message,'err');return;}
+  // Sanity check — reject frames that are clearly empty/black (common Android Chrome failure mode)
+  if(frame.bytes<8000){showToast(`Frame too small (${frame.bytes}B) — retry`,'err');return;}
+  pendingBase64=frame.base64;
+  const img=document.getElementById('previewImg');
+  img.src='data:image/jpeg;base64,'+frame.base64;
+  document.getElementById('previewMeta').textContent=
+    `${frame.width}×${frame.height} · ${(frame.bytes/1024).toFixed(0)} KB · q=0.95`;
+  document.getElementById('previewOverlay').classList.add('show');
+});
+
+document.getElementById('btnPreviewRetake').addEventListener('click',()=>{
+  pendingBase64=null;
+  document.getElementById('previewOverlay').classList.remove('show');
+});
+
+document.getElementById('btnPreviewSend').addEventListener('click',async()=>{
+  if(!pendingBase64)return;
+  const base64=pendingBase64;pendingBase64=null;
+  document.getElementById('previewOverlay').classList.remove('show');
   closeCamera();
   try{
     const result=await scanWithGemini(base64);
-    // Merge with empty qty — user must enter qty after camera scan
+    if(!result.brand&&!result.model&&!result.size){
+      showToast('Gemini read nothing — reframe and retry','err');
+      document.getElementById('transcriptText').textContent='No fields read — move closer / steady the shot';
+      return;
+    }
     const item={brand:result.brand||'',model:result.model||'',size:result.size||'',qty:null,cost:null,zone:''};
     document.getElementById('transcriptText').textContent='Sidewall read — enter qty below';
     showParsed(item);
     showToast('Sidewall read — add qty then SAVE');
-  }catch(e){showToast('Scan failed: '+e.message,'err');document.getElementById('transcriptText').textContent='Scan failed — try again';}
+  }catch(e){
+    showToast('Scan failed: '+e.message,'err');
+    document.getElementById('transcriptText').textContent='Scan failed — try again';
+  }
 });
 
 // ── Voice ──

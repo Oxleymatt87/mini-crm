@@ -179,6 +179,26 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .gps-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .gps-dot::after{content:'';position:absolute;top:50%;left:50%;width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.25);transform:translate(-50%,-50%);animation:gps-pulse 2s ease-out infinite;pointer-events:none}
 @keyframes gps-pulse{0%{width:16px;height:16px;opacity:.8}100%{width:48px;height:48px;opacity:0}}
+#btnTraffic.active{border-color:#ef4444;color:#ef4444;background:rgba(26,29,39,0.95)}
+#btnFindProspects.active{border-color:#a855f7;color:#a855f7;background:rgba(26,29,39,0.95)}
+#routeOptimize{background:#d4a12a;color:#000}
+#routeOptimize:disabled{opacity:0.6;cursor:not-allowed}
+#routeOptimizeTable{background:#d4a12a;color:#000;padding:10px 12px;border-radius:10px;border:none;font-size:13px;font-weight:700;cursor:pointer}
+.t-drive{color:#d4a12a;font-size:11px;font-weight:600;margin-top:2px;white-space:nowrap}
+#prospectModal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:60;background:rgba(5,8,16,0.75);display:none;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+#prospectModal.show{display:flex}
+#prospectModal .box{background:#1a1d27;border:1px solid #2e3345;border-radius:14px;padding:18px 20px;width:320px;box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+#prospectModal h3{color:#d4a12a;font-size:16px;margin-bottom:12px;text-align:center}
+#prospectModal label{color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;display:block;margin-bottom:4px;margin-top:10px}
+#prospectModal input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0f1117;color:#fff;font-size:14px;outline:none}
+#prospectModal input:focus{border-color:#a855f7}
+#prospectModal .hint{color:#666;font-size:11px;margin-top:4px}
+#prospectModal .row{display:flex;gap:8px;margin-top:16px}
+#prospectModal button{flex:1;padding:11px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+#prospectSearch{background:#a855f7;color:#fff}
+#prospectCancel{background:#333;color:#fff}
+#prospectClear{background:#444;color:#ccc;margin-top:8px;width:100%;padding:8px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer}
+.m-prospect{width:32px;height:32px;border-radius:50%;background:#a855f7;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(168,85,247,0.6);cursor:pointer}
 </style>
 </head><body>
 <div id="loginOverlay">
@@ -233,6 +253,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 <div id="viewControls">
   <button id="btnLocate" title="My location">&#9678;</button>
+  <button id="btnTraffic" title="Live traffic">TRF</button>
+  <button id="btnFindProspects" title="Find prospects via Google Places">&#128269;</button>
   <button id="btn3D" title="Toggle 3D tilt">3D</button>
   <button id="btnFly" title="Auto-rotate fly mode">Fly</button>
   <button id="btn3DPlus" title="Photorealistic 3D Immersive view">3D+</button>
@@ -243,10 +265,26 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 <div id="routeBanner">
   <span id="routeInfo">0 stops</span>
+  <button id="routeOptimize">Optimize</button>
   <button id="routeLaunch">GO &#128640;</button>
   <button id="routeCancel">Clear</button>
 </div>
 <div id="routeBadge"></div>
+<div id="prospectModal">
+  <div class="box">
+    <h3>&#128269; Find Prospects</h3>
+    <label>Business type</label>
+    <input id="prospectType" type="text" placeholder="trucking company, concrete contractor..." autocomplete="off">
+    <div class="hint">Searches Google Places in the visible map area.</div>
+    <label>Radius (miles)</label>
+    <input id="prospectRadius" type="number" value="10" min="1" max="50">
+    <div class="row">
+      <button id="prospectCancel">Cancel</button>
+      <button id="prospectSearch">Search</button>
+    </div>
+    <button id="prospectClear">Clear prospect pins</button>
+  </div>
+</div>
 
 <div id="voiceToast"></div>
 <button id="territoryBtn" title="Territory Table">&#128203;</button>
@@ -279,6 +317,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   <div id="territoryList"></div>
   <div id="routeBar">
     <span id="routeBarInfo">0 stops selected</span>
+    <button id="routeOptimizeTable">Optimize</button>
     <button id="routeLaunchTable">GO &#128640;</button>
     <button id="routeClearTable">Clear</button>
   </div>
@@ -520,10 +559,36 @@ function getMarkerContent(loc) {
 let map, markers = [], activeFilter = 'all';
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
+// Dark gold theme to match the app aesthetic. Registered as a StyledMapType so
+// it coexists with the Map's mapId (required for AdvancedMarkerElement).
+const DARK_GOLD_STYLE = [
+  {elementType:'geometry',stylers:[{color:'#0a0c0f'}]},
+  {elementType:'labels.text.fill',stylers:[{color:'#8a8a8a'}]},
+  {elementType:'labels.text.stroke',stylers:[{color:'#0a0c0f'}]},
+  {elementType:'labels.icon',stylers:[{visibility:'off'}]},
+  {featureType:'poi',stylers:[{visibility:'off'}]},
+  {featureType:'transit',stylers:[{visibility:'off'}]},
+  {featureType:'administrative',elementType:'geometry.stroke',stylers:[{color:'#3a2d0f'}]},
+  {featureType:'administrative.country',elementType:'labels.text.fill',stylers:[{color:'#b89968'}]},
+  {featureType:'administrative.locality',elementType:'labels.text.fill',stylers:[{color:'#a0a0a0'}]},
+  {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0a0c0f'}]},
+  {featureType:'landscape.natural',elementType:'geometry',stylers:[{color:'#0d1014'}]},
+  {featureType:'road',elementType:'geometry.stroke',stylers:[{color:'#3a2d0f'}]},
+  {featureType:'road',elementType:'geometry.fill',stylers:[{color:'#d4a12a'}]},
+  {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#d4a12a'}]},
+  {featureType:'road',elementType:'labels.text.stroke',stylers:[{color:'#0a0c0f'}]},
+  {featureType:'road.highway',elementType:'geometry.fill',stylers:[{color:'#e6b344'}]},
+  {featureType:'road.highway',elementType:'geometry.stroke',stylers:[{color:'#5a4012'}]},
+  {featureType:'road.arterial',elementType:'geometry.fill',stylers:[{color:'#d4a12a'}]},
+  {featureType:'road.local',elementType:'geometry.fill',stylers:[{color:'#9c7520'}]},
+  {featureType:'water',elementType:'geometry',stylers:[{color:'#050709'}]},
+  {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#4a4a4a'}]}
+];
+
 function initMap() {
   map = new google.maps.Map(document.getElementById('map'), {
     center: {lat:30.05, lng:-94.55}, zoom:10,
-    mapTypeId: 'hybrid',
+    mapTypeId: 'dark_gold',
     mapId: 'DEMO_MAP_ID',
     tilt: 0,
     heading: 0,
@@ -531,6 +596,10 @@ function initMap() {
     gestureHandling: 'greedy',
     rotateControl: true
   });
+
+  const styled = new google.maps.StyledMapType(DARK_GOLD_STYLE, {name: 'Dark Gold'});
+  map.mapTypes.set('dark_gold', styled);
+  map.setMapTypeId('dark_gold');
 
   locations.forEach((loc, i) => {
     const marker = new google.maps.marker.AdvancedMarkerElement({
@@ -766,19 +835,9 @@ function navigate(addr) {
 }
 
 function showStreetView(lat, lng) {
-  const svContainer = document.getElementById('svContainer');
-  if (svContainer.style.display === 'block') {
-    svContainer.style.display = 'none';
-    return;
-  }
-  svContainer.style.display = 'block';
-  new google.maps.StreetViewPanorama(svContainer, {
-    position: {lat, lng},
-    pov: {heading:0, pitch:0},
-    zoom: 1,
-    disableDefaultUI: true,
-    showRoadLabels: false
-  });
+  // Opens Google Street View in a new tab at the pin's coordinates.
+  const url = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat + ',' + lng;
+  window.open(url, '_blank');
 }
 
 // Filters
@@ -1544,6 +1603,9 @@ function renderTerritoryTable() {
   const isLive = document.getElementById('liveCheck').checked;
   const nextSec = isLive ? 60 : 180;
   document.getElementById('territoryRefreshInfo').textContent = 'Updated ' + now.toLocaleTimeString() + ' \u00B7 next in ' + nextSec + 's \u00B7 sorted by distance';
+
+  // Populate drive times (async, non-blocking)
+  if (typeof fetchDriveTimesForVisibleRows === 'function') fetchDriveTimesForVisibleRows();
 }
 
 function startTerritoryRefresh() {
@@ -1630,6 +1692,270 @@ document.getElementById('territoryList').addEventListener('click', e => {
 document.getElementById('routeLaunchTable').addEventListener('click', launchRoute);
 document.getElementById('routeClearTable').addEventListener('click', () => { clearRoute(); renderTerritoryTable(); });
 
+// ─── Traffic Layer Toggle ───
+let trafficLayer = null;
+document.getElementById('btnTraffic').addEventListener('click', () => {
+  const btn = document.getElementById('btnTraffic');
+  if (!trafficLayer) trafficLayer = new google.maps.TrafficLayer();
+  if (btn.classList.contains('active')) {
+    trafficLayer.setMap(null);
+    btn.classList.remove('active');
+  } else {
+    trafficLayer.setMap(map);
+    btn.classList.add('active');
+  }
+});
+
+// ─── Distance Matrix: Drive Times in Territory Panel ───
+// Caches drive-time results so we don't refetch on every render.
+// Key: rounded "originLat,originLng|destLat,destLng"; value: "12 min" string.
+const driveTimeCache = new Map();
+let driveTimeReqInFlight = false;
+let lastDriveTimeOriginKey = null;
+
+function driveTimeKey(oLat, oLng, dLat, dLng) {
+  const r = n => n.toFixed(3);
+  return r(oLat) + ',' + r(oLng) + '|' + r(dLat) + ',' + r(dLng);
+}
+
+function getDistanceMatrixService() {
+  if (!window._dmService) window._dmService = new google.maps.DistanceMatrixService();
+  return window._dmService;
+}
+
+async function fetchDriveTimesForVisibleRows() {
+  if (!gpsPos || driveTimeReqInFlight) return;
+  // Only run when territory panel is open — that's the only place we display them.
+  if (!territoryOpen) return;
+
+  const originKey = driveTimeKey(gpsPos.lat, gpsPos.lng, 0, 0).split('|')[0];
+  const rows = Array.from(document.querySelectorAll('#territoryList .t-row')).slice(0, 25);
+  if (!rows.length) return;
+
+  const pending = [];
+  const pendingRows = [];
+  for (const row of rows) {
+    const idx = parseInt(row.dataset.tidx);
+    const loc = locations[idx];
+    if (!loc) continue;
+    const k = driveTimeKey(gpsPos.lat, gpsPos.lng, loc.lat, loc.lng);
+    const cached = driveTimeCache.get(k);
+    if (cached) {
+      applyDriveTimeToRow(row, cached);
+    } else {
+      pending.push({lat: loc.lat, lng: loc.lng});
+      pendingRows.push({row, key: k});
+    }
+  }
+  if (!pending.length) return;
+
+  driveTimeReqInFlight = true;
+  lastDriveTimeOriginKey = originKey;
+  try {
+    const svc = getDistanceMatrixService();
+    svc.getDistanceMatrix({
+      origins: [{lat: gpsPos.lat, lng: gpsPos.lng}],
+      destinations: pending,
+      travelMode: google.maps.TravelMode.DRIVING,
+      unitSystem: google.maps.UnitSystem.IMPERIAL
+    }, (resp, status) => {
+      driveTimeReqInFlight = false;
+      if (status !== 'OK' || !resp || !resp.rows || !resp.rows[0]) return;
+      resp.rows[0].elements.forEach((el, i) => {
+        if (el.status !== 'OK' || !el.duration) return;
+        const text = el.duration.text;
+        driveTimeCache.set(pendingRows[i].key, text);
+        applyDriveTimeToRow(pendingRows[i].row, text);
+      });
+    });
+  } catch (e) {
+    driveTimeReqInFlight = false;
+    console.error('Distance Matrix error:', e);
+  }
+}
+
+function applyDriveTimeToRow(row, text) {
+  const sub = row.querySelector('.t-sub');
+  if (!sub) return;
+  let drive = row.querySelector('.t-drive');
+  if (!drive) {
+    drive = document.createElement('div');
+    drive.className = 't-drive';
+    sub.after(drive);
+  }
+  drive.textContent = '🚗 ' + text;
+}
+
+// ─── Places API: Find Prospects ───
+let placesService = null;
+let prospectMarkers = [];
+
+function getPlacesService() {
+  if (!placesService) placesService = new google.maps.places.PlacesService(map);
+  return placesService;
+}
+
+function openProspectModal() {
+  document.getElementById('prospectModal').classList.add('show');
+  setTimeout(() => document.getElementById('prospectType').focus(), 50);
+}
+function closeProspectModal() {
+  document.getElementById('prospectModal').classList.remove('show');
+}
+
+function clearProspectMarkers() {
+  prospectMarkers.forEach(m => m.map = null);
+  prospectMarkers = [];
+  const btn = document.getElementById('btnFindProspects');
+  if (btn) btn.classList.remove('active');
+}
+
+function buildProspectMarkerEl() {
+  const el = document.createElement('div');
+  el.className = 'm-prospect';
+  el.textContent = '🎯';
+  return el;
+}
+
+function searchProspects(type, radiusMiles) {
+  if (!type || !type.trim()) { showToast('Enter a business type'); return; }
+  const svc = getPlacesService();
+  const center = map.getCenter();
+  const request = {
+    query: type.trim(),
+    location: center,
+    radius: Math.max(1, Math.min(50, radiusMiles)) * 1609.34 // miles → meters
+  };
+  showToast('Searching Google Places...');
+  svc.textSearch(request, (results, status) => {
+    if (status !== google.maps.places.PlacesServiceStatus.OK || !results) {
+      showToast('No results (' + status + ')');
+      return;
+    }
+    let added = 0;
+    results.forEach(place => {
+      if (!place.geometry || !place.geometry.location) return;
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const loc = {
+        name: place.name || 'Unknown',
+        lat, lng,
+        addr: place.formatted_address || '',
+        trucks: null, drivers: null, phone: null,
+        type: 'prospect',
+        notes: 'Places API result' + (place.rating ? ' · ★ ' + place.rating : ''),
+        spend: null,
+        locType: (place.types && place.types[0]) ? place.types[0].replace(/_/g,' ') : 'Prospect'
+      };
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: {lat, lng},
+        map,
+        title: loc.name,
+        content: buildProspectMarkerEl()
+      });
+      marker._loc = loc;
+      marker.addListener('click', () => openSheet(loc));
+      prospectMarkers.push(marker);
+      added++;
+    });
+    showToast('Added ' + added + ' prospect pin' + (added === 1 ? '' : 's'));
+    document.getElementById('btnFindProspects').classList.add('active');
+    closeProspectModal();
+  });
+}
+
+document.getElementById('btnFindProspects').addEventListener('click', openProspectModal);
+document.getElementById('prospectCancel').addEventListener('click', closeProspectModal);
+document.getElementById('prospectClear').addEventListener('click', () => {
+  clearProspectMarkers();
+  showToast('Prospect pins cleared');
+  closeProspectModal();
+});
+document.getElementById('prospectSearch').addEventListener('click', () => {
+  const type = document.getElementById('prospectType').value;
+  const radius = parseFloat(document.getElementById('prospectRadius').value) || 10;
+  searchProspects(type, radius);
+});
+document.getElementById('prospectType').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('prospectSearch').click();
+});
+
+// ─── Route Optimization (Distance Matrix, nearest-neighbor) ───
+async function optimizeRoute() {
+  if (routeLocations.length < 2) { showToast('Need at least 2 stops to optimize'); return; }
+  if (routeLocations.length > 24) { showToast('Too many stops (max 24 to optimize)'); return; }
+
+  const origin = gpsPos || {lat: HOME.lat, lng: HOME.lng};
+  const stops = routeLocations.slice();
+  const btns = [document.getElementById('routeOptimize'), document.getElementById('routeOptimizeTable')];
+  btns.forEach(b => { if (b) { b.disabled = true; b.textContent = 'Optimizing...'; } });
+
+  try {
+    const svc = getDistanceMatrixService();
+    // Step 1: origin → each stop (to pick first stop)
+    const firstLegResp = await new Promise((resolve, reject) => {
+      svc.getDistanceMatrix({
+        origins: [origin],
+        destinations: stops.map(s => ({lat: s.lat, lng: s.lng})),
+        travelMode: google.maps.TravelMode.DRIVING,
+        unitSystem: google.maps.UnitSystem.IMPERIAL
+      }, (resp, status) => status === 'OK' ? resolve(resp) : reject(status));
+    });
+
+    // Step 2: full NxN matrix between stops
+    const fullResp = await new Promise((resolve, reject) => {
+      svc.getDistanceMatrix({
+        origins: stops.map(s => ({lat: s.lat, lng: s.lng})),
+        destinations: stops.map(s => ({lat: s.lat, lng: s.lng})),
+        travelMode: google.maps.TravelMode.DRIVING,
+        unitSystem: google.maps.UnitSystem.IMPERIAL
+      }, (resp, status) => status === 'OK' ? resolve(resp) : reject(status));
+    });
+
+    // Nearest-neighbor traversal starting from origin
+    const n = stops.length;
+    const durFromOrigin = firstLegResp.rows[0].elements.map(
+      e => e && e.status === 'OK' && e.duration ? e.duration.value : Infinity
+    );
+    const dur = fullResp.rows.map(row => row.elements.map(
+      e => e && e.status === 'OK' && e.duration ? e.duration.value : Infinity
+    ));
+
+    const visited = new Array(n).fill(false);
+    const order = [];
+    let current = durFromOrigin.indexOf(Math.min(...durFromOrigin));
+    if (current < 0) current = 0;
+    order.push(current);
+    visited[current] = true;
+    for (let step = 1; step < n; step++) {
+      let next = -1, best = Infinity;
+      for (let j = 0; j < n; j++) {
+        if (visited[j]) continue;
+        if (dur[current][j] < best) { best = dur[current][j]; next = j; }
+      }
+      if (next === -1) {
+        for (let j = 0; j < n; j++) if (!visited[j]) { next = j; break; }
+      }
+      order.push(next);
+      visited[next] = true;
+      current = next;
+    }
+
+    routeLocations = order.map(i => stops[i]);
+    updateRouteBadge();
+    if (territoryOpen) renderTerritoryTable();
+    showToast('Route optimized (' + routeLocations.length + ' stops)');
+  } catch (e) {
+    console.error('Optimize failed:', e);
+    showToast('Optimize failed: ' + (e.message || e));
+  } finally {
+    btns.forEach(b => { if (b) { b.disabled = false; b.textContent = 'Optimize'; } });
+  }
+}
+
+document.getElementById('routeOptimize').addEventListener('click', optimizeRoute);
+document.getElementById('routeOptimizeTable').addEventListener('click', optimizeRoute);
+
 // ─── Live GPS Tracking ───
 let gpsMarker = null, gpsPos = null;
 
@@ -1644,6 +1970,7 @@ function createGpsDotEl() {
 
 function startGPS() {
   if (!navigator.geolocation) return;
+  let lastDriveTimeKey = null;
   navigator.geolocation.watchPosition(
     pos => {
       gpsPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -1656,6 +1983,13 @@ function startGPS() {
         });
       } else if (gpsMarker) {
         gpsMarker.position = gpsPos;
+      }
+      // Invalidate and refresh drive times when origin moves materially (~100m rounding via 3 decimals)
+      const k = gpsPos.lat.toFixed(3) + ',' + gpsPos.lng.toFixed(3);
+      if (k !== lastDriveTimeKey) {
+        lastDriveTimeKey = k;
+        if (typeof driveTimeCache !== 'undefined') driveTimeCache.clear();
+        if (territoryOpen && typeof renderTerritoryTable === 'function') renderTerritoryTable();
       }
     },
     err => console.warn('GPS error:', err.message),
@@ -1694,5 +2028,5 @@ initMap = function() {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>initFirebase();</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker,maps3d&v=beta" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker,maps3d,places&v=beta" async defer></script>
 </body></html>

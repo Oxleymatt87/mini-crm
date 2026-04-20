@@ -221,6 +221,7 @@ If you cannot read a field clearly, use null. Do not include any other text.`;
       ]
     }]
   };
+  console.log('Sending to Claude, image bytes:',base64Image.length,'content blocks:',body.messages[0].content.length);
   const resp=await fetch(CLAUDE_PROXY_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!resp.ok){
     const errTxt=await resp.text().catch(()=>'');

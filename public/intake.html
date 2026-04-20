@@ -87,6 +87,21 @@ canvas#snapCanvas{display:none}
 #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(34,197,94,.95);color:#000;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:100;display:none;white-space:nowrap;max-width:90%;text-align:center}
 #toast.err{background:rgba(239,68,68,.95);color:#fff}
 #toast.info{background:rgba(59,130,246,.95);color:#fff}
+/* On-screen debug panel — visible even during camera / preview overlays */
+#debugPanel{position:fixed;bottom:90px;left:8px;right:8px;z-index:120;background:rgba(10,12,15,.96);border:1px solid #1e2229;border-radius:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;max-height:180px;display:flex;flex-direction:column;backdrop-filter:blur(6px)}
+#debugPanel.collapsed{max-height:28px}
+#debugPanel.collapsed #debugBody{display:none}
+#debugHead{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;cursor:pointer;color:#d4a12a;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;font-size:10px;user-select:none}
+#debugHead .chev{display:inline-block;transition:transform .15s;margin-right:6px}
+#debugPanel:not(.collapsed) #debugHead .chev{transform:rotate(90deg)}
+#debugClear{background:none;border:none;color:#555d6b;font-size:10px;cursor:pointer;padding:2px 6px;letter-spacing:.5px}
+#debugBody{flex:1;overflow-y:auto;padding:4px 10px 8px;color:#8990a0;line-height:1.4;word-break:break-all;-webkit-overflow-scrolling:touch}
+.dbg-line{padding:2px 0;border-top:1px dashed #1a1d22}
+.dbg-line:first-child{border-top:none}
+.dbg-line.err{color:#ef4444}
+.dbg-line.ok{color:#22c55e}
+.dbg-line.info{color:#3b82f6}
+.dbg-t{color:#555d6b;margin-right:6px}
 </style>
 </head>
 <body>
@@ -150,6 +165,11 @@ canvas#snapCanvas{display:none}
 </div>
 </div>
 <div id="toast"></div>
+
+<div id="debugPanel" class="collapsed">
+  <div id="debugHead"><span><span class="chev">&#9656;</span>Debug</span><button id="debugClear">clear</button></div>
+  <div id="debugBody"></div>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -221,18 +241,28 @@ If you cannot read a field clearly, use null. Do not include any other text.`;
       ]
     }]
   };
-  console.log('Sending to Claude, image bytes:',base64Image.length,'content blocks:',body.messages[0].content.length);
+  dbg('POST '+CLAUDE_PROXY_URL+' — '+base64Image.length+' b64 chars, '+body.messages[0].content.length+' blocks','info');
   const resp=await fetch(CLAUDE_PROXY_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  dbg('← '+resp.status+' '+resp.statusText,resp.ok?'ok':'err');
   if(!resp.ok){
     const errTxt=await resp.text().catch(()=>'');
+    if(errTxt)dbg('body: '+errTxt.slice(0,200),'err');
     throw new Error('Claude '+resp.status+(errTxt?': '+errTxt.slice(0,120):''));
   }
   const data=await resp.json();
   // Claude message format: { content: [{type:'text', text:'...'}] }
   // Fall back to .text or .completion for defensive handling against proxy shape changes.
   const raw=(Array.isArray(data?.content)?data.content.find(b=>b?.type==='text')?.text:null)||data?.text||data?.completion||'{}';
+  dbg('raw: '+String(raw).slice(0,140));
   const cleaned=raw.replace(/```json|```/g,'').trim();
-  return JSON.parse(cleaned);
+  try{
+    const parsed=JSON.parse(cleaned);
+    dbg('parsed '+JSON.stringify(parsed),'ok');
+    return parsed;
+  }catch(e){
+    dbg('JSON.parse failed: '+e.message,'err');
+    throw e;
+  }
 }
 
 function showParsed(item){
@@ -297,6 +327,34 @@ function showToast(msg,type=false){
   t.className=type==='err'?'err':type==='info'?'info':'';
   t.style.display='block';setTimeout(()=>{t.style.display='none';},2500);
 }
+
+// On-screen debug panel — same signal you'd get from DevTools, without needing USB debugging.
+function dbg(msg,type){
+  const body=document.getElementById('debugBody');
+  if(!body)return;
+  const line=document.createElement('div');
+  line.className='dbg-line'+(type?' '+type:'');
+  const ts=new Date().toLocaleTimeString('en-US',{hour12:false});
+  const ts_=document.createElement('span');ts_.className='dbg-t';ts_.textContent=ts;
+  line.appendChild(ts_);
+  line.appendChild(document.createTextNode(String(msg)));
+  body.appendChild(line);
+  while(body.children.length>60)body.removeChild(body.firstChild);
+  body.scrollTop=body.scrollHeight;
+  // Auto-expand on error so issues are surfaced without a tap.
+  if(type==='err')document.getElementById('debugPanel').classList.remove('collapsed');
+}
+document.getElementById('debugHead').addEventListener('click',(e)=>{
+  if(e.target.id==='debugClear')return;
+  document.getElementById('debugPanel').classList.toggle('collapsed');
+});
+document.getElementById('debugClear').addEventListener('click',(e)=>{
+  e.stopPropagation();
+  document.getElementById('debugBody').innerHTML='';
+});
+window.addEventListener('error',e=>dbg('window.error: '+(e.message||e.error),'err'));
+window.addEventListener('unhandledrejection',e=>dbg('unhandled: '+(e.reason&&e.reason.message||e.reason),'err'));
+dbg('Ready','ok');
 
 // ── Confirm / Discard ──
 document.getElementById('btnConfirm').addEventListener('click',async()=>{
@@ -419,7 +477,8 @@ document.getElementById('btnCapture').addEventListener('click',async()=>{
   try{frame=await captureFrame();}
   catch(e){showToast('Capture failed: '+e.message,'err');return;}
   // Sanity check — reject frames that are clearly empty/black (common Android Chrome failure mode)
-  if(frame.bytes<8000){showToast(`Frame too small (${frame.bytes}B) — retry`,'err');return;}
+  dbg('captured '+frame.width+'×'+frame.height+' → '+frame.bytes+' B jpeg');
+  if(frame.bytes<8000){showToast(`Frame too small (${frame.bytes}B) — retry`,'err');dbg('frame too small, rejected','err');return;}
   pendingBase64=frame.base64;
   const img=document.getElementById('previewImg');
   img.src='data:image/jpeg;base64,'+frame.base64;

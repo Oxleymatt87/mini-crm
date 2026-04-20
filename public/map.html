@@ -53,17 +53,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
 #bottomStack{position:fixed;bottom:0;left:0;right:0;z-index:25;display:flex;flex-direction:column;pointer-events:none}
 #bottomStack > *{pointer-events:auto}
-#bottomActionBar{display:flex;gap:2px;padding:6px 6px 8px;background:rgba(10,12,18,0.96);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,0.08);box-shadow:0 -4px 18px rgba(0,0,0,0.55);overflow-x:auto;-webkit-overflow-scrolling:touch}
+#bottomActionBar{display:flex;gap:0;padding:8px 4px;background:rgba(14,17,25,0.72);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-top:1px solid rgba(255,255,255,0.1);box-shadow:0 -4px 22px rgba(0,0,0,0.6);overflow-x:auto;-webkit-overflow-scrolling:touch}
 #bottomActionBar::-webkit-scrollbar{display:none}
-.actBtn{flex:1 1 0;min-width:56px;min-height:56px;padding:6px 4px;border:none;background:transparent;color:#cfd3dc;font-family:inherit;font-weight:700;cursor:pointer;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s,color .15s;-webkit-tap-highlight-color:transparent}
-.actBtn .actIcon{font-size:22px;line-height:1}
-.actBtn .actLabel{font-size:10px;letter-spacing:0.4px;text-transform:uppercase;white-space:nowrap}
+.actBtn{position:relative;flex:1 1 0;min-width:64px;min-height:64px;padding:8px 4px;border:none;background:transparent;color:#cfd3dc;font-family:inherit;font-weight:700;cursor:pointer;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:background .15s,color .15s;-webkit-tap-highlight-color:transparent}
+.actBtn:not(:last-child)::after{content:'';position:absolute;right:0;top:22%;bottom:22%;width:1px;background:rgba(255,255,255,0.09);pointer-events:none}
+.actBtn .actIcon{font-size:28px;line-height:1}
+.actBtn .actLabel{font-size:12px;letter-spacing:0.4px;text-transform:uppercase;white-space:nowrap;font-weight:700}
 .actBtn:active{background:rgba(255,255,255,0.08)}
-.actBtn.active{background:rgba(212,161,42,0.18);color:#d4a12a}
-.actBtn.active .actIcon{filter:drop-shadow(0 0 4px rgba(212,161,42,0.6))}
+.actBtn.active{background:#d4a12a;color:#0a0c0f;box-shadow:0 2px 10px rgba(212,161,42,0.35)}
+.actBtn.active::after{display:none}
+.actBtn.active + .actBtn::after{display:none}
+.actBtn.active .actIcon{filter:none}
 #routeBanner{background:rgba(255,74,74,0.97);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600;border-top:1px solid rgba(0,0,0,0.25)}
 #routeBanner button{padding:10px 16px;min-height:44px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
-#routeBadge{position:fixed;bottom:196px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
+#routeBadge{position:fixed;bottom:212px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
 .t-check{width:22px;height:22px;border-radius:6px;border:2px solid #444;background:transparent;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:14px;color:transparent;-webkit-tap-highlight-color:transparent}
 .t-check.checked{background:#4a9eff;border-color:#4a9eff;color:#fff}
 #routeBar{display:none;padding:10px 16px;border-top:1px solid #222;flex-shrink:0;gap:8px;align-items:center;background:#111}
@@ -137,9 +140,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #chatInput{flex:1;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none}
 #chatInput::placeholder{color:#555}
 #chatSend{width:36px;height:36px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:16px;cursor:pointer;flex-shrink:0}
-#chatToggle{position:fixed;bottom:88px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#chatToggle{position:fixed;bottom:104px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 /* ─── Territory Table Panel ─── */
-#territoryBtn{position:fixed;bottom:140px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#territoryBtn{position:fixed;bottom:156px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 #territoryBtn.active{border-color:#4a9eff;color:#4a9eff;background:rgba(26,29,39,0.95)}
 #territoryPanel{position:fixed;top:0;left:0;right:0;bottom:0;z-index:35;background:rgba(15,17,23,0.98);transform:translateY(100%);transition:transform .3s ease;display:flex;flex-direction:column;overflow:hidden}
 #territoryPanel.open{transform:translateY(0)}
@@ -562,7 +565,43 @@ function getMarkerContent(loc) {
   return pinEl(ind.bg, ind.emoji, 36, false);
 }
 
-let map, markers = [], activeFilter = 'all';
+let map, markers = [], activeFilter = 'all', markerCluster = null;
+
+// Custom cluster marker: dark circle with gold count text, matching app theme.
+function buildClusterRenderer() {
+  return {
+    render: ({ count, position }) => {
+      const size = Math.min(68, 40 + Math.log2(count + 1) * 6);
+      const fs = count >= 1000 ? 13 : count >= 100 ? 15 : 17;
+      const div = document.createElement('div');
+      div.style.cssText = 'width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:rgba(10,12,18,0.94);border:3px solid #d4a12a;display:flex;align-items:center;justify-content:center;color:#d4a12a;font-weight:900;font-size:' + fs + 'px;font-family:Arial,sans-serif;box-shadow:0 2px 14px rgba(212,161,42,0.55),inset 0 0 12px rgba(212,161,42,0.12);cursor:pointer;letter-spacing:0.5px;';
+      div.textContent = String(count);
+      return new google.maps.marker.AdvancedMarkerElement({
+        position,
+        content: div,
+        zIndex: 1000 + count
+      });
+    }
+  };
+}
+
+function initClusterer() {
+  if (!window.markerClusterer || !map) return;
+  if (markerCluster) return;
+  const algo = new markerClusterer.SuperClusterAlgorithm({ maxZoom: 10, radius: 100 });
+  markerCluster = new markerClusterer.MarkerClusterer({
+    map,
+    markers: markers.filter(m => m._visible),
+    renderer: buildClusterRenderer(),
+    algorithm: algo
+  });
+}
+
+function refreshClusterer() {
+  if (!markerCluster) return;
+  markerCluster.clearMarkers();
+  markerCluster.addMarkers(markers.filter(m => m._visible));
+}
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
 // Dark gold theme to match the app aesthetic. Registered as a StyledMapType so
@@ -612,7 +651,6 @@ function initMap() {
   locations.forEach((loc, i) => {
     const marker = new google.maps.marker.AdvancedMarkerElement({
       position: {lat:loc.lat, lng:loc.lng},
-      map: map,
       title: loc.name,
       content: getMarkerContent(loc)
     });
@@ -624,17 +662,18 @@ function initMap() {
     markers.push(marker);
   });
 
+  initClusterer();
   updateStats();
 
   // Load additional prospects from JSON
   fetch('/prospects.json')
     .then(r => r.json())
     .then(places => {
+      const added = [];
       places.forEach(p => {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
         const marker = new google.maps.marker.AdvancedMarkerElement({
           position:{lat:p.t,lng:p.g},
-          map:map,
           title:p.n,
           content: getMarkerContent(loc)
         });
@@ -645,7 +684,13 @@ function initMap() {
         marker.addListener('click', () => onMarkerClick(marker));
         setupMarkerLongPress(marker);
         markers.push(marker);
+        added.push(marker);
       });
+      if (markerCluster) {
+        markerCluster.addMarkers(added);
+      } else {
+        initClusterer();
+      }
       updateStats();
     })
     .catch(e => console.error('Failed to load prospects.json:', e));
@@ -867,10 +912,14 @@ function applyFilters() {
     const matchFilter = activeFilter === 'all' || loc.type === activeFilter;
     const matchSearch = !q || loc.name.toLowerCase().includes(q) || (loc.addr && loc.addr.toLowerCase().includes(q)) || (loc.notes && loc.notes.toLowerCase().includes(q));
     const visible = matchFilter && matchSearch;
-    m.map = visible ? map : null;
     m._visible = visible;
     if (visible) { shown++; totalTrucks += loc.trucks || 0; }
   });
+  if (markerCluster) {
+    refreshClusterer();
+  } else {
+    markers.forEach(m => { m.map = m._visible ? map : null; });
+  }
   document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
 }
 
@@ -2043,6 +2092,13 @@ document.getElementById('btnLocate').addEventListener('click', () => {
   }
 });
 
+// Haptic feedback on bottom action bar taps (Google Maps style)
+document.getElementById('bottomActionBar').addEventListener('pointerdown', (e) => {
+  const btn = e.target.closest('.actBtn');
+  if (!btn) return;
+  if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+}, { passive: true });
+
 // Start GPS after map loads
 const _origInitMap = initMap;
 initMap = function() {
@@ -2056,5 +2112,7 @@ initMap = function() {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>initFirebase();</script>
+<!-- Marker clusterer (must load before Maps API callback fires) -->
+<script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker,maps3d,places&v=beta" async defer></script>
 </body></html>

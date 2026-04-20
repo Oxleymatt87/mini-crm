@@ -33,6 +33,9 @@ service cloud.firestore {
     match /map_notes/{doc} {
       allow read, write: if request.auth != null && request.auth.uid == 'uSOqxJc3BigB2R6SWAaiXrb4sLj1';
     }
+    match /customer_notes/{doc} {
+      allow read, write: if request.auth != null && request.auth.uid == 'uSOqxJc3BigB2R6SWAaiXrb4sLj1';
+    }
 
     // Portal access — tokens are public-readable for portal lookup
     match /portal_access/{doc} {

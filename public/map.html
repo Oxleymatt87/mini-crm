@@ -179,8 +179,11 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .gps-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .gps-dot::after{content:'';position:absolute;top:50%;left:50%;width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.25);transform:translate(-50%,-50%);animation:gps-pulse 2s ease-out infinite;pointer-events:none}
 @keyframes gps-pulse{0%{width:16px;height:16px;opacity:.8}100%{width:48px;height:48px;opacity:0}}
-#btnTraffic.active{border-color:#ef4444;color:#ef4444;background:rgba(26,29,39,0.95)}
-#btnFindProspects.active{border-color:#a855f7;color:#a855f7;background:rgba(26,29,39,0.95)}
+/* Visible test: bright red "TRAFFIC" pill so we can confirm the button is rendering */
+#btnTraffic{width:auto!important;min-width:96px;padding:0 12px;border-radius:22px!important;color:#ef4444!important;border-color:#ef4444!important;background:rgba(26,29,39,0.95)!important;font-weight:900;letter-spacing:0.5px}
+#btnTraffic.active{background:#ef4444!important;color:#fff!important;border-color:#ef4444!important}
+#btnFindProspects{color:#a855f7!important;border-color:#a855f7!important}
+#btnFindProspects.active{border-color:#a855f7;color:#fff;background:#a855f7}
 #routeOptimize{background:#d4a12a;color:#000}
 #routeOptimize:disabled{opacity:0.6;cursor:not-allowed}
 #routeOptimizeTable{background:#d4a12a;color:#000;padding:10px 12px;border-radius:10px;border:none;font-size:13px;font-weight:700;cursor:pointer}
@@ -253,7 +256,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 <div id="viewControls">
   <button id="btnLocate" title="My location">&#9678;</button>
-  <button id="btnTraffic" title="Live traffic">TRF</button>
+  <button id="btnTraffic" title="Live traffic">TRAFFIC</button>
   <button id="btnFindProspects" title="Find prospects via Google Places">&#128269;</button>
   <button id="btn3D" title="Toggle 3D tilt">3D</button>
   <button id="btnFly" title="Auto-rotate fly mode">Fly</button>
@@ -586,10 +589,13 @@ const DARK_GOLD_STYLE = [
 ];
 
 function initMap() {
+  // NOTE: StyledMapType is ignored by Google when `mapId` is set (cloud-based
+  // styling takes precedence). We drop mapId so the dark_gold style applies.
+  // AdvancedMarkerElement still renders without mapId — it just logs a warning
+  // and loses collision/POI-click features we don't use.
   map = new google.maps.Map(document.getElementById('map'), {
     center: {lat:30.05, lng:-94.55}, zoom:10,
-    mapTypeId: 'dark_gold',
-    mapId: 'DEMO_MAP_ID',
+    mapTypeId: 'roadmap',
     tilt: 0,
     heading: 0,
     disableDefaultUI: true, zoomControl: true,
@@ -597,9 +603,11 @@ function initMap() {
     rotateControl: true
   });
 
+  // Register the styled map type AFTER the Map is constructed, then activate it.
   const styled = new google.maps.StyledMapType(DARK_GOLD_STYLE, {name: 'Dark Gold'});
   map.mapTypes.set('dark_gold', styled);
   map.setMapTypeId('dark_gold');
+  console.log('[map] dark_gold style applied, active mapTypeId=', map.getMapTypeId());
 
   locations.forEach((loc, i) => {
     const marker = new google.maps.marker.AdvancedMarkerElement({

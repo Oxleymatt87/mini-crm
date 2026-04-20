@@ -26,6 +26,9 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:sans-serif;min-height:100vh;di
 .pf-label{font-size:10px;color:#555d6b;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
 .pf-val{font-size:15px;font-weight:700;color:#d4a12a}
 .pf-val.missing{color:#ef4444;font-style:italic;font-size:12px}
+.pf-input{width:100%;background:#080a0d;border:1px solid #1e2229;border-radius:6px;padding:6px 8px;color:#d4a12a;font-size:15px;font-weight:700;outline:none;font-family:inherit;letter-spacing:.5px}
+.pf-input:focus{border-color:#d4a12a}
+.pf-input.missing{border-color:#ef4444;color:#ef4444}
 #parseActions{display:flex;gap:8px;margin-top:10px}
 #parseActions button{flex:1;padding:11px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer}
 #btnConfirm{background:#22c55e;color:#000}
@@ -56,7 +59,7 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:sans-serif;min-height:100vh;di
 #cameraOverlay{display:none;position:fixed;inset:0;background:#000;z-index:50;flex-direction:column}
 #cameraOverlay.show{display:flex}
 #videoEl{width:100%;flex:1;object-fit:cover}
-#cameraControls{display:flex;gap:12px;padding:16px;background:#0a0c0f;align-items:center;justify-content:center}
+#cameraControls{display:flex;gap:12px;padding:16px 16px calc(116px + env(safe-area-inset-bottom,0px));background:#0a0c0f;align-items:center;justify-content:center}
 #btnCapture{width:72px;height:72px;border-radius:50%;border:4px solid #fff;background:#d4a12a;font-size:28px;cursor:pointer}
 #btnCameraClose{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:20px;cursor:pointer;z-index:51}
 #scanStatus{color:#888;font-size:13px;text-align:center;flex:1}
@@ -92,10 +95,10 @@ canvas#snapCanvas{display:none}
 <div id="parseBox">
 <div id="parseLabel">Parsed — confirm or discard</div>
 <div id="parseFields">
-<div class="pf"><div class="pf-label">Brand</div><div class="pf-val" id="pf-brand">—</div></div>
-<div class="pf"><div class="pf-label">Model</div><div class="pf-val" id="pf-model">—</div></div>
-<div class="pf"><div class="pf-label">Size</div><div class="pf-val" id="pf-size">—</div></div>
-<div class="pf"><div class="pf-label">Qty</div><div class="pf-val" id="pf-qty">—</div></div>
+<div class="pf"><div class="pf-label">Brand</div><input class="pf-input" id="pf-brand" type="text" autocomplete="off" autocapitalize="words"></div>
+<div class="pf"><div class="pf-label">Model</div><input class="pf-input" id="pf-model" type="text" autocomplete="off" autocapitalize="characters"></div>
+<div class="pf"><div class="pf-label">Size</div><input class="pf-input" id="pf-size" type="text" autocomplete="off" autocapitalize="characters"></div>
+<div class="pf"><div class="pf-label">Qty</div><input class="pf-input" id="pf-qty" type="number" inputmode="numeric" min="0"></div>
 <div class="pf"><div class="pf-label">Cost</div><div class="pf-val" id="pf-cost">—</div></div>
 <div class="pf"><div class="pf-label">Zone</div><div class="pf-val" id="pf-zone">—</div></div>
 </div>
@@ -115,13 +118,13 @@ canvas#snapCanvas{display:none}
   </div>
 </div>
 
-<!-- Preview overlay (debug + confirm before sending to Gemini) -->
+<!-- Preview overlay (debug + confirm before sending to Claude) -->
 <div id="previewOverlay">
   <div id="previewMeta">Preview — confirm image is sharp & upright before sending</div>
   <img id="previewImg" alt="Captured frame">
   <div id="previewControls">
     <button id="btnPreviewRetake">↺ Retake</button>
-    <button id="btnPreviewSend">Send to Gemini</button>
+    <button id="btnPreviewSend">Send to Claude</button>
   </div>
 </div>
 
@@ -149,13 +152,13 @@ canvas#snapCanvas{display:none}
 <div id="toast"></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
 firebase.initializeApp({apiKey:"AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E",authDomain:"inventory-setup-b3f20.firebaseapp.com",projectId:"inventory-setup-b3f20",storageBucket:"inventory-setup-b3f20.firebasestorage.app",messagingSenderId:"162750059985",appId:"1:162750059985:web:bbe5328412c7ef49893cf0"});
 const db=firebase.firestore();
 
-const GEMINI_KEY='AIzaSyADbgMR_AUwRC3EZ7sMuF-stqOoU6rDzXk';
-const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
+const CLAUDE_PROXY_URL='https://claude-proxy.moxley.workers.dev';
 
 let sessionCount=0,parsedItem=null,recognition=null,isListening=false,videoStream=null;
 
@@ -197,10 +200,10 @@ function parseVoice(rawText){
   return{brand,model,size,qty,cost,zone};
 }
 
-// ── Gemini Vision ──
-async function scanWithGemini(base64Image){
+// ── Claude Vision (via claude-proxy Cloudflare Worker) ──
+async function scanWithClaude(base64Image){
   showToast('Scanning sidewall...','info');
-  document.getElementById('transcriptText').textContent='Gemini reading sidewall...';
+  document.getElementById('transcriptText').textContent='Claude reading sidewall...';
   const prompt=`You are reading a commercial truck tire sidewall. Extract ONLY these fields from the image:
 - brand (manufacturer name, e.g. Amulet, Royal Black, Synergy, Advance, Hankook)
 - model (model code, e.g. AT505, AD507, AM201, DP209, SL101)
@@ -210,35 +213,73 @@ Respond ONLY with valid JSON like: {"brand":"Amulet","model":"AT505","size":"11R
 If you cannot read a field clearly, use null. Do not include any other text.`;
 
   const body={
-    contents:[{parts:[
-      {text:prompt},
-      {inline_data:{mime_type:'image/jpeg',data:base64Image}}
-    ]}]
+    messages:[{
+      role:'user',
+      content:[
+        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64Image}},
+        {type:'text',text:prompt}
+      ]
+    }]
   };
-  const resp=await fetch(GEMINI_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const resp=await fetch(CLAUDE_PROXY_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!resp.ok){
+    const errTxt=await resp.text().catch(()=>'');
+    throw new Error('Claude '+resp.status+(errTxt?': '+errTxt.slice(0,120):''));
+  }
   const data=await resp.json();
-  const raw=data?.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+  // Claude message format: { content: [{type:'text', text:'...'}] }
+  // Fall back to .text or .completion for defensive handling against proxy shape changes.
+  const raw=(Array.isArray(data?.content)?data.content.find(b=>b?.type==='text')?.text:null)||data?.text||data?.completion||'{}';
   const cleaned=raw.replace(/```json|```/g,'').trim();
   return JSON.parse(cleaned);
 }
 
 function showParsed(item){
   parsedItem=item;
+  const setInput=(id,val)=>{const el=document.getElementById(id);el.value=val==null?'':String(val);el.classList.remove('missing');};
+  setInput('pf-brand',item.brand||'');
+  setInput('pf-model',item.model||'');
+  setInput('pf-size',item.size||'');
+  setInput('pf-qty',item.qty!=null?item.qty:'');
   const sv=(id,val,req)=>{const el=document.getElementById(id);if(val){el.textContent=val;el.className='pf-val';}else{el.textContent=req?'MISSING':'—';el.className=req?'pf-val missing':'pf-val';}};
-  sv('pf-brand',item.brand,true);sv('pf-model',item.model,false);sv('pf-size',item.size,true);
-  sv('pf-qty',item.qty!=null?String(item.qty):null,true);
   sv('pf-cost',item.cost!=null?'$'+item.cost.toFixed(2):null,false);
   sv('pf-zone',item.zone||null,false);
   document.getElementById('parseBox').classList.add('show');
-  document.getElementById('btnConfirm').disabled=!(item.brand&&item.size&&item.qty!=null);
+  document.getElementById('btnConfirm').disabled=false;
   // Scroll to parse box
   document.getElementById('parseBox').scrollIntoView({behavior:'smooth',block:'center'});
 }
-function clearParsed(){parsedItem=null;document.getElementById('parseBox').classList.remove('show');}
+function clearParsed(){
+  parsedItem=null;
+  ['pf-brand','pf-model','pf-size','pf-qty'].forEach(id=>{const el=document.getElementById(id);if(el){el.value='';el.classList.remove('missing');}});
+  document.getElementById('parseBox').classList.remove('show');
+}
+
+// Firestore rules require an authenticated user. If sign-in hasn't happened yet,
+// fall back to anonymous auth so the intake page works without a login screen.
+async function ensureAuth(){
+  if(firebase.auth().currentUser)return;
+  await firebase.auth().signInAnonymously();
+}
 
 async function saveItem(item){
+  await ensureAuth();
   const data={brand:item.brand||'',model:item.model||'',size:item.size||'',quantity:item.qty||0,cost:item.cost||null,zone:item.zone||'',created_at:firebase.firestore.FieldValue.serverTimestamp(),updated_at:firebase.firestore.FieldValue.serverTimestamp(),source:'intake'};
   return(await db.collection('items').add(data)).id;
+}
+
+function readConfirmInputs(){
+  const brand=document.getElementById('pf-brand').value.trim();
+  const model=document.getElementById('pf-model').value.trim();
+  const size=document.getElementById('pf-size').value.trim();
+  const qtyRaw=document.getElementById('pf-qty').value.trim();
+  const qty=qtyRaw===''?null:parseInt(qtyRaw,10);
+  return {
+    brand,model,size,
+    qty:isNaN(qty)?null:qty,
+    cost:parsedItem&&parsedItem.cost!=null?parsedItem.cost:null,
+    zone:parsedItem&&parsedItem.zone?parsedItem.zone:''
+  };
 }
 
 function addToLog(item,docId){
@@ -258,22 +299,28 @@ function showToast(msg,type=false){
 
 // ── Confirm / Discard ──
 document.getElementById('btnConfirm').addEventListener('click',async()=>{
-  if(!parsedItem)return;
-  // If qty missing, prompt
-  if(parsedItem.qty==null){
-    const q=prompt('How many? (enter quantity)');
-    if(!q||isNaN(parseInt(q)))return;
-    parsedItem.qty=parseInt(q);
+  // Always pull current values from the editable inputs, not the stale scan result —
+  // the user is allowed to correct misreads before saving.
+  const item=readConfirmInputs();
+  const missing=[];
+  if(!item.brand)missing.push('pf-brand');
+  if(!item.size)missing.push('pf-size');
+  if(item.qty==null||item.qty<=0)missing.push('pf-qty');
+  ['pf-brand','pf-model','pf-size','pf-qty'].forEach(id=>document.getElementById(id).classList.remove('missing'));
+  if(missing.length){
+    missing.forEach(id=>document.getElementById(id).classList.add('missing'));
+    showToast('Brand, size, and qty are required','err');
+    return;
   }
   const btn=document.getElementById('btnConfirm');btn.disabled=true;btn.textContent='Saving...';
   try{
-    const docId=await saveItem(parsedItem);
-    addToLog(parsedItem,docId);
-    showToast('Saved '+parsedItem.brand+' x'+parsedItem.qty);
+    const docId=await saveItem(item);
+    addToLog(item,docId);
+    showToast('Saved '+item.brand+' x'+item.qty);
     clearParsed();
     document.getElementById('transcriptText').textContent='Saved. Scan next tire or speak.';
     if(navigator.vibrate)navigator.vibrate([30,30,30]);
-  }catch(e){showToast('Save failed','err');btn.disabled=false;btn.textContent='✓ SAVE';}
+  }catch(e){showToast('Save failed: '+e.message,'err');btn.disabled=false;btn.textContent='✓ SAVE';}
 });
 document.getElementById('btnDiscard').addEventListener('click',()=>{clearParsed();document.getElementById('transcriptText').textContent='Discarded — scan or speak next tire.';});
 
@@ -333,7 +380,7 @@ function blobToBase64(blob){
 // Decide if the decoded stream needs a 90° rotation so text reads upright.
 // On Android Chrome, getUserMedia typically returns a landscape buffer (e.g. 1920×1080)
 // even when the device is held portrait, so text on the sidewall ends up sideways —
-// Gemini then reads blanks. We rotate based on the viewport orientation at capture time.
+// Claude then reads blanks. We rotate based on the viewport orientation at capture time.
 function needsPortraitRotation(w,h){
   const portraitScreen=window.matchMedia('(orientation: portrait)').matches||window.innerHeight>window.innerWidth;
   return portraitScreen && w>h;
@@ -391,9 +438,9 @@ document.getElementById('btnPreviewSend').addEventListener('click',async()=>{
   document.getElementById('previewOverlay').classList.remove('show');
   closeCamera();
   try{
-    const result=await scanWithGemini(base64);
+    const result=await scanWithClaude(base64);
     if(!result.brand&&!result.model&&!result.size){
-      showToast('Gemini read nothing — reframe and retry','err');
+      showToast('Claude read nothing — reframe and retry','err');
       document.getElementById('transcriptText').textContent='No fields read — move closer / steady the shot';
       return;
     }

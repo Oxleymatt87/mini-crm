@@ -1,0 +1,15 @@
+name = "claude-proxy"
+main = "src/worker.js"
+compatibility_date = "2025-01-15"
+account_id = "e450a418975ed9b1212f52452bb1b5d5"
+
+# Secret ANTHROPIC_API_KEY is already provisioned on the account.
+# Optional:
+#   wrangler secret put SALES_SYSTEM_PROMPT
+# to override the hardcoded Oxley Tire sales copilot prompt without a redeploy.
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true

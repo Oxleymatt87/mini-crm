@@ -67,6 +67,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 #btn3D.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
 #btnFly.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
+#btn3DPlus.active{border-color:#f59e0b;color:#f59e0b;background:rgba(26,29,39,0.95)}
+#map3d{position:fixed;top:0;left:0;width:100%;height:100%;z-index:5;display:none;background:#000}
+#map3d gmp-map-3d{width:100%;height:100%}
 #routeLaunch{background:#fff;color:#e53935}
 #routeCancel{background:rgba(255,255,255,0.2);color:#fff}
 #loginOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;background:rgba(15,17,23,0.97);display:flex;align-items:center;justify-content:center}
@@ -210,7 +213,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   <button id="btnLocate" title="My location">&#9678;</button>
   <button id="btn3D" title="Toggle 3D tilt">3D</button>
   <button id="btnFly" title="Auto-rotate fly mode">Fly</button>
+  <button id="btn3DPlus" title="Photorealistic 3D Immersive view">3D+</button>
 </div>
+<div id="map3d"></div>
 
 <div id="routeBanner">
   <span id="routeInfo">0 stops</span>
@@ -885,6 +890,88 @@ document.getElementById('btnFly').addEventListener('click', () => {
   }, 500);
 });
 
+// ─── 3D+ Photorealistic Immersive View ───
+let map3dEl = null, markers3d = [], is3DPlus = false;
+
+async function enter3DPlus() {
+  const btn = document.getElementById('btn3DPlus');
+  if (!map) return;
+  const centerLL = map.getCenter();
+  const center = centerLL.toJSON();
+  const zoom = map.getZoom();
+  const heading = map.getHeading() || 0;
+
+  stopFly();
+
+  let libs;
+  try {
+    libs = await google.maps.importLibrary('maps3d');
+  } catch (e) {
+    console.error('maps3d library failed to load:', e);
+    showToast('3D+ unavailable');
+    return;
+  }
+  const { Map3DElement } = libs;
+  const Marker3DCtor = libs.Marker3DInteractiveElement || libs.Marker3DElement;
+
+  const range = Math.max(400, 40000000 / Math.pow(2, zoom));
+
+  map3dEl = new Map3DElement({
+    center: { lat: center.lat, lng: center.lng, altitude: 0 },
+    heading: heading,
+    tilt: 67.5,
+    range: range
+  });
+  try { map3dEl.mode = 'HYBRID'; } catch (e) {}
+
+  const container = document.getElementById('map3d');
+  container.innerHTML = '';
+  container.appendChild(map3dEl);
+  container.style.display = 'block';
+
+  markers3d = [];
+  markers.forEach(m => {
+    if (!m._visible) return;
+    const loc = m._loc;
+    const m3d = new Marker3DCtor({
+      position: { lat: loc.lat, lng: loc.lng, altitude: 0 },
+      altitudeMode: 'CLAMP_TO_GROUND',
+      extruded: true,
+      label: loc.name
+    });
+    if (libs.Marker3DInteractiveElement) {
+      m3d.addEventListener('gmp-click', () => openSheet(loc));
+    } else {
+      m3d.addEventListener('click', () => openSheet(loc));
+    }
+    map3dEl.appendChild(m3d);
+    markers3d.push(m3d);
+  });
+
+  is3DPlus = true;
+  btn.classList.add('active');
+  btn.textContent = '2D';
+}
+
+function exit3DPlus() {
+  const container = document.getElementById('map3d');
+  if (container) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+  }
+  map3dEl = null;
+  markers3d = [];
+  is3DPlus = false;
+  const btn = document.getElementById('btn3DPlus');
+  btn.classList.remove('active');
+  btn.textContent = '3D+';
+}
+
+document.getElementById('btn3DPlus').addEventListener('click', () => {
+  if (is3DPlus) exit3DPlus();
+  else enter3DPlus();
+});
+
 // ─── Firebase Integration ───
 let fbAuth, fbDb, fbUser = null, qboCustomers = [], mapNotesCache = {};
 
@@ -1414,5 +1501,5 @@ initMap = function() {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>initFirebase();</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker&v=beta" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker,maps3d&v=beta" async defer></script>
 </body></html>

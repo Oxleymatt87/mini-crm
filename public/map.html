@@ -51,9 +51,19 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #navBtn{background:#4a9eff;color:#fff}
 #svBtn{background:#333;color:#fff}
 #svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
-#routeBanner{position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(255,74,74,0.95);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600}
-#routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
-#routeBadge{position:fixed;bottom:120px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
+#bottomStack{position:fixed;bottom:0;left:0;right:0;z-index:25;display:flex;flex-direction:column;pointer-events:none}
+#bottomStack > *{pointer-events:auto}
+#bottomActionBar{display:flex;gap:2px;padding:6px 6px 8px;background:rgba(10,12,18,0.96);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,0.08);box-shadow:0 -4px 18px rgba(0,0,0,0.55);overflow-x:auto;-webkit-overflow-scrolling:touch}
+#bottomActionBar::-webkit-scrollbar{display:none}
+.actBtn{flex:1 1 0;min-width:56px;min-height:56px;padding:6px 4px;border:none;background:transparent;color:#cfd3dc;font-family:inherit;font-weight:700;cursor:pointer;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s,color .15s;-webkit-tap-highlight-color:transparent}
+.actBtn .actIcon{font-size:22px;line-height:1}
+.actBtn .actLabel{font-size:10px;letter-spacing:0.4px;text-transform:uppercase;white-space:nowrap}
+.actBtn:active{background:rgba(255,255,255,0.08)}
+.actBtn.active{background:rgba(212,161,42,0.18);color:#d4a12a}
+.actBtn.active .actIcon{filter:drop-shadow(0 0 4px rgba(212,161,42,0.6))}
+#routeBanner{background:rgba(255,74,74,0.97);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600;border-top:1px solid rgba(0,0,0,0.25)}
+#routeBanner button{padding:10px 16px;min-height:44px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
+#routeBadge{position:fixed;bottom:196px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
 .t-check{width:22px;height:22px;border-radius:6px;border:2px solid #444;background:transparent;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:14px;color:transparent;-webkit-tap-highlight-color:transparent}
 .t-check.checked{background:#4a9eff;border-color:#4a9eff;color:#fff}
 #routeBar{display:none;padding:10px 16px;border-top:1px solid #222;flex-shrink:0;gap:8px;align-items:center;background:#111}
@@ -63,11 +73,6 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #routeClearTable{background:#333;color:#fff}
 #routeBarInfo{color:#ccc;font-size:13px;flex:1}
 #addRouteBtn{background:#e53935;color:#fff}
-#viewControls{position:fixed;bottom:80px;right:12px;z-index:15;display:flex;flex-direction:column;gap:8px}
-#viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
-#btn3D.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
-#btnFly.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
-#btn3DPlus.active{border-color:#f59e0b;color:#f59e0b;background:rgba(26,29,39,0.95)}
 #map3d{position:fixed;top:0;left:0;width:100%;height:100%;z-index:5;display:none;background:#000}
 #map3d gmp-map-3d{width:100%;height:100%}
 @keyframes mbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
@@ -132,9 +137,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #chatInput{flex:1;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none}
 #chatInput::placeholder{color:#555}
 #chatSend{width:36px;height:36px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:16px;cursor:pointer;flex-shrink:0}
-#chatToggle{position:fixed;bottom:16px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#chatToggle{position:fixed;bottom:88px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 /* ─── Territory Table Panel ─── */
-#territoryBtn{position:fixed;bottom:68px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#territoryBtn{position:fixed;bottom:140px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
 #territoryBtn.active{border-color:#4a9eff;color:#4a9eff;background:rgba(26,29,39,0.95)}
 #territoryPanel{position:fixed;top:0;left:0;right:0;bottom:0;z-index:35;background:rgba(15,17,23,0.98);transform:translateY(100%);transition:transform .3s ease;display:flex;flex-direction:column;overflow:hidden}
 #territoryPanel.open{transform:translateY(0)}
@@ -179,13 +184,6 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .gps-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .gps-dot::after{content:'';position:absolute;top:50%;left:50%;width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.25);transform:translate(-50%,-50%);animation:gps-pulse 2s ease-out infinite;pointer-events:none}
 @keyframes gps-pulse{0%{width:16px;height:16px;opacity:.8}100%{width:48px;height:48px;opacity:0}}
-/* Visible test: bright red "TRAFFIC" pill so we can confirm the button is rendering */
-#btnTraffic{width:auto!important;min-width:96px;padding:0 12px;border-radius:22px!important;color:#ef4444!important;border-color:#ef4444!important;background:rgba(26,29,39,0.95)!important;font-weight:900;letter-spacing:0.5px}
-#btnTraffic.active{background:#ef4444!important;color:#fff!important;border-color:#ef4444!important}
-#btnFindProspects{color:#a855f7!important;border-color:#a855f7!important}
-#btnFindProspects.active{border-color:#a855f7;color:#fff;background:#a855f7}
-#btnMapStyle{color:#d4a12a!important;border-color:#d4a12a!important;font-weight:900;letter-spacing:0.5px}
-#btnMapStyle.active{background:#d4a12a!important;color:#0a0c0f!important;border-color:#d4a12a!important}
 #routeOptimize{background:#d4a12a;color:#000}
 #routeOptimize:disabled{opacity:0.6;cursor:not-allowed}
 #routeOptimizeTable{background:#d4a12a;color:#000;padding:10px 12px;border-radius:10px;border:none;font-size:13px;font-weight:700;cursor:pointer}
@@ -256,24 +254,26 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   <div id="sheetContent"></div>
 </div>
 
-<div id="viewControls">
-  <button id="btnLocate" title="My location">&#9678;</button>
-  <button id="btnMapStyle" title="Toggle satellite / styled roadmap">SAT</button>
-  <button id="btnTraffic" title="Live traffic">TRAFFIC</button>
-  <button id="btnFindProspects" title="Find prospects via Google Places">&#128269;</button>
-  <button id="btn3D" title="Toggle 3D tilt">3D</button>
-  <button id="btnFly" title="Auto-rotate fly mode">Fly</button>
-  <button id="btn3DPlus" title="Photorealistic 3D Immersive view">3D+</button>
-</div>
 <div id="map3d"></div>
 <div id="flyHud"><div class="fh-stop"></div><div class="fh-name"></div></div>
 <div id="flyConfirm"><div class="box"><h3>Launch Navigation?</h3><p>Flythrough complete. Open Google Maps turn-by-turn?</p><div class="row"><button class="no" id="flyConfirmNo">Cancel</button><button class="ok" id="flyConfirmYes">Launch</button></div></div></div>
 
-<div id="routeBanner">
-  <span id="routeInfo">0 stops</span>
-  <button id="routeOptimize">Optimize</button>
-  <button id="routeLaunch">GO &#128640;</button>
-  <button id="routeCancel">Clear</button>
+<div id="bottomStack">
+  <nav id="bottomActionBar" role="toolbar" aria-label="Map controls">
+    <button class="actBtn" id="btnMapStyle" title="Toggle satellite / styled roadmap"><span class="actIcon">&#128752;</span><span class="actLabel">SAT</span></button>
+    <button class="actBtn" id="btnTraffic" title="Live traffic"><span class="actIcon">&#128678;</span><span class="actLabel">Traffic</span></button>
+    <button class="actBtn" id="btnFindProspects" title="Find prospects via Google Places"><span class="actIcon">&#128269;</span><span class="actLabel">Prospects</span></button>
+    <button class="actBtn" id="btnLocate" title="My location"><span class="actIcon">&#128205;</span><span class="actLabel">Location</span></button>
+    <button class="actBtn" id="btn3D" title="Toggle 3D tilt"><span class="actIcon">3D</span><span class="actLabel">Tilt</span></button>
+    <button class="actBtn" id="btnFly" title="Auto-rotate fly mode"><span class="actIcon">&#9992;</span><span class="actLabel">Fly</span></button>
+    <button class="actBtn" id="btn3DPlus" title="Photorealistic 3D Immersive view"><span class="actIcon">3D+</span><span class="actLabel">Immersive</span></button>
+  </nav>
+  <div id="routeBanner">
+    <span id="routeInfo">0 stops</span>
+    <button id="routeOptimize">Optimize</button>
+    <button id="routeLaunch">GO &#128640;</button>
+    <button id="routeCancel">Clear</button>
+  </div>
 </div>
 <div id="routeBadge"></div>
 <div id="prospectModal">
@@ -924,7 +924,7 @@ document.getElementById('btn3D').addEventListener('click', () => {
     map.setZoom(18);
     setTimeout(() => { map.setTilt(45); }, 300);
     btn3D.classList.add('active');
-    btn3D.textContent = '2D';
+    btn3D.querySelector('.actIcon').textContent = '2D';
   } else {
     stopFly();
     map.setTilt(0);
@@ -933,7 +933,7 @@ document.getElementById('btn3D').addEventListener('click', () => {
     if (preCenter) map.setCenter(preCenter);
     preZoom = null; preCenter = null;
     btn3D.classList.remove('active');
-    btn3D.textContent = '3D';
+    btn3D.querySelector('.actIcon').textContent = '3D';
   }
 });
 
@@ -1137,7 +1137,7 @@ async function enter3DPlus() {
 
   is3DPlus = true;
   btn.classList.add('active');
-  btn.textContent = '2D';
+  btn.querySelector('.actIcon').textContent = '2D';
 }
 
 function exit3DPlus() {
@@ -1151,7 +1151,7 @@ function exit3DPlus() {
   is3DPlus = false;
   const btn = document.getElementById('btn3DPlus');
   btn.classList.remove('active');
-  btn.textContent = '3D+';
+  btn.querySelector('.actIcon').textContent = '3D+';
 }
 
 document.getElementById('btn3DPlus').addEventListener('click', () => {
@@ -1710,11 +1710,11 @@ document.getElementById('btnMapStyle').addEventListener('click', () => {
   const current = map.getMapTypeId();
   if (current === 'hybrid' || current === 'satellite') {
     map.setMapTypeId('roadmap');
-    btn.textContent = 'MAP';
+    btn.querySelector('.actLabel').textContent = 'MAP';
     btn.classList.add('active');
   } else {
     map.setMapTypeId('hybrid');
-    btn.textContent = 'SAT';
+    btn.querySelector('.actLabel').textContent = 'SAT';
     btn.classList.remove('active');
   }
   console.log('[map] mapTypeId now:', map.getMapTypeId());

@@ -184,6 +184,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #btnTraffic.active{background:#ef4444!important;color:#fff!important;border-color:#ef4444!important}
 #btnFindProspects{color:#a855f7!important;border-color:#a855f7!important}
 #btnFindProspects.active{border-color:#a855f7;color:#fff;background:#a855f7}
+#btnMapStyle{color:#d4a12a!important;border-color:#d4a12a!important;font-weight:900;letter-spacing:0.5px}
+#btnMapStyle.active{background:#d4a12a!important;color:#0a0c0f!important;border-color:#d4a12a!important}
 #routeOptimize{background:#d4a12a;color:#000}
 #routeOptimize:disabled{opacity:0.6;cursor:not-allowed}
 #routeOptimizeTable{background:#d4a12a;color:#000;padding:10px 12px;border-radius:10px;border:none;font-size:13px;font-weight:700;cursor:pointer}
@@ -256,6 +258,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 <div id="viewControls">
   <button id="btnLocate" title="My location">&#9678;</button>
+  <button id="btnMapStyle" title="Toggle satellite / styled roadmap">SAT</button>
   <button id="btnTraffic" title="Live traffic">TRAFFIC</button>
   <button id="btnFindProspects" title="Find prospects via Google Places">&#128269;</button>
   <button id="btn3D" title="Toggle 3D tilt">3D</button>
@@ -589,25 +592,22 @@ const DARK_GOLD_STYLE = [
 ];
 
 function initMap() {
-  // NOTE: StyledMapType is ignored by Google when `mapId` is set (cloud-based
-  // styling takes precedence). We drop mapId so the dark_gold style applies.
-  // AdvancedMarkerElement still renders without mapId — it just logs a warning
-  // and loses collision/POI-click features we don't use.
+  // Default to satellite/hybrid. The `styles` option is passed directly on
+  // the Map constructor (alongside mapId so AdvancedMarkerElement keeps its
+  // features). Styles only render on roadmap/terrain tiles — the "MAP" /
+  // "SAT" toggle button switches between hybrid and styled roadmap.
   map = new google.maps.Map(document.getElementById('map'), {
     center: {lat:30.05, lng:-94.55}, zoom:10,
-    mapTypeId: 'roadmap',
+    mapTypeId: 'hybrid',
+    mapId: 'DEMO_MAP_ID',
+    styles: DARK_GOLD_STYLE,
     tilt: 0,
     heading: 0,
     disableDefaultUI: true, zoomControl: true,
     gestureHandling: 'greedy',
     rotateControl: true
   });
-
-  // Register the styled map type AFTER the Map is constructed, then activate it.
-  const styled = new google.maps.StyledMapType(DARK_GOLD_STYLE, {name: 'Dark Gold'});
-  map.mapTypes.set('dark_gold', styled);
-  map.setMapTypeId('dark_gold');
-  console.log('[map] dark_gold style applied, active mapTypeId=', map.getMapTypeId());
+  console.log('[map] init complete, mapTypeId=', map.getMapTypeId(), 'mapId set');
 
   locations.forEach((loc, i) => {
     const marker = new google.maps.marker.AdvancedMarkerElement({
@@ -1699,6 +1699,26 @@ document.getElementById('territoryList').addEventListener('click', e => {
 // Route bar buttons in territory panel
 document.getElementById('routeLaunchTable').addEventListener('click', launchRoute);
 document.getElementById('routeClearTable').addEventListener('click', () => { clearRoute(); renderTerritoryTable(); });
+
+// ─── Map Style Toggle (satellite ↔ dark gold styled roadmap) ───
+// Styles are passed in the Map constructor via `styles`. They only render on
+// roadmap/terrain tiles — switching mapTypeId to 'hybrid' falls back to
+// satellite imagery (which Google never styles). Label reflects current view:
+// "SAT" when satellite is showing, "MAP" when the styled roadmap is showing.
+document.getElementById('btnMapStyle').addEventListener('click', () => {
+  const btn = document.getElementById('btnMapStyle');
+  const current = map.getMapTypeId();
+  if (current === 'hybrid' || current === 'satellite') {
+    map.setMapTypeId('roadmap');
+    btn.textContent = 'MAP';
+    btn.classList.add('active');
+  } else {
+    map.setMapTypeId('hybrid');
+    btn.textContent = 'SAT';
+    btn.classList.remove('active');
+  }
+  console.log('[map] mapTypeId now:', map.getMapTypeId());
+});
 
 // ─── Traffic Layer Toggle ───
 let trafficLayer = null;

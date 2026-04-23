@@ -51,12 +51,55 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #navBtn{background:#4a9eff;color:#fff}
 #svBtn{background:#333;color:#fff}
 #svContainer{width:100%;height:200px;border-radius:10px;margin-top:10px;display:none;overflow:hidden}
-#routeBanner{position:fixed;bottom:0;left:0;right:0;z-index:25;background:rgba(255,74,74,0.95);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600}
-#routeBanner button{padding:8px 16px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
-#viewControls{position:fixed;bottom:80px;right:12px;z-index:15;display:flex;flex-direction:column;gap:8px}
-#viewControls button{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
-#btn3D.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
-#btnFly.active{border-color:#22c55e;color:#22c55e;background:rgba(26,29,39,0.95)}
+#bottomStack{position:fixed;bottom:0;left:0;right:0;z-index:25;display:flex;flex-direction:column;pointer-events:none}
+#bottomStack > *{pointer-events:auto}
+#bottomActionBar{display:flex;gap:0;padding:8px 4px;background:rgba(14,17,25,0.72);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-top:1px solid rgba(255,255,255,0.1);box-shadow:0 -4px 22px rgba(0,0,0,0.6);overflow-x:auto;-webkit-overflow-scrolling:touch}
+#bottomActionBar::-webkit-scrollbar{display:none}
+.actBtn{position:relative;flex:1 1 0;min-width:64px;min-height:64px;padding:8px 4px;border:none;background:transparent;color:#cfd3dc;font-family:inherit;font-weight:700;cursor:pointer;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:background .15s,color .15s;-webkit-tap-highlight-color:transparent}
+.actBtn:not(:last-child)::after{content:'';position:absolute;right:0;top:22%;bottom:22%;width:1px;background:rgba(255,255,255,0.09);pointer-events:none}
+.actBtn .actIcon{font-size:28px;line-height:1}
+.actBtn .actLabel{font-size:12px;letter-spacing:0.4px;text-transform:uppercase;white-space:nowrap;font-weight:700}
+.actBtn:active{background:rgba(255,255,255,0.08)}
+.actBtn.active{background:#d4a12a;color:#0a0c0f;box-shadow:0 2px 10px rgba(212,161,42,0.35)}
+.actBtn.active::after{display:none}
+.actBtn.active + .actBtn::after{display:none}
+.actBtn.active .actIcon{filter:none}
+#routeBanner{background:rgba(255,74,74,0.97);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600;border-top:1px solid rgba(0,0,0,0.25)}
+#routeBanner button{padding:10px 16px;min-height:44px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
+#routeBadge{position:fixed;bottom:212px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
+.t-check{width:22px;height:22px;border-radius:6px;border:2px solid #444;background:transparent;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:14px;color:transparent;-webkit-tap-highlight-color:transparent}
+.t-check.checked{background:#4a9eff;border-color:#4a9eff;color:#fff}
+#routeBar{display:none;padding:10px 16px;border-top:1px solid #222;flex-shrink:0;gap:8px;align-items:center;background:#111}
+#routeBar.active{display:flex}
+#routeBar button{padding:10px 16px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+#routeLaunchTable{background:#4a9eff;color:#fff;flex:1}
+#routeClearTable{background:#333;color:#fff}
+#routeBarInfo{color:#ccc;font-size:13px;flex:1}
+#addRouteBtn{background:#e53935;color:#fff}
+#map3d{position:fixed;top:0;left:0;width:100%;height:100%;z-index:5;display:none;background:#000}
+#map3d gmp-map-3d{width:100%;height:100%}
+@keyframes mbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes mpulse{0%,100%{box-shadow:0 0 18px rgba(220,38,38,0.85),0 0 28px rgba(220,38,38,0.4)}50%{box-shadow:0 0 30px rgba(220,38,38,1),0 0 50px rgba(220,38,38,0.7)}}
+@keyframes mglow{0%,100%{box-shadow:0 0 20px rgba(255,200,60,0.85),0 0 32px rgba(255,200,60,0.5)}50%{box-shadow:0 0 32px rgba(255,215,0,1),0 0 60px rgba(255,180,0,0.8)}}
+.m3d-outer{display:inline-block;pointer-events:auto}
+.m3d-bob{display:inline-block;animation:mbob 2s ease-in-out infinite;will-change:transform;transform-origin:center bottom}
+.m3d-icon{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;border:3px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,0.7);line-height:1}
+.m3d-icon.txt{font-family:Arial,sans-serif;font-weight:900;color:#fff;font-size:20px}
+.m3d-whale{width:64px;height:64px;font-size:24px;border:4px solid #ffd700;background:#dc2626;color:#fff;font-weight:900;font-family:Arial,sans-serif;animation:mglow 2s ease-in-out infinite}
+.m3d-route{width:56px;height:56px;font-size:26px;background:#dc2626;color:#fff;border:3px solid #fff;animation:mpulse 1.5s ease-in-out infinite}
+#flyHud{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:40;background:rgba(0,0,0,0.85);color:#fff;padding:16px 24px;border-radius:14px;font-size:15px;font-weight:600;display:none;text-align:center;backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.15);min-width:220px}
+#flyHud.show{display:block}
+#flyHud .fh-stop{font-size:13px;color:#fbbf24;margin-bottom:4px}
+#flyHud .fh-name{font-size:16px;color:#fff}
+#flyConfirm{position:fixed;top:0;left:0;right:0;bottom:0;z-index:45;background:rgba(5,8,16,0.75);display:none;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+#flyConfirm.show{display:flex}
+#flyConfirm .box{background:#1a1d27;border:1px solid #2e3345;border-radius:14px;padding:20px 24px;width:300px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+#flyConfirm h3{color:#fff;font-size:17px;margin-bottom:6px}
+#flyConfirm p{color:#9ca3af;font-size:13px;margin-bottom:16px}
+#flyConfirm .row{display:flex;gap:8px}
+#flyConfirm button{flex:1;padding:11px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+#flyConfirm .ok{background:#4a9eff;color:#fff}
+#flyConfirm .no{background:#333;color:#fff}
 #routeLaunch{background:#fff;color:#e53935}
 #routeCancel{background:rgba(255,255,255,0.2);color:#fff}
 #loginOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;background:rgba(15,17,23,0.97);display:flex;align-items:center;justify-content:center}
@@ -97,11 +140,71 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #chatInput{flex:1;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none}
 #chatInput::placeholder{color:#555}
 #chatSend{width:36px;height:36px;border-radius:50%;border:none;background:#4a9eff;color:#fff;font-size:16px;cursor:pointer;flex-shrink:0}
-#chatToggle{position:fixed;bottom:16px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#chatToggle{position:fixed;bottom:104px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+/* ─── Territory Table Panel ─── */
+#territoryBtn{position:fixed;bottom:156px;left:16px;z-index:15;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(26,29,39,0.9);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.6);-webkit-tap-highlight-color:transparent}
+#territoryBtn.active{border-color:#4a9eff;color:#4a9eff;background:rgba(26,29,39,0.95)}
+#territoryPanel{position:fixed;top:0;left:0;right:0;bottom:0;z-index:35;background:rgba(15,17,23,0.98);transform:translateY(100%);transition:transform .3s ease;display:flex;flex-direction:column;overflow:hidden}
+#territoryPanel.open{transform:translateY(0)}
+#territoryHeader{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #222;flex-shrink:0}
+#territoryHeader h2{color:#fff;font-size:16px;margin:0;font-weight:700}
+#territoryHeader .subtitle{color:#888;font-size:11px}
+#territoryControls{display:flex;gap:8px;align-items:center}
+#territoryClose{background:none;border:none;color:#888;font-size:22px;cursor:pointer;padding:4px 8px}
+#liveToggle{display:flex;align-items:center;gap:6px;font-size:12px;color:#888;cursor:pointer;user-select:none}
+#liveToggle input{display:none}
+#liveToggle .toggle-track{width:36px;height:20px;border-radius:10px;background:#333;position:relative;transition:background .2s}
+#liveToggle input:checked + .toggle-track{background:#4a9eff}
+#liveToggle .toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s}
+#liveToggle input:checked + .toggle-track .toggle-thumb{left:18px}
+#liveDot{width:8px;height:8px;border-radius:50%;background:#333;display:inline-block}
+#liveDot.active{background:#4a9eff;animation:pulse-dot 1.5s infinite}
+#territoryFilter{display:flex;gap:6px;padding:8px 16px;overflow-x:auto;flex-shrink:0;border-bottom:1px solid #1a1a2e}
+#territoryFilter::-webkit-scrollbar{display:none}
+.tFilterBtn{padding:5px 12px;border-radius:14px;border:1px solid #444;background:transparent;color:#ccc;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s}
+.tFilterBtn.active{color:#fff;border-color:#4a9eff;background:#4a9eff}
+#territorySearch{margin:8px 16px;padding:8px 12px;border-radius:16px;border:1px solid #333;background:#1a1a2e;color:#fff;font-size:13px;outline:none;flex-shrink:0}
+#territorySearch::placeholder{color:#555}
+#territorySearch:focus{border-color:#4a9eff}
+#territoryCount{color:#888;font-size:11px;padding:0 16px 6px;flex-shrink:0}
+#territoryList{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0}
+.t-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1a1a2e;cursor:pointer;transition:background .15s}
+.t-row:active{background:rgba(74,158,255,0.15)}
+.t-emoji{font-size:24px;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.t-emoji-whale{background:#e53935}
+.t-emoji-customer{background:#22c55e}
+.t-emoji-prospect{background:#fdd835}
+.t-emoji-cold{background:#757575}
+.t-emoji-saved{background:#ff9800}
+.t-emoji-wantgo{background:#ff6d00}
+.t-emoji-home{background:#1e88e5}
+.t-info{flex:1;min-width:0}
+.t-name{font-weight:600;color:#fff;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-sub{color:#888;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.t-dist{color:#4a9eff;font-weight:700;font-size:13px;white-space:nowrap;flex-shrink:0;text-align:right}
+#territoryRefreshInfo{color:#555;font-size:10px;text-align:center;padding:6px;flex-shrink:0}
 .gps-dot{width:44px;height:44px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 8px rgba(37,99,235,0.7);position:relative;overflow:hidden}
 .gps-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .gps-dot::after{content:'';position:absolute;top:50%;left:50%;width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.25);transform:translate(-50%,-50%);animation:gps-pulse 2s ease-out infinite;pointer-events:none}
 @keyframes gps-pulse{0%{width:16px;height:16px;opacity:.8}100%{width:48px;height:48px;opacity:0}}
+#routeOptimize{background:#d4a12a;color:#000}
+#routeOptimize:disabled{opacity:0.6;cursor:not-allowed}
+#routeOptimizeTable{background:#d4a12a;color:#000;padding:10px 12px;border-radius:10px;border:none;font-size:13px;font-weight:700;cursor:pointer}
+.t-drive{color:#d4a12a;font-size:11px;font-weight:600;margin-top:2px;white-space:nowrap}
+#prospectModal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:60;background:rgba(5,8,16,0.75);display:none;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+#prospectModal.show{display:flex}
+#prospectModal .box{background:#1a1d27;border:1px solid #2e3345;border-radius:14px;padding:18px 20px;width:320px;box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+#prospectModal h3{color:#d4a12a;font-size:16px;margin-bottom:12px;text-align:center}
+#prospectModal label{color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;display:block;margin-bottom:4px;margin-top:10px}
+#prospectModal input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0f1117;color:#fff;font-size:14px;outline:none}
+#prospectModal input:focus{border-color:#a855f7}
+#prospectModal .hint{color:#666;font-size:11px;margin-top:4px}
+#prospectModal .row{display:flex;gap:8px;margin-top:16px}
+#prospectModal button{flex:1;padding:11px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+#prospectSearch{background:#a855f7;color:#fff}
+#prospectCancel{background:#333;color:#fff}
+#prospectClear{background:#444;color:#ccc;margin-top:8px;width:100%;padding:8px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer}
+.m-prospect{width:32px;height:32px;border-radius:50%;background:#a855f7;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(168,85,247,0.6);cursor:pointer}
 </style>
 </head><body>
 <div id="loginOverlay">
@@ -154,19 +257,80 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   <div id="sheetContent"></div>
 </div>
 
-<div id="viewControls">
-  <button id="btnLocate" title="My location">&#9678;</button>
-  <button id="btn3D" title="Toggle 3D tilt">3D</button>
-  <button id="btnFly" title="Auto-rotate fly mode">Fly</button>
-</div>
+<div id="map3d"></div>
+<div id="flyHud"><div class="fh-stop"></div><div class="fh-name"></div></div>
+<div id="flyConfirm"><div class="box"><h3>Launch Navigation?</h3><p>Flythrough complete. Open Google Maps turn-by-turn?</p><div class="row"><button class="no" id="flyConfirmNo">Cancel</button><button class="ok" id="flyConfirmYes">Launch</button></div></div></div>
 
-<div id="routeBanner">
-  <span id="routeInfo">Tap pins to add stops</span>
-  <button id="routeLaunch">GO</button>
-  <button id="routeCancel">Cancel</button>
+<div id="bottomStack">
+  <nav id="bottomActionBar" role="toolbar" aria-label="Map controls">
+    <button class="actBtn" id="btnMapStyle" title="Toggle satellite / styled roadmap"><span class="actIcon">&#128752;</span><span class="actLabel">SAT</span></button>
+    <button class="actBtn" id="btnTraffic" title="Live traffic"><span class="actIcon">&#128678;</span><span class="actLabel">Traffic</span></button>
+    <button class="actBtn" id="btnFindProspects" title="Find prospects via Google Places"><span class="actIcon">&#128269;</span><span class="actLabel">Prospects</span></button>
+    <button class="actBtn" id="btnLocate" title="My location"><span class="actIcon">&#128205;</span><span class="actLabel">Location</span></button>
+    <button class="actBtn" id="btn3D" title="Toggle 3D tilt"><span class="actIcon">3D</span><span class="actLabel">Tilt</span></button>
+    <button class="actBtn" id="btnFly" title="Auto-rotate fly mode"><span class="actIcon">&#9992;</span><span class="actLabel">Fly</span></button>
+    <button class="actBtn" id="btn3DPlus" title="Photorealistic 3D Immersive view"><span class="actIcon">3D+</span><span class="actLabel">Immersive</span></button>
+  </nav>
+  <div id="routeBanner">
+    <span id="routeInfo">0 stops</span>
+    <button id="routeOptimize">Optimize</button>
+    <button id="routeLaunch">GO &#128640;</button>
+    <button id="routeCancel">Clear</button>
+  </div>
+</div>
+<div id="routeBadge"></div>
+<div id="prospectModal">
+  <div class="box">
+    <h3>&#128269; Find Prospects</h3>
+    <label>Business type</label>
+    <input id="prospectType" type="text" placeholder="trucking company, concrete contractor..." autocomplete="off">
+    <div class="hint">Searches Google Places in the visible map area.</div>
+    <label>Radius (miles)</label>
+    <input id="prospectRadius" type="number" value="10" min="1" max="50">
+    <div class="row">
+      <button id="prospectCancel">Cancel</button>
+      <button id="prospectSearch">Search</button>
+    </div>
+    <button id="prospectClear">Clear prospect pins</button>
+  </div>
 </div>
 
 <div id="voiceToast"></div>
+<button id="territoryBtn" title="Territory Table">&#128203;</button>
+<div id="territoryPanel">
+  <div id="territoryHeader">
+    <div>
+      <h2>Territory <span id="liveDot"></span></h2>
+      <div class="subtitle" id="territoryRefreshInfo">Tap row to zoom &middot; sorted by distance</div>
+    </div>
+    <div id="territoryControls">
+      <label id="liveToggle">
+        <span>Live</span>
+        <input type="checkbox" id="liveCheck">
+        <div class="toggle-track"><div class="toggle-thumb"></div></div>
+      </label>
+      <button id="territoryClose">&#10005;</button>
+    </div>
+  </div>
+  <div id="territoryFilter">
+    <button class="tFilterBtn active" data-tf="all">All</button>
+    <button class="tFilterBtn" data-tf="whale">Whales</button>
+    <button class="tFilterBtn" data-tf="customer">Customers</button>
+    <button class="tFilterBtn" data-tf="prospect">Prospects</button>
+    <button class="tFilterBtn" data-tf="cold">Cold</button>
+    <button class="tFilterBtn" data-tf="saved">Saved</button>
+    <button class="tFilterBtn" data-tf="wantgo">Want to Go</button>
+  </div>
+  <input id="territorySearch" type="text" placeholder="Search territory...">
+  <div id="territoryCount"></div>
+  <div id="territoryList"></div>
+  <div id="routeBar">
+    <span id="routeBarInfo">0 stops selected</span>
+    <button id="routeOptimizeTable">Optimize</button>
+    <button id="routeLaunchTable">GO &#128640;</button>
+    <button id="routeClearTable">Clear</button>
+  </div>
+</div>
 <button id="chatToggle" title="AI Chat">&#128172;</button>
 <div id="chatPanel">
   <div id="chatHeader"><span>&#129302; Oxley AI Assistant</span><button id="chatMin">&#10005;</button></div>
@@ -380,8 +544,8 @@ function getIndustryCode(loc) {
 
 // Create a styled HTML circle element for AdvancedMarkerElement content
 function pinEl(bg, content, sz, isText) {
-  const el = document.createElement('div');
   const efs = isText ? Math.round(sz * 0.38) : Math.round(sz * 0.5);
+  const el = document.createElement('div');
   el.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:${efs}px;box-shadow:0 2px 8px rgba(0,0,0,0.6);cursor:pointer;line-height:1;` + (isText ? 'color:#fff;font-weight:900;font-family:Arial,sans-serif;' : '');
   el.textContent = content;
   return el;
@@ -401,25 +565,92 @@ function getMarkerContent(loc) {
   return pinEl(ind.bg, ind.emoji, 36, false);
 }
 
-let map, markers = [], activeFilter = 'all', routeMode = false, routeStops = [];
+let map, markers = [], activeFilter = 'all', markerCluster = null;
+
+// Custom cluster marker: dark circle with gold count text, matching app theme.
+function buildClusterRenderer() {
+  return {
+    render: ({ count, position }) => {
+      const size = Math.min(68, 40 + Math.log2(count + 1) * 6);
+      const fs = count >= 1000 ? 13 : count >= 100 ? 15 : 17;
+      const div = document.createElement('div');
+      div.style.cssText = 'width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:rgba(10,12,18,0.94);border:3px solid #d4a12a;display:flex;align-items:center;justify-content:center;color:#d4a12a;font-weight:900;font-size:' + fs + 'px;font-family:Arial,sans-serif;box-shadow:0 2px 14px rgba(212,161,42,0.55),inset 0 0 12px rgba(212,161,42,0.12);cursor:pointer;letter-spacing:0.5px;';
+      div.textContent = String(count);
+      return new google.maps.marker.AdvancedMarkerElement({
+        position,
+        content: div,
+        zIndex: 1000 + count
+      });
+    }
+  };
+}
+
+function initClusterer() {
+  if (!window.markerClusterer || !map) return;
+  if (markerCluster) return;
+  const algo = new markerClusterer.SuperClusterAlgorithm({ maxZoom: 10, radius: 100 });
+  markerCluster = new markerClusterer.MarkerClusterer({
+    map,
+    markers: markers.filter(m => m._visible),
+    renderer: buildClusterRenderer(),
+    algorithm: algo
+  });
+}
+
+function refreshClusterer() {
+  if (!markerCluster) return;
+  markerCluster.clearMarkers();
+  markerCluster.addMarkers(markers.filter(m => m._visible));
+}
 let flyInterval = null, isTilted = false, preZoom = null, preCenter = null, flyAngle = 0;
 
+// Dark gold theme to match the app aesthetic. Registered as a StyledMapType so
+// it coexists with the Map's mapId (required for AdvancedMarkerElement).
+const DARK_GOLD_STYLE = [
+  {elementType:'geometry',stylers:[{color:'#0a0c0f'}]},
+  {elementType:'labels.text.fill',stylers:[{color:'#8a8a8a'}]},
+  {elementType:'labels.text.stroke',stylers:[{color:'#0a0c0f'}]},
+  {elementType:'labels.icon',stylers:[{visibility:'off'}]},
+  {featureType:'poi',stylers:[{visibility:'off'}]},
+  {featureType:'transit',stylers:[{visibility:'off'}]},
+  {featureType:'administrative',elementType:'geometry.stroke',stylers:[{color:'#3a2d0f'}]},
+  {featureType:'administrative.country',elementType:'labels.text.fill',stylers:[{color:'#b89968'}]},
+  {featureType:'administrative.locality',elementType:'labels.text.fill',stylers:[{color:'#a0a0a0'}]},
+  {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0a0c0f'}]},
+  {featureType:'landscape.natural',elementType:'geometry',stylers:[{color:'#0d1014'}]},
+  {featureType:'road',elementType:'geometry.stroke',stylers:[{color:'#3a2d0f'}]},
+  {featureType:'road',elementType:'geometry.fill',stylers:[{color:'#d4a12a'}]},
+  {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#d4a12a'}]},
+  {featureType:'road',elementType:'labels.text.stroke',stylers:[{color:'#0a0c0f'}]},
+  {featureType:'road.highway',elementType:'geometry.fill',stylers:[{color:'#e6b344'}]},
+  {featureType:'road.highway',elementType:'geometry.stroke',stylers:[{color:'#5a4012'}]},
+  {featureType:'road.arterial',elementType:'geometry.fill',stylers:[{color:'#d4a12a'}]},
+  {featureType:'road.local',elementType:'geometry.fill',stylers:[{color:'#9c7520'}]},
+  {featureType:'water',elementType:'geometry',stylers:[{color:'#050709'}]},
+  {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#4a4a4a'}]}
+];
+
 function initMap() {
+  // Default to satellite/hybrid. The `styles` option is passed directly on
+  // the Map constructor (alongside mapId so AdvancedMarkerElement keeps its
+  // features). Styles only render on roadmap/terrain tiles — the "MAP" /
+  // "SAT" toggle button switches between hybrid and styled roadmap.
   map = new google.maps.Map(document.getElementById('map'), {
     center: {lat:30.05, lng:-94.55}, zoom:10,
     mapTypeId: 'hybrid',
     mapId: 'DEMO_MAP_ID',
+    styles: DARK_GOLD_STYLE,
     tilt: 0,
     heading: 0,
     disableDefaultUI: true, zoomControl: true,
     gestureHandling: 'greedy',
     rotateControl: true
   });
+  console.log('[map] init complete, mapTypeId=', map.getMapTypeId(), 'mapId set');
 
   locations.forEach((loc, i) => {
     const marker = new google.maps.marker.AdvancedMarkerElement({
       position: {lat:loc.lat, lng:loc.lng},
-      map: map,
       title: loc.name,
       content: getMarkerContent(loc)
     });
@@ -427,20 +658,22 @@ function initMap() {
     marker._idx = i;
     marker._visible = true;
     marker.addListener('click', () => onMarkerClick(marker));
+    setupMarkerLongPress(marker);
     markers.push(marker);
   });
 
+  initClusterer();
   updateStats();
 
   // Load additional prospects from JSON
   fetch('/prospects.json')
     .then(r => r.json())
     .then(places => {
+      const added = [];
       places.forEach(p => {
         const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
         const marker = new google.maps.marker.AdvancedMarkerElement({
           position:{lat:p.t,lng:p.g},
-          map:map,
           title:p.n,
           content: getMarkerContent(loc)
         });
@@ -449,31 +682,132 @@ function initMap() {
         marker._visible = true;
         locations.push(loc);
         marker.addListener('click', () => onMarkerClick(marker));
+        setupMarkerLongPress(marker);
         markers.push(marker);
+        added.push(marker);
       });
+      if (markerCluster) {
+        markerCluster.addMarkers(added);
+      } else {
+        initClusterer();
+      }
       updateStats();
     })
     .catch(e => console.error('Failed to load prospects.json:', e));
 }
 
+// ─── Route System ───
+let routeLocations = []; // array of location objects in route
+
+function addToRoute(loc) {
+  if (routeLocations.find(r => r.name === loc.name)) return;
+  routeLocations.push(loc);
+  updateRouteBadge();
+}
+
+function removeFromRoute(loc) {
+  routeLocations = routeLocations.filter(r => r.name !== loc.name);
+  updateRouteBadge();
+}
+
+function toggleRoute(loc) {
+  if (routeLocations.find(r => r.name === loc.name)) {
+    removeFromRoute(loc);
+    return false;
+  } else {
+    addToRoute(loc);
+    return true;
+  }
+}
+
+function clearRoute() {
+  routeLocations = [];
+  updateRouteBadge();
+}
+
+function updateRouteBadge() {
+  const n = routeLocations.length;
+  const badge = document.getElementById('routeBadge');
+  const banner = document.getElementById('routeBanner');
+  const bar = document.getElementById('routeBar');
+  // Floating badge on map
+  badge.textContent = n;
+  badge.style.display = n > 0 ? 'flex' : 'none';
+  // Bottom banner on map
+  if (n > 0) {
+    banner.style.display = 'flex';
+    document.getElementById('routeInfo').textContent = n + ' stop' + (n !== 1 ? 's' : '');
+  } else {
+    banner.style.display = 'none';
+  }
+  // Route bar in territory table
+  bar.classList.toggle('active', n > 0);
+  document.getElementById('routeBarInfo').textContent = n + ' stop' + (n !== 1 ? 's' : '') + ' selected';
+  // Re-render territory table to update checkboxes
+  if (territoryOpen) renderTerritoryTable();
+  // Rebuild 3D markers so route stops get the red pulsing style
+  if (is3DPlus) rebuild3DMarkers();
+}
+
+async function launchRoute() {
+  if (!routeLocations.length) return;
+  if (is3DPlus && map3dEl && typeof map3dEl.flyCameraTo === 'function') {
+    await flythroughRoute();
+    const ok = await showLaunchConfirm();
+    if (!ok) return;
+  }
+  openNavigation();
+}
+
+function buildNearestRoute(count, typeFilter) {
+  const origin = gpsPos || {lat:30.0688, lng:-94.1777};
+  let candidates = locations.filter(l => l.type !== 'home');
+  if (typeFilter) candidates = candidates.filter(l => l.type === typeFilter);
+  candidates = candidates.map(loc => ({
+    loc,
+    dist: haversine(origin.lat, origin.lng, loc.lat, loc.lng)
+  }));
+  candidates.sort((a, b) => a.dist - b.dist);
+  clearRoute();
+  candidates.slice(0, count).forEach(c => addToRoute(c.loc));
+  showToast('Route: ' + routeLocations.length + ' nearest ' + (typeFilter || 'stops'));
+}
+
+// Long-press on markers to add to route
+let longPressTimer = null;
+function setupMarkerLongPress(marker) {
+  const el = marker.content;
+  if (!el) return;
+  el.addEventListener('pointerdown', (e) => {
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      const added = toggleRoute(marker._loc);
+      showToast(added ? '+ ' + marker._loc.name : '- ' + marker._loc.name);
+    }, 500);
+  });
+  el.addEventListener('pointerup', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+  el.addEventListener('pointerleave', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+  el.addEventListener('pointermove', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+}
+
 function onMarkerClick(marker) {
   const loc = marker._loc;
-  if (routeMode) {
-    const exists = routeStops.findIndex(s => s._idx === marker._idx);
-    if (exists > -1) {
-      routeStops.splice(exists, 1);
-    } else {
-      routeStops.push(marker);
-    }
-    document.getElementById('routeInfo').textContent = routeStops.length + ' stop' + (routeStops.length!==1?'s':'') + ' selected';
-    return;
-  }
   map.panTo(marker.position);
   if (map.getZoom() < 17) map.setZoom(17);
   openSheet(loc);
 }
 
+let currentSheetLoc = null;
+
+function toggleRouteFromSheet() {
+  if (!currentSheetLoc) return;
+  const added = toggleRoute(currentSheetLoc);
+  const btn = document.getElementById('addRouteBtn');
+  if (btn) btn.textContent = added ? '\uD83D\uDE80 Remove from Route' : '\uD83D\uDE80 Add to Route';
+}
+
 async function openSheet(loc) {
+  currentSheetLoc = loc;
   const truckStr = loc.trucks ? loc.trucks + ' trucks' : 'Trucks unknown';
   const driverStr = loc.drivers ? ', ' + loc.drivers + ' drivers' : '';
   const phoneLink = loc.phone ? `<a href="tel:${loc.phone.replace(/[^\d+]/g,'')}">${loc.phone}</a>` : 'N/A';
@@ -541,6 +875,7 @@ async function openSheet(loc) {
     </div>
     <div class="sheetActions">
       <button id="navBtn" onclick="navigate('${addrEsc}')">&#128665; Navigate</button>
+      <button id="addRouteBtn" onclick="toggleRouteFromSheet()">&#128640; ${routeLocations.find(r => r.name === loc.name) ? 'Remove from Route' : 'Add to Route'}</button>
       <button id="svBtn" onclick="showStreetView(${loc.lat},${loc.lng})">&#128064; Street View</button>
     </div>
     <div id="svContainer"></div>
@@ -553,19 +888,9 @@ function navigate(addr) {
 }
 
 function showStreetView(lat, lng) {
-  const svContainer = document.getElementById('svContainer');
-  if (svContainer.style.display === 'block') {
-    svContainer.style.display = 'none';
-    return;
-  }
-  svContainer.style.display = 'block';
-  new google.maps.StreetViewPanorama(svContainer, {
-    position: {lat, lng},
-    pov: {heading:0, pitch:0},
-    zoom: 1,
-    disableDefaultUI: true,
-    showRoadLabels: false
-  });
+  // Opens Google Street View in a new tab at the pin's coordinates.
+  const url = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat + ',' + lng;
+  window.open(url, '_blank');
 }
 
 // Filters
@@ -587,10 +912,14 @@ function applyFilters() {
     const matchFilter = activeFilter === 'all' || loc.type === activeFilter;
     const matchSearch = !q || loc.name.toLowerCase().includes(q) || (loc.addr && loc.addr.toLowerCase().includes(q)) || (loc.notes && loc.notes.toLowerCase().includes(q));
     const visible = matchFilter && matchSearch;
-    m.map = visible ? map : null;
     m._visible = visible;
     if (visible) { shown++; totalTrucks += loc.trucks || 0; }
   });
+  if (markerCluster) {
+    refreshClusterer();
+  } else {
+    markers.forEach(m => { m.map = m._visible ? map : null; });
+  }
   document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
 }
 
@@ -609,30 +938,14 @@ document.getElementById('map').addEventListener('click', e => {
   }
 });
 
-// Route mode
+// Route banner buttons
 document.getElementById('routeBtn').addEventListener('click', () => {
-  routeMode = !routeMode;
-  routeStops = [];
-  document.getElementById('routeBtn').classList.toggle('active', routeMode);
-  document.getElementById('routeBanner').style.display = routeMode ? 'flex' : 'none';
-  document.getElementById('sheet').classList.remove('open');
-  document.getElementById('routeInfo').textContent = 'Tap pins to add stops';
+  // Open territory table for route building
+  if (!territoryOpen) document.getElementById('territoryBtn').click();
 });
 
-document.getElementById('routeCancel').addEventListener('click', () => {
-  routeMode = false;
-  routeStops = [];
-  document.getElementById('routeBtn').classList.remove('active');
-  document.getElementById('routeBanner').style.display = 'none';
-});
-
-document.getElementById('routeLaunch').addEventListener('click', () => {
-  if (!routeStops.length) return;
-  const origin = encodeURIComponent(HOME_ADDR);
-  const dest = encodeURIComponent(HOME_ADDR);
-  const waypoints = routeStops.map(s => encodeURIComponent(s._loc.addr)).join('|');
-  window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&waypoints=${waypoints}`, '_blank');
-});
+document.getElementById('routeCancel').addEventListener('click', () => clearRoute());
+document.getElementById('routeLaunch').addEventListener('click', () => launchRoute());
 
 // Close sheet by tapping outside
 document.addEventListener('click', e => {
@@ -660,7 +973,7 @@ document.getElementById('btn3D').addEventListener('click', () => {
     map.setZoom(18);
     setTimeout(() => { map.setTilt(45); }, 300);
     btn3D.classList.add('active');
-    btn3D.textContent = '2D';
+    btn3D.querySelector('.actIcon').textContent = '2D';
   } else {
     stopFly();
     map.setTilt(0);
@@ -669,7 +982,7 @@ document.getElementById('btn3D').addEventListener('click', () => {
     if (preCenter) map.setCenter(preCenter);
     preZoom = null; preCenter = null;
     btn3D.classList.remove('active');
-    btn3D.textContent = '3D';
+    btn3D.querySelector('.actIcon').textContent = '3D';
   }
 });
 
@@ -718,6 +1031,255 @@ document.getElementById('btnFly').addEventListener('click', () => {
     console.log('Fly started — orbiting', orbitCenter);
   }, 500);
 });
+
+// ─── 3D+ Photorealistic Immersive View ───
+let map3dEl = null, markers3d = [], is3DPlus = false, maps3dLibs = null;
+
+function build3DMarkerContent(loc, opts) {
+  // Nested structure: .m3d-outer is the slot root (may receive engine
+  // transforms for positioning). .m3d-bob carries the CSS hover animation
+  // on a separate layer so the engine's transform doesn't clobber it.
+  const outer = document.createElement('div');
+  outer.className = 'm3d-outer';
+  const bob = document.createElement('div');
+  bob.className = 'm3d-bob';
+  const icon = document.createElement('div');
+  icon.className = 'm3d-icon';
+  if (opts.inRoute) {
+    icon.classList.add('m3d-route');
+    icon.textContent = '🚩';
+  } else if (loc.type === 'whale') {
+    icon.classList.add('m3d-whale');
+    icon.textContent = loc.trucks ? String(loc.trucks) : 'W';
+  } else if (loc.type === 'home') {
+    icon.style.background = '#3b82f6';
+    icon.textContent = '🏠';
+  } else if (loc.type === 'customer') {
+    icon.style.background = '#22c55e';
+    icon.textContent = '💰';
+  } else {
+    const code = getIndustryCode(loc);
+    const ind = INDUSTRY[code];
+    icon.style.background = ind.bg;
+    icon.textContent = ind.emoji || '📍';
+  }
+  bob.appendChild(icon);
+  outer.appendChild(bob);
+  return outer;
+}
+
+function altitudeFor(loc, inRoute) {
+  if (inRoute) return 60;
+  if (loc.type === 'whale') return 80;
+  return 30;
+}
+
+function pick3DMarkerCtor() {
+  if (!maps3dLibs) return { ctor: null, kind: 'none' };
+  if (maps3dLibs.Marker3DInteractiveElement) return { ctor: maps3dLibs.Marker3DInteractiveElement, kind: 'interactive' };
+  if (maps3dLibs.Marker3DElement) return { ctor: maps3dLibs.Marker3DElement, kind: 'basic' };
+  return { ctor: null, kind: 'none' };
+}
+
+function add3DMarker(loc) {
+  if (!map3dEl || !maps3dLibs) return null;
+  const { ctor: Marker3DCtor, kind } = pick3DMarkerCtor();
+  if (!Marker3DCtor) return null;
+  const inRoute = !!routeLocations.find(r => r.name === loc.name);
+  const alt = altitudeFor(loc, inRoute);
+  let m3d;
+  try {
+    m3d = new Marker3DCtor({
+      position: { lat: loc.lat, lng: loc.lng, altitude: alt },
+      altitudeMode: 'RELATIVE_TO_GROUND',
+      extruded: true,
+      sizePreserved: true,
+      label: loc.name
+    });
+  } catch (e) {
+    console.error('[3D+] Marker ctor failed for', loc.name, e);
+    return null;
+  }
+  m3d.appendChild(build3DMarkerContent(loc, { inRoute }));
+  const handler = () => openSheet(loc);
+  if (kind === 'interactive') {
+    m3d.addEventListener('gmp-click', handler);
+  } else {
+    m3d.addEventListener('click', handler);
+  }
+  m3d._loc = loc;
+  m3d._alt = alt;
+  map3dEl.appendChild(m3d);
+  markers3d.push(m3d);
+  return m3d;
+}
+
+function rebuild3DMarkers() {
+  if (!map3dEl) return;
+  markers3d.forEach(m => { try { map3dEl.removeChild(m); } catch (e) {} });
+  markers3d = [];
+  markers.forEach(m => { if (m._visible) add3DMarker(m._loc); });
+  log3DMarkerStats('rebuild');
+}
+
+function log3DMarkerStats(phase) {
+  const { kind } = pick3DMarkerCtor();
+  const parented = markers3d.filter(m => m.parentNode === map3dEl).length;
+  const altitudes = markers3d.map(m => m._alt);
+  const counts = altitudes.reduce((a, v) => (a[v] = (a[v] || 0) + 1, a), {});
+  console.log(
+    '[3D+][' + phase + '] markerCtor=' + kind +
+    ' created=' + markers3d.length +
+    ' parentedToMap3d=' + parented +
+    ' altitudes(m)=' + JSON.stringify(counts)
+  );
+}
+
+async function enter3DPlus() {
+  const btn = document.getElementById('btn3DPlus');
+  if (!map) return;
+  const centerLL = map.getCenter();
+  const center = centerLL.toJSON();
+  const zoom = map.getZoom();
+  const heading = map.getHeading() || 0;
+
+  stopFly();
+
+  try {
+    maps3dLibs = await google.maps.importLibrary('maps3d');
+  } catch (e) {
+    console.error('maps3d library failed to load:', e);
+    showToast('3D+ unavailable');
+    return;
+  }
+  console.log('[3D+] maps3d lib keys:', Object.keys(maps3dLibs));
+  console.log('[3D+] Marker3DInteractiveElement?', !!maps3dLibs.Marker3DInteractiveElement,
+              'Marker3DElement?', !!maps3dLibs.Marker3DElement);
+
+  const { Map3DElement } = maps3dLibs;
+
+  const range = Math.max(400, 40000000 / Math.pow(2, zoom));
+
+  map3dEl = new Map3DElement({
+    center: { lat: center.lat, lng: center.lng, altitude: 0 },
+    heading: heading,
+    tilt: 67.5,
+    range: range
+  });
+  try { map3dEl.mode = 'HYBRID'; } catch (e) {}
+
+  const container = document.getElementById('map3d');
+  container.innerHTML = '';
+  container.appendChild(map3dEl);
+  container.style.display = 'block';
+
+  markers3d = [];
+  const { kind } = pick3DMarkerCtor();
+  if (kind === 'none') {
+    console.warn('[3D+] No Maps3D marker API available — markers will be skipped. ' +
+                 'Map3DElement still renders the photorealistic scene.');
+    showToast('3D markers unsupported on this browser');
+  } else {
+    markers.forEach(m => { if (m._visible) add3DMarker(m._loc); });
+    log3DMarkerStats('enter');
+  }
+
+  is3DPlus = true;
+  btn.classList.add('active');
+  btn.querySelector('.actIcon').textContent = '2D';
+}
+
+function exit3DPlus() {
+  const container = document.getElementById('map3d');
+  if (container) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+  }
+  map3dEl = null;
+  markers3d = [];
+  is3DPlus = false;
+  const btn = document.getElementById('btn3DPlus');
+  btn.classList.remove('active');
+  btn.querySelector('.actIcon').textContent = '3D+';
+}
+
+document.getElementById('btn3DPlus').addEventListener('click', () => {
+  if (is3DPlus) exit3DPlus();
+  else enter3DPlus();
+});
+
+// ─── 3D Route Flythrough ───
+function waitForAnim() {
+  if (!map3dEl) return Promise.resolve();
+  return new Promise(resolve => {
+    let done = false;
+    const onEnd = () => { if (done) return; done = true; map3dEl.removeEventListener('gmp-animationend', onEnd); resolve(); };
+    map3dEl.addEventListener('gmp-animationend', onEnd, { once: true });
+    // Safety timeout in case event never fires
+    setTimeout(() => { if (!done) { done = true; map3dEl.removeEventListener('gmp-animationend', onEnd); resolve(); } }, 6000);
+  });
+}
+
+function showFlyHud(idx, total, name) {
+  const hud = document.getElementById('flyHud');
+  hud.querySelector('.fh-stop').textContent = 'Stop ' + idx + ' of ' + total;
+  hud.querySelector('.fh-name').textContent = name;
+  hud.classList.add('show');
+}
+function hideFlyHud() { document.getElementById('flyHud').classList.remove('show'); }
+
+function showLaunchConfirm() {
+  return new Promise(resolve => {
+    const modal = document.getElementById('flyConfirm');
+    modal.classList.add('show');
+    const yes = document.getElementById('flyConfirmYes');
+    const no = document.getElementById('flyConfirmNo');
+    const onYes = () => { cleanup(); resolve(true); };
+    const onNo = () => { cleanup(); resolve(false); };
+    function cleanup() {
+      modal.classList.remove('show');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+    }
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+  });
+}
+
+async function flythroughRoute() {
+  if (!is3DPlus || !map3dEl || !routeLocations.length) return;
+  for (let i = 0; i < routeLocations.length; i++) {
+    const stop = routeLocations[i];
+    showFlyHud(i + 1, routeLocations.length, stop.name);
+    const center = { lat: stop.lat, lng: stop.lng, altitude: 200 };
+    try {
+      map3dEl.flyCameraTo({
+        endCamera: { center, tilt: 67.5, heading: 0, range: 600 },
+        durationMillis: 1500
+      });
+      await waitForAnim();
+      map3dEl.flyCameraAround({
+        camera: { center, tilt: 67.5, heading: 0, range: 600 },
+        durationMillis: 2000,
+        rounds: 1
+      });
+      await waitForAnim();
+    } catch (e) {
+      console.error('Flythrough step failed:', e);
+      break;
+    }
+  }
+  hideFlyHud();
+}
+
+function openNavigation() {
+  const origin = gpsPos
+    ? encodeURIComponent(gpsPos.lat + ',' + gpsPos.lng)
+    : encodeURIComponent(HOME_ADDR);
+  const dest = encodeURIComponent(HOME_ADDR);
+  const waypoints = routeLocations.map(r => encodeURIComponent(r.addr)).join('|');
+  window.open('https://www.google.com/maps/dir/?api=1&origin=' + origin + '&destination=' + dest + '&waypoints=' + waypoints + '&travelmode=driving', '_blank');
+}
 
 // ─── Firebase Integration ───
 let fbAuth, fbDb, fbUser = null, qboCustomers = [], mapNotesCache = {};
@@ -893,8 +1455,18 @@ function handleVoiceCommand(text) {
     sb.dispatchEvent(new Event('input'));
     return;
   }
-  if (/^route$/i.test(t)) { if (!routeMode) document.getElementById('routeBtn').click(); return; }
-  if (/^go$/i.test(t)) { document.getElementById('routeLaunch').click(); return; }
+  // Route voice commands: "route nearest 5", "route nearest 10 prospects", "route 5 customers"
+  const routeMatch = t.match(/route\s+(?:nearest\s+)?(\d+)\s*(prospect|customer|whale|cold|saved)?s?/i);
+  if (routeMatch) {
+    const count = parseInt(routeMatch[1]);
+    const typeMap = {prospect:'prospect',customer:'customer',whale:'whale',cold:'cold',saved:'saved'};
+    const typeFilter = routeMatch[2] ? typeMap[routeMatch[2].toLowerCase()] : null;
+    buildNearestRoute(count, typeFilter);
+    return;
+  }
+  if (/^route$/i.test(t)) { document.getElementById('routeBtn').click(); return; }
+  if (/^go$/i.test(t) || /^launch\s*route$/i.test(t)) { launchRoute(); return; }
+  if (/^clear\s*route$/i.test(t)) { clearRoute(); showToast('Route cleared'); return; }
 
   sendToChat(text);
 }
@@ -1015,6 +1587,452 @@ function sendToChat(userMsg) {
   });
 }
 
+// ─── Territory Table ───
+let territoryOpen = false, territoryFilter = 'all', territoryRefreshTimer = null;
+const LIVE_INTERVAL = 60000;    // 60 seconds when live enabled
+const IDLE_INTERVAL = 180000;   // 3 minutes otherwise
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const TYPE_EMOJI = {whale:'\uD83D\uDC0B',customer:'\uD83D\uDCB0',prospect:'\uD83D\uDCC8',cold:'\u2744\uFE0F',saved:'\uD83D\uDCCC',wantgo:'\uD83C\uDFAF',home:'\uD83C\uDFE0'};
+
+function renderTerritoryTable() {
+  const origin = gpsPos || {lat:30.0688,lng:-94.1777};
+  const q = document.getElementById('territorySearch').value.toLowerCase();
+  const list = document.getElementById('territoryList');
+
+  // Build rows from all locations
+  let rows = locations.map((loc, i) => {
+    const dist = haversine(origin.lat, origin.lng, loc.lat, loc.lng);
+    return { loc, dist, idx: i };
+  });
+
+  // Filter by type
+  if (territoryFilter !== 'all') {
+    rows = rows.filter(r => r.loc.type === territoryFilter);
+  }
+  // Filter by search
+  if (q) {
+    rows = rows.filter(r =>
+      r.loc.name.toLowerCase().includes(q) ||
+      (r.loc.addr && r.loc.addr.toLowerCase().includes(q)) ||
+      (r.loc.notes && r.loc.notes.toLowerCase().includes(q))
+    );
+  }
+
+  // Sort by distance
+  rows.sort((a, b) => a.dist - b.dist);
+
+  // Update count
+  const totalTrucks = rows.reduce((s, r) => s + (r.loc.trucks || 0), 0);
+  document.getElementById('territoryCount').textContent = rows.length + ' locations \u00B7 ' + totalTrucks + ' trucks \u00B7 from ' + (gpsPos ? 'GPS' : 'home base');
+
+  // Render card list with route checkboxes
+  let html = '';
+  for (const r of rows) {
+    const distStr = r.dist < 1 ? (r.dist * 5280).toFixed(0) + ' ft' : r.dist.toFixed(1) + ' mi';
+    const emoji = TYPE_EMOJI[r.loc.type] || '\u2753';
+    const trucksStr = r.loc.trucks ? r.loc.trucks + ' trucks' : '';
+    const locType = r.loc.locType || '';
+    const sub = [locType, trucksStr].filter(Boolean).join(' \u00B7 ');
+    const inRoute = routeLocations.find(rl => rl.name === r.loc.name);
+    const checkClass = inRoute ? 't-check checked' : 't-check';
+    html += `<div class="t-row" data-tidx="${r.idx}">
+      <div class="${checkClass}" data-rname="${r.loc.name.replace(/"/g,'&quot;')}">\u2713</div>
+      <div class="t-emoji t-emoji-${r.loc.type}">${emoji}</div>
+      <div class="t-info">
+        <div class="t-name">${r.loc.name}</div>
+        <div class="t-sub">${sub}</div>
+      </div>
+      <div class="t-dist">${distStr}</div>
+    </div>`;
+  }
+  list.innerHTML = html;
+
+  // Update refresh timestamp
+  const now = new Date();
+  const isLive = document.getElementById('liveCheck').checked;
+  const nextSec = isLive ? 60 : 180;
+  document.getElementById('territoryRefreshInfo').textContent = 'Updated ' + now.toLocaleTimeString() + ' \u00B7 next in ' + nextSec + 's \u00B7 sorted by distance';
+
+  // Populate drive times (async, non-blocking)
+  if (typeof fetchDriveTimesForVisibleRows === 'function') fetchDriveTimesForVisibleRows();
+}
+
+function startTerritoryRefresh() {
+  stopTerritoryRefresh();
+  const isLive = document.getElementById('liveCheck').checked;
+  const interval = isLive ? LIVE_INTERVAL : IDLE_INTERVAL;
+  territoryRefreshTimer = setInterval(() => {
+    if (territoryOpen) renderTerritoryTable();
+  }, interval);
+}
+
+function stopTerritoryRefresh() {
+  if (territoryRefreshTimer) { clearInterval(territoryRefreshTimer); territoryRefreshTimer = null; }
+}
+
+// Toggle territory panel
+document.getElementById('territoryBtn').addEventListener('click', () => {
+  territoryOpen = !territoryOpen;
+  document.getElementById('territoryPanel').classList.toggle('open', territoryOpen);
+  document.getElementById('territoryBtn').classList.toggle('active', territoryOpen);
+  if (territoryOpen) {
+    renderTerritoryTable();
+    startTerritoryRefresh();
+  } else {
+    stopTerritoryRefresh();
+  }
+});
+
+document.getElementById('territoryClose').addEventListener('click', () => {
+  territoryOpen = false;
+  document.getElementById('territoryPanel').classList.remove('open');
+  document.getElementById('territoryBtn').classList.remove('active');
+  stopTerritoryRefresh();
+});
+
+// Territory filter buttons
+document.getElementById('territoryFilter').addEventListener('click', e => {
+  if (!e.target.classList.contains('tFilterBtn')) return;
+  document.querySelectorAll('.tFilterBtn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  territoryFilter = e.target.dataset.tf;
+  renderTerritoryTable();
+});
+
+// Territory search
+document.getElementById('territorySearch').addEventListener('input', () => renderTerritoryTable());
+
+// Live toggle
+document.getElementById('liveCheck').addEventListener('change', () => {
+  const isLive = document.getElementById('liveCheck').checked;
+  document.getElementById('liveDot').classList.toggle('active', isLive);
+  if (territoryOpen) startTerritoryRefresh();
+  renderTerritoryTable();
+});
+
+// Territory list interactions
+document.getElementById('territoryList').addEventListener('click', e => {
+  // Checkbox tap — toggle route
+  const check = e.target.closest('.t-check');
+  if (check) {
+    const row = check.closest('.t-row');
+    const idx = parseInt(row.dataset.tidx);
+    const loc = locations[idx];
+    if (!loc) return;
+    toggleRoute(loc);
+    return;
+  }
+  // Row tap — zoom to pin on map
+  const row = e.target.closest('.t-row');
+  if (!row) return;
+  const idx = parseInt(row.dataset.tidx);
+  const loc = locations[idx];
+  if (!loc) return;
+  territoryOpen = false;
+  document.getElementById('territoryPanel').classList.remove('open');
+  document.getElementById('territoryBtn').classList.remove('active');
+  stopTerritoryRefresh();
+  map.panTo({ lat: loc.lat, lng: loc.lng });
+  map.setZoom(17);
+  openSheet(loc);
+});
+
+// Route bar buttons in territory panel
+document.getElementById('routeLaunchTable').addEventListener('click', launchRoute);
+document.getElementById('routeClearTable').addEventListener('click', () => { clearRoute(); renderTerritoryTable(); });
+
+// ─── Map Style Toggle (satellite ↔ dark gold styled roadmap) ───
+// Styles are passed in the Map constructor via `styles`. They only render on
+// roadmap/terrain tiles — switching mapTypeId to 'hybrid' falls back to
+// satellite imagery (which Google never styles). Label reflects current view:
+// "SAT" when satellite is showing, "MAP" when the styled roadmap is showing.
+document.getElementById('btnMapStyle').addEventListener('click', () => {
+  const btn = document.getElementById('btnMapStyle');
+  const current = map.getMapTypeId();
+  if (current === 'hybrid' || current === 'satellite') {
+    map.setMapTypeId('roadmap');
+    btn.querySelector('.actLabel').textContent = 'MAP';
+    btn.classList.add('active');
+  } else {
+    map.setMapTypeId('hybrid');
+    btn.querySelector('.actLabel').textContent = 'SAT';
+    btn.classList.remove('active');
+  }
+  console.log('[map] mapTypeId now:', map.getMapTypeId());
+});
+
+// ─── Traffic Layer Toggle ───
+let trafficLayer = null;
+document.getElementById('btnTraffic').addEventListener('click', () => {
+  const btn = document.getElementById('btnTraffic');
+  if (!trafficLayer) trafficLayer = new google.maps.TrafficLayer();
+  if (btn.classList.contains('active')) {
+    trafficLayer.setMap(null);
+    btn.classList.remove('active');
+  } else {
+    trafficLayer.setMap(map);
+    btn.classList.add('active');
+  }
+});
+
+// ─── Distance Matrix: Drive Times in Territory Panel ───
+// Caches drive-time results so we don't refetch on every render.
+// Key: rounded "originLat,originLng|destLat,destLng"; value: "12 min" string.
+const driveTimeCache = new Map();
+let driveTimeReqInFlight = false;
+let lastDriveTimeOriginKey = null;
+
+function driveTimeKey(oLat, oLng, dLat, dLng) {
+  const r = n => n.toFixed(3);
+  return r(oLat) + ',' + r(oLng) + '|' + r(dLat) + ',' + r(dLng);
+}
+
+function getDistanceMatrixService() {
+  if (!window._dmService) window._dmService = new google.maps.DistanceMatrixService();
+  return window._dmService;
+}
+
+async function fetchDriveTimesForVisibleRows() {
+  if (!gpsPos || driveTimeReqInFlight) return;
+  // Only run when territory panel is open — that's the only place we display them.
+  if (!territoryOpen) return;
+
+  const originKey = driveTimeKey(gpsPos.lat, gpsPos.lng, 0, 0).split('|')[0];
+  const rows = Array.from(document.querySelectorAll('#territoryList .t-row')).slice(0, 25);
+  if (!rows.length) return;
+
+  const pending = [];
+  const pendingRows = [];
+  for (const row of rows) {
+    const idx = parseInt(row.dataset.tidx);
+    const loc = locations[idx];
+    if (!loc) continue;
+    const k = driveTimeKey(gpsPos.lat, gpsPos.lng, loc.lat, loc.lng);
+    const cached = driveTimeCache.get(k);
+    if (cached) {
+      applyDriveTimeToRow(row, cached);
+    } else {
+      pending.push({lat: loc.lat, lng: loc.lng});
+      pendingRows.push({row, key: k});
+    }
+  }
+  if (!pending.length) return;
+
+  driveTimeReqInFlight = true;
+  lastDriveTimeOriginKey = originKey;
+  try {
+    const svc = getDistanceMatrixService();
+    svc.getDistanceMatrix({
+      origins: [{lat: gpsPos.lat, lng: gpsPos.lng}],
+      destinations: pending,
+      travelMode: google.maps.TravelMode.DRIVING,
+      unitSystem: google.maps.UnitSystem.IMPERIAL
+    }, (resp, status) => {
+      driveTimeReqInFlight = false;
+      if (status !== 'OK' || !resp || !resp.rows || !resp.rows[0]) return;
+      resp.rows[0].elements.forEach((el, i) => {
+        if (el.status !== 'OK' || !el.duration) return;
+        const text = el.duration.text;
+        driveTimeCache.set(pendingRows[i].key, text);
+        applyDriveTimeToRow(pendingRows[i].row, text);
+      });
+    });
+  } catch (e) {
+    driveTimeReqInFlight = false;
+    console.error('Distance Matrix error:', e);
+  }
+}
+
+function applyDriveTimeToRow(row, text) {
+  const sub = row.querySelector('.t-sub');
+  if (!sub) return;
+  let drive = row.querySelector('.t-drive');
+  if (!drive) {
+    drive = document.createElement('div');
+    drive.className = 't-drive';
+    sub.after(drive);
+  }
+  drive.textContent = '🚗 ' + text;
+}
+
+// ─── Places API: Find Prospects ───
+let placesService = null;
+let prospectMarkers = [];
+
+function getPlacesService() {
+  if (!placesService) placesService = new google.maps.places.PlacesService(map);
+  return placesService;
+}
+
+function openProspectModal() {
+  document.getElementById('prospectModal').classList.add('show');
+  setTimeout(() => document.getElementById('prospectType').focus(), 50);
+}
+function closeProspectModal() {
+  document.getElementById('prospectModal').classList.remove('show');
+}
+
+function clearProspectMarkers() {
+  prospectMarkers.forEach(m => m.map = null);
+  prospectMarkers = [];
+  const btn = document.getElementById('btnFindProspects');
+  if (btn) btn.classList.remove('active');
+}
+
+function buildProspectMarkerEl() {
+  const el = document.createElement('div');
+  el.className = 'm-prospect';
+  el.textContent = '🎯';
+  return el;
+}
+
+function searchProspects(type, radiusMiles) {
+  if (!type || !type.trim()) { showToast('Enter a business type'); return; }
+  const svc = getPlacesService();
+  const center = map.getCenter();
+  const request = {
+    query: type.trim(),
+    location: center,
+    radius: Math.max(1, Math.min(50, radiusMiles)) * 1609.34 // miles → meters
+  };
+  showToast('Searching Google Places...');
+  svc.textSearch(request, (results, status) => {
+    if (status !== google.maps.places.PlacesServiceStatus.OK || !results) {
+      showToast('No results (' + status + ')');
+      return;
+    }
+    let added = 0;
+    results.forEach(place => {
+      if (!place.geometry || !place.geometry.location) return;
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const loc = {
+        name: place.name || 'Unknown',
+        lat, lng,
+        addr: place.formatted_address || '',
+        trucks: null, drivers: null, phone: null,
+        type: 'prospect',
+        notes: 'Places API result' + (place.rating ? ' · ★ ' + place.rating : ''),
+        spend: null,
+        locType: (place.types && place.types[0]) ? place.types[0].replace(/_/g,' ') : 'Prospect'
+      };
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: {lat, lng},
+        map,
+        title: loc.name,
+        content: buildProspectMarkerEl()
+      });
+      marker._loc = loc;
+      marker.addListener('click', () => openSheet(loc));
+      prospectMarkers.push(marker);
+      added++;
+    });
+    showToast('Added ' + added + ' prospect pin' + (added === 1 ? '' : 's'));
+    document.getElementById('btnFindProspects').classList.add('active');
+    closeProspectModal();
+  });
+}
+
+document.getElementById('btnFindProspects').addEventListener('click', openProspectModal);
+document.getElementById('prospectCancel').addEventListener('click', closeProspectModal);
+document.getElementById('prospectClear').addEventListener('click', () => {
+  clearProspectMarkers();
+  showToast('Prospect pins cleared');
+  closeProspectModal();
+});
+document.getElementById('prospectSearch').addEventListener('click', () => {
+  const type = document.getElementById('prospectType').value;
+  const radius = parseFloat(document.getElementById('prospectRadius').value) || 10;
+  searchProspects(type, radius);
+});
+document.getElementById('prospectType').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('prospectSearch').click();
+});
+
+// ─── Route Optimization (Distance Matrix, nearest-neighbor) ───
+async function optimizeRoute() {
+  if (routeLocations.length < 2) { showToast('Need at least 2 stops to optimize'); return; }
+  if (routeLocations.length > 24) { showToast('Too many stops (max 24 to optimize)'); return; }
+
+  const origin = gpsPos || {lat: HOME.lat, lng: HOME.lng};
+  const stops = routeLocations.slice();
+  const btns = [document.getElementById('routeOptimize'), document.getElementById('routeOptimizeTable')];
+  btns.forEach(b => { if (b) { b.disabled = true; b.textContent = 'Optimizing...'; } });
+
+  try {
+    const svc = getDistanceMatrixService();
+    // Step 1: origin → each stop (to pick first stop)
+    const firstLegResp = await new Promise((resolve, reject) => {
+      svc.getDistanceMatrix({
+        origins: [origin],
+        destinations: stops.map(s => ({lat: s.lat, lng: s.lng})),
+        travelMode: google.maps.TravelMode.DRIVING,
+        unitSystem: google.maps.UnitSystem.IMPERIAL
+      }, (resp, status) => status === 'OK' ? resolve(resp) : reject(status));
+    });
+
+    // Step 2: full NxN matrix between stops
+    const fullResp = await new Promise((resolve, reject) => {
+      svc.getDistanceMatrix({
+        origins: stops.map(s => ({lat: s.lat, lng: s.lng})),
+        destinations: stops.map(s => ({lat: s.lat, lng: s.lng})),
+        travelMode: google.maps.TravelMode.DRIVING,
+        unitSystem: google.maps.UnitSystem.IMPERIAL
+      }, (resp, status) => status === 'OK' ? resolve(resp) : reject(status));
+    });
+
+    // Nearest-neighbor traversal starting from origin
+    const n = stops.length;
+    const durFromOrigin = firstLegResp.rows[0].elements.map(
+      e => e && e.status === 'OK' && e.duration ? e.duration.value : Infinity
+    );
+    const dur = fullResp.rows.map(row => row.elements.map(
+      e => e && e.status === 'OK' && e.duration ? e.duration.value : Infinity
+    ));
+
+    const visited = new Array(n).fill(false);
+    const order = [];
+    let current = durFromOrigin.indexOf(Math.min(...durFromOrigin));
+    if (current < 0) current = 0;
+    order.push(current);
+    visited[current] = true;
+    for (let step = 1; step < n; step++) {
+      let next = -1, best = Infinity;
+      for (let j = 0; j < n; j++) {
+        if (visited[j]) continue;
+        if (dur[current][j] < best) { best = dur[current][j]; next = j; }
+      }
+      if (next === -1) {
+        for (let j = 0; j < n; j++) if (!visited[j]) { next = j; break; }
+      }
+      order.push(next);
+      visited[next] = true;
+      current = next;
+    }
+
+    routeLocations = order.map(i => stops[i]);
+    updateRouteBadge();
+    if (territoryOpen) renderTerritoryTable();
+    showToast('Route optimized (' + routeLocations.length + ' stops)');
+  } catch (e) {
+    console.error('Optimize failed:', e);
+    showToast('Optimize failed: ' + (e.message || e));
+  } finally {
+    btns.forEach(b => { if (b) { b.disabled = false; b.textContent = 'Optimize'; } });
+  }
+}
+
+document.getElementById('routeOptimize').addEventListener('click', optimizeRoute);
+document.getElementById('routeOptimizeTable').addEventListener('click', optimizeRoute);
+
 // ─── Live GPS Tracking ───
 let gpsMarker = null, gpsPos = null;
 
@@ -1029,6 +2047,7 @@ function createGpsDotEl() {
 
 function startGPS() {
   if (!navigator.geolocation) return;
+  let lastDriveTimeKey = null;
   navigator.geolocation.watchPosition(
     pos => {
       gpsPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -1041,6 +2060,13 @@ function startGPS() {
         });
       } else if (gpsMarker) {
         gpsMarker.position = gpsPos;
+      }
+      // Invalidate and refresh drive times when origin moves materially (~100m rounding via 3 decimals)
+      const k = gpsPos.lat.toFixed(3) + ',' + gpsPos.lng.toFixed(3);
+      if (k !== lastDriveTimeKey) {
+        lastDriveTimeKey = k;
+        if (typeof driveTimeCache !== 'undefined') driveTimeCache.clear();
+        if (territoryOpen && typeof renderTerritoryTable === 'function') renderTerritoryTable();
       }
     },
     err => console.warn('GPS error:', err.message),
@@ -1066,6 +2092,13 @@ document.getElementById('btnLocate').addEventListener('click', () => {
   }
 });
 
+// Haptic feedback on bottom action bar taps (Google Maps style)
+document.getElementById('bottomActionBar').addEventListener('pointerdown', (e) => {
+  const btn = e.target.closest('.actBtn');
+  if (!btn) return;
+  if (navigator.vibrate) { try { navigator.vibrate(10); } catch (_) {} }
+}, { passive: true });
+
 // Start GPS after map loads
 const _origInitMap = initMap;
 initMap = function() {
@@ -1079,5 +2112,7 @@ initMap = function() {
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>initFirebase();</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker&v=beta" async defer></script>
+<!-- Marker clusterer (must load before Maps API callback fires) -->
+<script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E&callback=initMap&libraries=marker,maps3d,places&v=beta" async defer></script>
 </body></html>

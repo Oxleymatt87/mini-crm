@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Oxley Tire — Ledger</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;700&display=swap');
+:root{--bg:#080a0d;--s1:#0d1018;--s2:#111520;--border:#1a2030;--gold:#d4a12a;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--purple:#a855f7;--text:#dde4f0;--muted:#4a5568;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column}
+#header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0;gap:8px}
+#header h1{font-family:var(--mono);font-size:13px;color:var(--gold);letter-spacing:3px;text-transform:uppercase;white-space:nowrap}
+#headerStats{display:flex;gap:12px;flex-wrap:wrap}
+.hstat{text-align:right}
+.hstat-val{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--text)}
+.hstat-val.pos{color:var(--green)}.hstat-val.neg{color:var(--red)}
+.hstat-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+#tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+.tab{padding:10px 16px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;letter-spacing:0.5px;text-transform:uppercase;transition:all .15s;flex-shrink:0}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.panel{display:none;flex:1;flex-direction:column;overflow:hidden}
+.panel.active{display:flex}
+#summaryCards{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 16px;flex-shrink:0}
+.card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.card-label{font-size:11px;color:#d4a12a;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.card-val{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--text)}
+.card-val.gold{color:var(--gold)}.card-val.green{color:var(--green)}.card-val.red{color:var(--red)}
+.card-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.tbl-wrap{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 0 100px}
+.tbl-header{display:flex;padding:6px 16px;font-size:11px;color:#d4a12a;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);flex-shrink:0;position:sticky;top:0;background:var(--bg);z-index:5}
+.trow{display:flex;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;gap:8px;transition:background .1s}
+.trow:active{background:var(--s2)}
+.trow.buy{border-left:2px solid var(--red)}.trow.sell{border-left:2px solid var(--green)}
+.tcell{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tcell.mono{font-family:var(--mono)}.tcell.green{color:var(--green)}.tcell.red{color:var(--red)}.tcell.gold{color:var(--gold)}.tcell.muted{color:var(--muted)}
+.inv-row{display:flex;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;gap:8px}
+.inv-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;font-family:var(--mono)}
+.inv-badge.ok{background:rgba(34,197,94,.15);color:var(--green)}.inv-badge.low{background:rgba(239,68,68,.15);color:var(--red)}.inv-badge.zero{background:rgba(74,85,104,.15);color:var(--muted)}
+#fab{position:fixed;bottom:16px;right:16px;z-index:20;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+#fabMain{width:52px;height:52px;border-radius:50%;border:none;background:var(--gold);color:#000;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(212,161,42,.4);font-weight:700}
+.fab-sub{display:flex;align-items:center;gap:8px;opacity:0;transform:translateY(10px);transition:all .2s;pointer-events:none}
+.fab-sub.show{opacity:1;transform:translateY(0);pointer-events:all}
+.fab-sub button{padding:8px 14px;border-radius:20px;border:none;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.fab-buy{background:rgba(239,68,68,.9);color:#fff}.fab-sell{background:rgba(34,197,94,.9);color:#000}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:50;align-items:flex-end}
+#modal.show{display:flex}
+#modalSheet{background:#0f1420;border-radius:20px 20px 0 0;padding:20px 20px 40px;width:100%;border-top:1px solid var(--border);max-height:90vh;overflow-y:auto}
+#modalTitle{font-family:var(--mono);font-size:12px;color:var(--gold);letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
+.mf{margin-bottom:12px}
+.mf label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px}
+.mf input,.mf select{width:100%;background:#080a0d;border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none;-webkit-appearance:none}
+.mf input:focus,.mf select:focus{border-color:var(--gold)}
+.mf select option{background:#0f1420}
+#mfGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#btnModalSave{width:100%;padding:14px;border-radius:12px;border:none;color:#000;font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;margin-top:8px}
+#btnModalCancel{width:100%;padding:10px;border-radius:12px;border:none;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;margin-top:4px}
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:20px;font-family:var(--mono);font-size:12px;font-weight:600;z-index:100;display:none;white-space:nowrap;max-width:90%;text-align:center}
+#toast.ok{background:rgba(34,197,94,.95);color:#000}#toast.err{background:rgba(239,68,68,.95);color:#fff}#toast.info{background:rgba(59,130,246,.95);color:#fff}
+#loadingBar{height:2px;background:linear-gradient(90deg,var(--gold),var(--green));position:fixed;top:0;left:0;right:0;z-index:200;display:none}
+.empty{padding:40px 20px;text-align:center;color:var(--muted);font-size:13px}
+.empty-icon{font-size:32px;margin-bottom:8px}
+</style>
+</head>
+<body>
+<div id="loadingBar"></div>
+<div id="header">
+  <h1>&#9670; Ledger</h1>
+  <div id="headerStats">
+    <div class="hstat"><div class="hstat-val gold" id="hGrossProfit">—</div><div class="hstat-label">Gross Profit</div></div>
+    <div class="hstat"><div class="hstat-val" id="hInventoryVal">—</div><div class="hstat-label">Inv. Value</div></div>
+  </div>
+</div>
+<div id="tabs">
+  <div class="tab active" data-tab="summary">Summary</div>
+  <div class="tab" data-tab="purchases">Purchases</div>
+  <div class="tab" data-tab="sales">Sales</div>
+  <div class="tab" data-tab="inventory">Inventory</div>
+</div>
+<div class="panel active" id="panel-summary">
+  <div id="summaryCards">
+    <div class="card"><div class="card-label">Total Bought</div><div class="card-val gold" id="sTotalBought">—</div><div class="card-sub" id="sTotalBoughtUnits">— units</div></div>
+    <div class="card"><div class="card-label">Total Sold</div><div class="card-val green" id="sTotalSold">—</div><div class="card-sub" id="sTotalSoldUnits">— units</div></div>
+    <div class="card"><div class="card-label">Cost of Goods</div><div class="card-val red" id="sCOGS">—</div><div class="card-sub">purchased</div></div>
+    <div class="card"><div class="card-label">Revenue</div><div class="card-val green" id="sRevenue">—</div><div class="card-sub">invoiced</div></div>
+    <div class="card"><div class="card-label">Gross Profit</div><div class="card-val" id="sGrossProfit">—</div><div class="card-sub" id="sMargin">—% margin</div></div>
+    <div class="card"><div class="card-label">On Hand Value</div><div class="card-val gold" id="sOnHand">—</div><div class="card-sub" id="sOnHandUnits">— units</div></div>
+  </div>
+  <div style="padding:0 16px 8px;font-size:11px;color:#d4a12a;text-transform:uppercase;letter-spacing:1px;flex-shrink:0">Top SKUs by Profit</div>
+  <div class="tbl-wrap" id="skuList"></div>
+</div>
+<div class="panel" id="panel-purchases">
+  <div class="tbl-header">
+    <div class="tcell" style="width:70px">Date</div>
+    <div class="tcell" style="flex:1">Item</div>
+    <div class="tcell" style="width:40px;text-align:right">Qty</div>
+    <div class="tcell" style="width:65px;text-align:right">Cost</div>
+    <div class="tcell" style="width:65px;text-align:right">Total</div>
+  </div>
+  <div class="tbl-wrap" id="purchaseList"></div>
+</div>
+<div class="panel" id="panel-sales">
+  <div class="tbl-header">
+    <div class="tcell" style="width:70px">Date</div>
+    <div class="tcell" style="flex:1">Customer</div>
+    <div class="tcell" style="width:40px;text-align:right">Qty</div>
+    <div class="tcell" style="width:65px;text-align:right">Price</div>
+    <div class="tcell" style="width:65px;text-align:right">Total</div>
+  </div>
+  <div class="tbl-wrap" id="salesList"></div>
+</div>
+<div class="panel" id="panel-inventory">
+  <div class="tbl-header">
+    <div class="tcell" style="flex:1">SKU</div>
+    <div class="tcell" style="width:60px;text-align:right">On Hand</div>
+    <div class="tcell" style="width:65px;text-align:right">Avg Cost</div>
+    <div class="tcell" style="width:65px;text-align:right">Value</div>
+  </div>
+  <div class="tbl-wrap" id="inventoryList"></div>
+</div>
+<div id="fab">
+  <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end" id="fabSubs">
+    <button class="fab-sub fab-sell" id="btnNewSale">+ Sale</button>
+    <button class="fab-sub fab-buy" id="btnNewPurchase">+ Purchase</button>
+  </div>
+  <button id="fabMain">+</button>
+</div>
+<div id="modal">
+<div id="modalSheet">
+  <div id="modalTitle">New Entry</div>
+  <input type="hidden" id="mType">
+  <div class="mf"><label>Brand</label><input id="mBrand" type="text" placeholder="Amulet" autocomplete="off"></div>
+  <div class="mf"><label>Model</label><input id="mModel" type="text" placeholder="AT505" autocomplete="off"></div>
+  <div class="mf"><label>Size</label><input id="mSize" type="text" placeholder="11R22.5" autocomplete="off"></div>
+  <div id="mfGrid">
+    <div class="mf"><label>Qty</label><input id="mQty" type="number" placeholder="0" min="1"></div>
+    <div class="mf"><label id="mPriceLabel">Cost Each</label><input id="mPrice" type="number" placeholder="0.00" step="0.01"></div>
+  </div>
+  <div class="mf" id="mfSupplierRow"><label>Supplier</label>
+    <select id="mSupplier">
+      <option value="">Select supplier...</option>
+      <option>Amulet (Jinyu)</option>
+      <option>South Gateway</option>
+      <option>Hesselbein</option>
+      <option>BZO</option>
+      <option>K&amp;M</option>
+      <option>ATD</option>
+      <option>Other</option>
+    </select>
+  </div>
+  <div class="mf" id="mfCustomerRow" style="display:none"><label>Customer</label><input id="mCustomer" type="text" placeholder="Curtis and Son" autocomplete="off"></div>
+  <div class="mf"><label>Invoice / PO # (optional)</label><input id="mRef" type="text" placeholder="INV-001" autocomplete="off"></div>
+  <div class="mf"><label>Date</label><input id="mDate" type="date"></div>
+  <div class="mf"><label>Notes (optional)</label><input id="mNotes" type="text" placeholder="Cash, off-book, etc." autocomplete="off"></div>
+  <button id="btnModalSave">SAVE</button>
+  <button id="btnModalCancel">Cancel</button>
+</div>
+</div>
+<div id="toast"></div>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E",authDomain:"inventory-setup-b3f20.firebaseapp.com",projectId:"inventory-setup-b3f20",storageBucket:"inventory-setup-b3f20.firebasestorage.app",messagingSenderId:"162750059985",appId:"1:162750059985:web:bbe5328412c7ef49893cf0"});
+const db=firebase.firestore();
+const auth=firebase.auth();
+const QBO_WORKER='https://qbo-refresh-worker.moxley.workers.dev';
+let purchases=[],sales=[],inventory=[],fabSubsVisible=false;
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+  });
+});
+
+document.getElementById('fabMain').addEventListener('click',()=>{
+  fabSubsVisible=!fabSubsVisible;
+  document.getElementById('fabMain').textContent=fabSubsVisible?'x':'+';
+  document.querySelectorAll('.fab-sub').forEach(b=>b.classList.toggle('show',fabSubsVisible));
+});
+document.getElementById('btnNewPurchase').addEventListener('click',()=>openModal('buy'));
+document.getElementById('btnNewSale').addEventListener('click',()=>openModal('sell'));
+
+function openModal(type){
+  fabSubsVisible=false;document.getElementById('fabMain').textContent='+';
+  document.querySelectorAll('.fab-sub').forEach(b=>b.classList.remove('show'));
+  document.getElementById('mType').value=type;
+  document.getElementById('modalTitle').textContent=type==='buy'?'NEW PURCHASE':'NEW SALE';
+  document.getElementById('mPriceLabel').textContent=type==='buy'?'Cost Each':'Sell Price';
+  document.getElementById('mfSupplierRow').style.display=type==='buy'?'block':'none';
+  document.getElementById('mfCustomerRow').style.display=type==='sell'?'block':'none';
+  document.getElementById('btnModalSave').style.background=type==='buy'?'#ef4444':'#d4a12a';
+  document.getElementById('mDate').value=new Date().toISOString().split('T')[0];
+  document.getElementById('modal').classList.add('show');
+  setTimeout(()=>document.getElementById('mBrand').focus(),100);
+}
+document.getElementById('btnModalCancel').addEventListener('click',closeModal);
+document.getElementById('modal').addEventListener('click',e=>{if(e.target===document.getElementById('modal'))closeModal();});
+function closeModal(){
+  document.getElementById('modal').classList.remove('show');
+  ['mBrand','mModel','mSize','mQty','mPrice','mCustomer','mRef','mNotes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('mSupplier').value='';
+}
+
+document.getElementById('btnModalSave').addEventListener('click',async()=>{
+  const type=document.getElementById('mType').value;
+  const brand=document.getElementById('mBrand').value.trim();
+  const model=document.getElementById('mModel').value.trim();
+  const size=document.getElementById('mSize').value.trim();
+  const qty=parseInt(document.getElementById('mQty').value)||0;
+  const price=parseFloat(document.getElementById('mPrice').value)||0;
+  const ref=document.getElementById('mRef').value.trim();
+  const notes=document.getElementById('mNotes').value.trim();
+  const dateVal=document.getElementById('mDate').value;
+  if(!brand||!size||!qty||!price){showToast('Brand, size, qty, price required','err');return;}
+  const data={type,brand,model,size,qty,price,total:qty*price,ref,notes,
+    date:dateVal?firebase.firestore.Timestamp.fromDate(new Date(dateVal+'T12:00:00')):firebase.firestore.FieldValue.serverTimestamp(),
+    created_at:firebase.firestore.FieldValue.serverTimestamp(),source:'manual'};
+  if(type==='buy')data.supplier=document.getElementById('mSupplier').value;
+  else data.customer=document.getElementById('mCustomer').value.trim();
+  try{await db.collection('ledger').add(data);showToast('Saved','ok');closeModal();loadAll();}
+  catch(e){showToast('Save failed','err');}
+});
+
+function setLoading(v){document.getElementById('loadingBar').style.display=v?'block':'none';}
+
+async function loadLedger(){
+  const snap=await db.collection('ledger').orderBy('date','desc').limit(500).get();
+  const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+  purchases=all.filter(r=>r.type==='buy');
+  sales=all.filter(r=>r.type==='sell'||r.type==='qbo');
+}
+
+async function loadInventory(){
+  const snap=await db.collection('items').get();
+  inventory=snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+
+async function loadQBOSales(){
+  try{
+    const resp=await fetch(QBO_WORKER+'/sales-data');
+    if(!resp.ok)return;
+    const data=await resp.json();
+    const invoices=data?.invoices||data?.QueryResponse?.Invoice||[];
+    const qboSales=[];
+    for(const inv of invoices){
+      const lines=inv.Line||[];
+      for(const line of lines){
+        if(line.DetailType==='SalesItemLineDetail'&&line.SalesItemLineDetail){
+          const d=line.SalesItemLineDetail;
+          qboSales.push({type:'qbo',brand:d.ItemRef?.name||'',model:'',size:'',
+            qty:d.Qty||1,price:line.SalesItemLineDetail?.UnitPrice||line.Amount/Math.max(line.SalesItemLineDetail?.Qty||1,1)||0,total:line.Amount||0,
+            customer:inv.CustomerRef?.name||'',ref:inv.DocNumber||'',
+            date:inv.TxnDate,source:'qbo'});
+        }
+      }
+    }
+    const existingRefs=new Set(sales.map(s=>s.ref).filter(Boolean));
+    for(const s of qboSales){if(!existingRefs.has(s.ref))sales.push(s);}
+    sales.sort((a,b)=>{
+      const da=a.date?.toDate?a.date.toDate():new Date(a.date||0);
+      const db2=b.date?.toDate?b.date.toDate():new Date(b.date||0);
+      return db2-da;
+    });
+  }catch(e){console.log('QBO failed',e);}
+}
+
+async function loadAll(){
+  setLoading(true);
+  await Promise.all([loadLedger(),loadInventory()]);
+  await loadQBOSales();
+  setLoading(false);
+  renderAll();
+}
+
+function fmt(n){return n==null?'—':'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});}
+function fmtD(v){
+  if(!v)return'—';
+  const d=v?.toDate?v.toDate():new Date(v);
+  if(isNaN(d))return'—';
+  return(d.getMonth()+1)+'/'+(d.getDate())+'/'+(d.getFullYear()+'').slice(2);
+}
+
+function renderAll(){renderSummary();renderPurchases();renderSales();renderInventoryTab();}
+
+function renderSummary(){
+  const totalCOGS=purchases.reduce((s,r)=>s+(r.total||0),0);
+  const totalRevenue=sales.reduce((s,r)=>s+(r.total||0),0);
+  const grossProfit=totalRevenue-totalCOGS;
+  const margin=totalRevenue>0?((grossProfit/totalRevenue)*100).toFixed(1):0;
+  const invValue=inventory.reduce((s,r)=>s+((r.quantity||0)*(r.cost||0)),0);
+  const invUnits=inventory.reduce((s,r)=>s+(r.quantity||0),0);
+  document.getElementById('sTotalBought').textContent=fmt(totalCOGS);
+  document.getElementById('sTotalBoughtUnits').textContent=purchases.reduce((s,r)=>s+(r.qty||0),0)+' units';
+  document.getElementById('sTotalSold').textContent=fmt(totalRevenue);
+  document.getElementById('sTotalSoldUnits').textContent=sales.reduce((s,r)=>s+(r.qty||0),0)+' units';
+  document.getElementById('sCOGS').textContent=fmt(totalCOGS);
+  document.getElementById('sRevenue').textContent=fmt(totalRevenue);
+  const gpEl=document.getElementById('sGrossProfit');
+  gpEl.textContent=fmt(grossProfit);gpEl.className='card-val '+(grossProfit>=0?'green':'red');
+  document.getElementById('sMargin').textContent=margin+'% margin';
+  document.getElementById('sOnHand').textContent=fmt(invValue);
+  document.getElementById('sOnHandUnits').textContent=invUnits+' units';
+  document.getElementById('hGrossProfit').textContent=fmt(grossProfit);
+  document.getElementById('hGrossProfit').className='hstat-val '+(grossProfit>=0?'pos':'neg');
+  document.getElementById('hInventoryVal').textContent=fmt(invValue);
+  const skuMap={};
+  for(const p of purchases){const k=(p.brand+' '+(p.model||'')+' '+p.size).trim();if(!skuMap[k])skuMap[k]={sku:k,cogs:0,rev:0,soldQty:0,boughtQty:0};skuMap[k].cogs+=p.total||0;skuMap[k].boughtQty+=p.qty||0;}
+  for(const s of sales){const k=(s.brand+' '+(s.model||'')+' '+s.size).trim();if(!skuMap[k])skuMap[k]={sku:k,cogs:0,rev:0,soldQty:0,boughtQty:0};skuMap[k].rev+=s.total||0;skuMap[k].soldQty+=s.qty||0;}
+  const skus=Object.values(skuMap).map(s=>({...s,profit:s.rev-s.cogs})).sort((a,b)=>b.profit-a.profit);
+  const el=document.getElementById('skuList');
+  if(!skus.length){el.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Log purchases and sales to see SKU breakdown</div>';return;}
+  el.innerHTML=skus.slice(0,20).map(s=>`<div class="trow"><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.sku||'Unknown'}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${s.soldQty} sold · ${s.boughtQty} bought</div></div><div style="text-align:right;flex-shrink:0"><div class="tcell mono ${s.profit>=0?'green':'red'}">${fmt(s.profit)}</div><div style="font-size:11px;color:#d4a12a">${s.rev>0?((s.profit/s.rev)*100).toFixed(0)+'%':''}</div></div></div>`).join('');
+}
+
+function renderPurchases(){
+  const el=document.getElementById('purchaseList');
+  if(!purchases.length){el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>No purchases logged yet</div>';return;}
+  el.innerHTML=purchases.map(p=>`<div class="trow buy"><div class="tcell muted" style="width:70px">${fmtD(p.date)}</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:#e8eaf0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.brand} ${p.model||''} ${p.size}</div><div style="font-size:11px;color:#d4a12a">${p.supplier||''} ${p.ref?'#'+p.ref:''}</div></div><div class="tcell mono" style="width:40px;text-align:right">${p.qty}</div><div class="tcell mono muted" style="width:65px;text-align:right">${fmt(p.price)}</div><div class="tcell mono red" style="width:65px;text-align:right">${fmt(p.total)}</div></div>`).join('');
+}
+
+function renderSales(){
+  const el=document.getElementById('salesList');
+  if(!sales.length){el.innerHTML='<div class="empty"><div class="empty-icon">💰</div>No sales yet — QBO invoices will appear here</div>';return;}
+  el.innerHTML=sales.map(s=>`<div class="trow sell"><div class="tcell muted" style="width:70px">${fmtD(s.date)}</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:#e8eaf0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.customer||'Unknown'}</div><div style="font-size:11px;color:#d4a12a">${s.brand||''} ${s.size||''} ${s.ref?'#'+s.ref:''} ${s.source==='qbo'?'<span style="color:var(--blue);font-size:9px">QBO</span>':''}</div></div><div class="tcell mono" style="width:40px;text-align:right">${s.qty}</div><div class="tcell mono muted" style="width:65px;text-align:right">${fmt(s.price)}</div><div class="tcell mono green" style="width:65px;text-align:right">${fmt(s.total)}</div></div>`).join('');
+}
+
+function renderInventoryTab(){
+  const el=document.getElementById('inventoryList');
+  if(!inventory.length){el.innerHTML='<div class="empty"><div class="empty-icon">🏭</div>No inventory — run the intake walkthrough first</div>';return;}
+  const sorted=[...inventory].sort((a,b)=>(b.quantity||0)-(a.quantity||0));
+  el.innerHTML=sorted.map(item=>{
+    const qty=item.quantity||0,cost=item.cost||0,val=qty*cost;
+    const badge=qty===0?'zero':qty<=3?'low':'ok';
+    const badgeText=qty===0?'OUT':qty<=3?'LOW':'OK';
+    return`<div class="inv-row"><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.brand} ${item.model||''}</div><div style="font-size:11px;color:var(--muted)">${item.size||''}</div></div><span class="inv-badge ${badge}">${badgeText} ${qty}</span><div class="tcell mono muted" style="width:65px;text-align:right">${cost?fmt(cost):'—'}</div><div class="tcell mono gold" style="width:65px;text-align:right">${val?fmt(val):'—'}</div></div>`;
+  }).join('');
+}
+
+function showToast(msg,type='ok'){const t=document.getElementById('toast');t.textContent=msg;t.className=type;t.style.display='block';setTimeout(()=>{t.style.display='none';},2500);}
+
+auth.onAuthStateChanged(user=>{if(user)loadAll();else auth.signInAnonymously().catch(()=>loadAll());});
+</script>
+</body>
+</html>

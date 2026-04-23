@@ -1,0 +1,10 @@
+name = "qbo-refresh-worker"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+[[kv_namespaces]]
+binding = "QBO_TOKENS"
+id = "9e61d4d0d02a476692cfa71c1002908b"
+
+[triggers]
+crons = ["*/50 * * * *"]

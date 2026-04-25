@@ -932,6 +932,7 @@ function applyFilters() {
   } else {
     markers.forEach(m => { m.map = m._visible ? map : null; });
   }
+  if (is3DPlus) rebuild3DMarkers();
   document.getElementById('statsBar').textContent = shown + ' shown \u00B7 ' + totalTrucks + ' trucks';
 }
 
@@ -1126,11 +1127,24 @@ function add3DMarker(loc) {
   return m3d;
 }
 
+function collect3DSourceLocs() {
+  // Visible 2D markers come from `markers` (filter/search aware) plus any
+  // Places-API prospect pins still attached to the 2D map. In Prospects-Only
+  // mode `markers` are all hidden, so the 3D scene falls through to just the
+  // purple prospect pins — same semantics as the 2D map.
+  const out = [];
+  markers.forEach(m => { if (m._visible && m._loc) out.push(m._loc); });
+  if (typeof prospectMarkers !== 'undefined') {
+    prospectMarkers.forEach(m => { if (m && m.map && m._loc) out.push(m._loc); });
+  }
+  return out;
+}
+
 function rebuild3DMarkers() {
   if (!map3dEl) return;
   markers3d.forEach(m => { try { map3dEl.removeChild(m); } catch (e) {} });
   markers3d = [];
-  markers.forEach(m => { if (m._visible) add3DMarker(m._loc); });
+  collect3DSourceLocs().forEach(loc => add3DMarker(loc));
   log3DMarkerStats('rebuild');
 }
 
@@ -1192,7 +1206,10 @@ async function enter3DPlus() {
                  'Map3DElement still renders the photorealistic scene.');
     showToast('3D markers unsupported on this browser');
   } else {
-    markers.forEach(m => { if (m._visible) add3DMarker(m._loc); });
+    if (kind !== 'interactive') {
+      console.warn('[3D+] Marker3DInteractiveElement unavailable; falling back to ' + kind);
+    }
+    collect3DSourceLocs().forEach(loc => add3DMarker(loc));
     log3DMarkerStats('enter');
   }
 
@@ -1906,6 +1923,8 @@ function clearProspectMarkers() {
   if (prospectsOnlyMode) {
     prospectsOnlyMode = false;
     applyFilters();
+  } else if (is3DPlus) {
+    rebuild3DMarkers();
   }
 }
 
@@ -1977,6 +1996,7 @@ function searchProspects(type, radiusMiles) {
       onlyBtn.classList.add('justShown');
       try { onlyBtn.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'}); } catch (_) {}
     }
+    if (is3DPlus) rebuild3DMarkers();
     closeProspectModal();
   });
 }

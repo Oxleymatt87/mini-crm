@@ -34,11 +34,8 @@
   <!-- Main App -->
   <div id="app" style="display:none">
 
-    <div class="header">
-      <h1>OXLEY TIRE</h1>
-      <div class="header-right">
-        <button class="header-btn" onclick="signOut()">Sign Out</button>
-      </div>
+    <div class="header" data-ox-replace-header style="display:none">
+      <button class="header-btn" data-ox-extra onclick="signOut()">Sign Out</button>
     </div>
 
     <div class="tab-bar" id="tab-bar">
@@ -324,6 +321,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
   <script src="/js/app.js"></script>
+  <script src="/js/nav.js"></script>
 
 </body>
 </html>

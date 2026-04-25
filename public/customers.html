@@ -49,7 +49,7 @@ a{color:var(--gold);text-decoration:none}
 .sortBtn{flex:0 0 auto;padding:7px 12px;border-radius:16px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s}
 .sortBtn.active{background:var(--gold);color:#000;border-color:var(--gold)}
 
-#list{padding:6px 12px 80px}
+#list{padding:6px 12px 24px}
 .card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
 .card:active{border-color:var(--gold);background:var(--surface2)}
 .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 3px rgba(255,255,255,.03)}
@@ -72,9 +72,9 @@ a{color:var(--gold);text-decoration:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* Detail sheet */
-#backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:40;opacity:0;pointer-events:none;transition:opacity .2s}
+#backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:120;opacity:0;pointer-events:none;transition:opacity .2s}
 #backdrop.show{opacity:1;pointer-events:auto}
-#sheet{position:fixed;bottom:0;left:0;right:0;z-index:41;background:var(--surface);border-radius:18px 18px 0 0;max-height:92vh;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .25s ease;box-shadow:0 -8px 24px rgba(0,0,0,.6)}
+#sheet{position:fixed;bottom:0;left:0;right:0;z-index:125;background:var(--surface);border-radius:18px 18px 0 0;max-height:92vh;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .25s ease;box-shadow:0 -8px 24px rgba(0,0,0,.6)}
 #sheet.show{transform:translateY(0)}
 #sheetHandle{width:40px;height:4px;background:var(--text3);border-radius:2px;margin:10px auto 6px;flex-shrink:0}
 #sheetHead{padding:4px 18px 10px;flex-shrink:0;border-bottom:1px solid var(--border)}
@@ -120,7 +120,7 @@ a{color:var(--gold);text-decoration:none}
 #noteTa:focus{border-color:var(--gold)}
 #noteStatus{font-size:11px;color:var(--text3);margin-top:8px;text-align:right}
 
-#loginOverlay{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center}
+#loginOverlay{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center}
 #loginOverlay.hidden{display:none}
 #loginBox{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:320px;max-width:90vw}
 #loginBox h2{color:var(--gold);margin-bottom:18px;font-size:15px;letter-spacing:2px;text-transform:uppercase;text-align:center}
@@ -141,10 +141,8 @@ a{color:var(--gold);text-decoration:none}
 </head>
 <body>
 
-<div id="header">
-  <button class="back" onclick="location.href='/index.html'">&larr; Back</button>
-  <h1>Customers</h1>
-  <div class="meta" id="headerMeta">—</div>
+<div id="header" data-ox-replace-header style="display:none">
+  <div class="meta" id="headerMeta" data-ox-extra style="font-size:11px;color:#555d6b">—</div>
 </div>
 
 <div id="summaryStrip">
@@ -548,5 +546,6 @@ function saveNoteNow(silent){
   });
 }
 </script>
+<script src="/js/nav.js"></script>
 </body>
 </html>

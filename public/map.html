@@ -204,7 +204,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #prospectSearch{background:#a855f7;color:#fff}
 #prospectCancel{background:#333;color:#fff}
 #prospectClear{background:#444;color:#ccc;margin-top:8px;width:100%;padding:8px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer}
-.m-prospect{width:32px;height:32px;border-radius:50%;background:#a855f7;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(168,85,247,0.6);cursor:pointer}
+.m-prospect-wrap{position:relative;width:44px;height:44px;cursor:pointer}
+.m-prospect{width:44px;height:44px;border-radius:50%;background:#a855f7;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 3px 14px rgba(168,85,247,0.75),0 0 0 2px rgba(168,85,247,0.25)}
+.m-prospect-label{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;padding:3px 8px;background:rgba(168,85,247,0.96);color:#fff;font-size:11px;font-weight:700;line-height:1.2;border-radius:6px;white-space:nowrap;max-width:170px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 6px rgba(0,0,0,0.55);pointer-events:none}
 </style>
 </head><body>
 <div id="loginOverlay">
@@ -266,6 +268,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <button class="actBtn" id="btnMapStyle" title="Toggle satellite / styled roadmap"><span class="actIcon">&#128752;</span><span class="actLabel">SAT</span></button>
     <button class="actBtn" id="btnTraffic" title="Live traffic"><span class="actIcon">&#128678;</span><span class="actLabel">Traffic</span></button>
     <button class="actBtn" id="btnFindProspects" title="Find prospects via Google Places"><span class="actIcon">&#128269;</span><span class="actLabel">Prospects</span></button>
+    <button class="actBtn" id="btnProspectsOnly" title="Show prospect pins only" style="display:none"><span class="actIcon">&#128302;</span><span class="actLabel">Only</span></button>
     <button class="actBtn" id="btnLocate" title="My location"><span class="actIcon">&#128205;</span><span class="actLabel">Location</span></button>
     <button class="actBtn" id="btn3D" title="Toggle 3D tilt"><span class="actIcon">3D</span><span class="actLabel">Tilt</span></button>
     <button class="actBtn" id="btnFly" title="Auto-rotate fly mode"><span class="actIcon">&#9992;</span><span class="actLabel">Fly</span></button>
@@ -911,7 +914,7 @@ function applyFilters() {
     const loc = m._loc;
     const matchFilter = activeFilter === 'all' || loc.type === activeFilter;
     const matchSearch = !q || loc.name.toLowerCase().includes(q) || (loc.addr && loc.addr.toLowerCase().includes(q)) || (loc.notes && loc.notes.toLowerCase().includes(q));
-    const visible = matchFilter && matchSearch;
+    const visible = !prospectsOnlyMode && matchFilter && matchSearch;
     m._visible = visible;
     if (visible) { shown++; totalTrucks += loc.trucks || 0; }
   });
@@ -1866,6 +1869,7 @@ function applyDriveTimeToRow(row, text) {
 // ─── Places API: Find Prospects ───
 let placesService = null;
 let prospectMarkers = [];
+let prospectsOnlyMode = false;
 
 function getPlacesService() {
   if (!placesService) placesService = new google.maps.places.PlacesService(map);
@@ -1885,13 +1889,31 @@ function clearProspectMarkers() {
   prospectMarkers = [];
   const btn = document.getElementById('btnFindProspects');
   if (btn) btn.classList.remove('active');
+  const onlyBtn = document.getElementById('btnProspectsOnly');
+  if (onlyBtn) {
+    onlyBtn.style.display = 'none';
+    onlyBtn.classList.remove('active');
+  }
+  if (prospectsOnlyMode) {
+    prospectsOnlyMode = false;
+    applyFilters();
+  }
 }
 
-function buildProspectMarkerEl() {
-  const el = document.createElement('div');
-  el.className = 'm-prospect';
-  el.textContent = '🎯';
-  return el;
+function buildProspectMarkerEl(name) {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-prospect-wrap';
+  const pin = document.createElement('div');
+  pin.className = 'm-prospect';
+  pin.textContent = '🎯';
+  wrap.appendChild(pin);
+  if (name) {
+    const label = document.createElement('div');
+    label.className = 'm-prospect-label';
+    label.textContent = name;
+    wrap.appendChild(label);
+  }
+  return wrap;
 }
 
 function searchProspects(type, radiusMiles) {
@@ -1928,7 +1950,7 @@ function searchProspects(type, radiusMiles) {
         position: {lat, lng},
         map,
         title: loc.name,
-        content: buildProspectMarkerEl()
+        content: buildProspectMarkerEl(loc.name)
       });
       marker._loc = loc;
       marker.addListener('click', () => openSheet(loc));
@@ -1937,11 +1959,21 @@ function searchProspects(type, radiusMiles) {
     });
     showToast('Added ' + added + ' prospect pin' + (added === 1 ? '' : 's'));
     document.getElementById('btnFindProspects').classList.add('active');
+    if (added > 0) {
+      document.getElementById('btnProspectsOnly').style.display = '';
+    }
     closeProspectModal();
   });
 }
 
 document.getElementById('btnFindProspects').addEventListener('click', openProspectModal);
+document.getElementById('btnProspectsOnly').addEventListener('click', () => {
+  prospectsOnlyMode = !prospectsOnlyMode;
+  const btn = document.getElementById('btnProspectsOnly');
+  btn.classList.toggle('active', prospectsOnlyMode);
+  applyFilters();
+  showToast(prospectsOnlyMode ? 'Prospect pins only' : 'Showing all pins');
+});
 document.getElementById('prospectCancel').addEventListener('click', closeProspectModal);
 document.getElementById('prospectClear').addEventListener('click', () => {
   clearProspectMarkers();

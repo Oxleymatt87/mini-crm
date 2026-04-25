@@ -64,6 +64,10 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .actBtn.active::after{display:none}
 .actBtn.active + .actBtn::after{display:none}
 .actBtn.active .actIcon{filter:none}
+#btnProspectsOnly.active{background:#a855f7;color:#fff;box-shadow:0 2px 12px rgba(168,85,247,0.55)}
+#btnProspectsOnly{animation:none}
+#btnProspectsOnly.justShown{animation:onlyPulse 1.6s ease-out 2}
+@keyframes onlyPulse{0%{box-shadow:0 0 0 0 rgba(168,85,247,0.65)}70%{box-shadow:0 0 0 14px rgba(168,85,247,0)}100%{box-shadow:0 0 0 0 rgba(168,85,247,0)}}
 #routeBanner{background:rgba(255,74,74,0.97);color:#fff;padding:12px 16px;display:none;align-items:center;gap:10px;font-size:14px;font-weight:600;border-top:1px solid rgba(0,0,0,0.25)}
 #routeBanner button{padding:10px 16px;min-height:44px;border-radius:8px;border:none;font-weight:700;cursor:pointer}
 #routeBadge{position:fixed;bottom:212px;left:16px;z-index:16;min-width:24px;height:24px;border-radius:12px;background:#e53935;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
@@ -902,6 +906,11 @@ document.getElementById('filterRow').addEventListener('click', e => {
   document.querySelectorAll('.filterBtn').forEach(b => b.classList.remove('active'));
   e.target.classList.add('active');
   activeFilter = e.target.dataset.f;
+  if (prospectsOnlyMode) {
+    prospectsOnlyMode = false;
+    const onlyBtn = document.getElementById('btnProspectsOnly');
+    if (onlyBtn) onlyBtn.classList.remove('active');
+  }
   applyFilters();
 });
 
@@ -1950,7 +1959,8 @@ function searchProspects(type, radiusMiles) {
         position: {lat, lng},
         map,
         title: loc.name,
-        content: buildProspectMarkerEl(loc.name)
+        content: buildProspectMarkerEl(loc.name),
+        zIndex: 5000
       });
       marker._loc = loc;
       marker.addListener('click', () => openSheet(loc));
@@ -1960,7 +1970,12 @@ function searchProspects(type, radiusMiles) {
     showToast('Added ' + added + ' prospect pin' + (added === 1 ? '' : 's'));
     document.getElementById('btnFindProspects').classList.add('active');
     if (added > 0) {
-      document.getElementById('btnProspectsOnly').style.display = '';
+      const onlyBtn = document.getElementById('btnProspectsOnly');
+      onlyBtn.style.display = '';
+      onlyBtn.classList.remove('justShown');
+      void onlyBtn.offsetWidth;
+      onlyBtn.classList.add('justShown');
+      try { onlyBtn.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'}); } catch (_) {}
     }
     closeProspectModal();
   });

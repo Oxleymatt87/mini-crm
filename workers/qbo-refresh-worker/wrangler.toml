@@ -1,0 +1,29 @@
+name = "qbo-refresh-worker"
+main = "worker.js"
+compatibility_date = "2025-01-15"
+account_id = "e450a418975ed9b1212f52452bb1b5d5"
+
+# QuickBooks Online realm. Override per-environment with `wrangler secret put`.
+[vars]
+QBO_REALM_ID = "9130357532009796"
+QBO_BASE = "https://quickbooks.api.intuit.com"
+QBO_OAUTH_BASE = "https://oauth.platform.intuit.com"
+
+# KV holds the rotating access_token and refresh_token. Bind with:
+#   wrangler kv:namespace create QBO_TOKENS
+# then put the id below.
+[[kv_namespaces]]
+binding = "QBO_TOKENS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Required secrets:
+#   wrangler secret put QBO_CLIENT_ID
+#   wrangler secret put QBO_CLIENT_SECRET
+# Optional bootstrap (only used if KV is empty):
+#   wrangler secret put QBO_INITIAL_REFRESH_TOKEN
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true

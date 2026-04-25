@@ -1,0 +1,14 @@
+{
+  "name": "qbo-refresh-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail qbo-refresh-worker"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

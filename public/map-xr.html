@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0c0f">
+<title>Territory XR — SE Texas</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root { color-scheme: dark; }
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+  #app{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+
+  #topBar{position:fixed;top:0;left:0;right:0;padding:10px 14px;display:flex;align-items:center;gap:10px;z-index:5;background:linear-gradient(180deg,rgba(0,0,0,0.75),rgba(0,0,0,0));pointer-events:none}
+  #topBar > *{pointer-events:auto}
+  #backLink{color:#fff;text-decoration:none;font-weight:700;font-size:14px;background:rgba(20,20,28,0.7);padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.12)}
+  #title{font-weight:800;letter-spacing:0.5px;font-size:14px;color:#d4a12a;text-shadow:0 1px 2px #000}
+  #status{margin-left:auto;font-size:12px;color:#aaa;background:rgba(20,20,28,0.7);padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08)}
+
+  #legend{position:fixed;left:14px;bottom:96px;z-index:5;background:rgba(15,17,24,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:12px;backdrop-filter:blur(8px)}
+  .lgRow{display:flex;align-items:center;gap:8px}
+  .lgDot{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.6)}
+
+  #ctrlBar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:center;gap:8px;padding:12px env(safe-area-inset-right,12px) calc(12px + env(safe-area-inset-bottom,0px)) env(safe-area-inset-left,12px);background:linear-gradient(0deg,rgba(0,0,0,0.85),rgba(0,0,0,0))}
+  .xrBtn{appearance:none;background:#d4a12a;color:#0a0c0f;border:none;border-radius:12px;padding:12px 18px;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:0.4px;box-shadow:0 4px 18px rgba(212,161,42,0.45)}
+  .xrBtn.alt{background:rgba(40,42,52,0.9);color:#fff;border:1px solid rgba(255,255,255,0.15);box-shadow:none}
+  .xrBtn[disabled]{opacity:0.45;cursor:not-allowed}
+
+  #panel{position:fixed;right:14px;top:60px;width:min(340px,90vw);max-height:65vh;overflow:auto;background:rgba(15,17,24,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px;display:none;z-index:6;backdrop-filter:blur(10px);box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+  #panel.show{display:block}
+  #panel h2{margin:0 0 6px;font-size:17px;color:#fff}
+  #panel .meta{font-size:12px;color:#9ca3af;margin-bottom:10px}
+  #panel .badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;margin-right:6px}
+  .bg-gold{background:#ffd700;color:#000}
+  .bg-red{background:#dc2626;color:#fff}
+  .bg-green{background:#22c55e;color:#000}
+  .bg-purple{background:#a855f7;color:#fff}
+  .bg-gray{background:#475569;color:#fff}
+  #panel .row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.06);color:#cfd3dc}
+  #panel .row span:first-child{color:#9ca3af}
+  #panel button.close{position:absolute;top:8px;right:10px;background:transparent;border:none;color:#9ca3af;font-size:20px;cursor:pointer}
+  #panel .actions{display:flex;gap:8px;margin-top:12px}
+  #panel .actions a, #panel .actions button{flex:1;text-align:center;padding:9px;border-radius:9px;border:none;background:#1f2230;color:#fff;text-decoration:none;font-weight:700;font-size:13px;cursor:pointer;border:1px solid rgba(255,255,255,0.08)}
+
+  #login{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:30;backdrop-filter:blur(6px)}
+  #login.hidden{display:none}
+  #login .box{background:#0f1117;border:1px solid #2a2d36;border-radius:14px;padding:22px;width:min(340px,92vw)}
+  #login h2{margin:0 0 14px;font-size:1.05rem;color:#d4a12a}
+  #login input{width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:10px;border-radius:8px;border:1px solid #333;background:#0f1117;color:#fff;font-size:14px}
+  #login button{width:100%;padding:12px;border-radius:10px;border:none;background:#d4a12a;color:#000;font-weight:700;font-size:14px;cursor:pointer}
+  #login .err{color:#e74c3c;font-size:12px;margin-top:6px;display:none}
+
+  #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,17,24,0.95);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;z-index:40;display:none}
+  #toast.show{display:block;animation:fadeIn .2s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+
+  #flyHud{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:6;background:rgba(0,0,0,0.78);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:10px 16px;display:none;text-align:center;min-width:220px;backdrop-filter:blur(6px)}
+  #flyHud .stop{font-size:12px;color:#fbbf24;margin-bottom:2px;letter-spacing:0.5px;text-transform:uppercase}
+  #flyHud .name{font-size:15px;color:#fff;font-weight:700}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<div id="topBar">
+  <a id="backLink" href="map.html">&larr; Map</a>
+  <span id="title">TERRITORY XR</span>
+  <span id="status">Initializing&hellip;</span>
+</div>
+
+<div id="legend">
+  <div class="lgRow"><span class="lgDot" style="background:#ffd700"></span>Customers</div>
+  <div class="lgRow"><span class="lgDot" style="background:#dc2626"></span>Whales</div>
+  <div class="lgRow"><span class="lgDot" style="background:#22c55e"></span>Saved</div>
+  <div class="lgRow"><span class="lgDot" style="background:#a855f7"></span>Prospects</div>
+</div>
+
+<div id="flyHud"><div class="stop">Stop <span id="flyIdx">1</span> / <span id="flyTotal">1</span></div><div class="name" id="flyName"></div></div>
+
+<div id="panel">
+  <button class="close" id="panelClose" aria-label="Close">&times;</button>
+  <div id="panelBadges"></div>
+  <h2 id="panelName">&nbsp;</h2>
+  <div class="meta" id="panelMeta"></div>
+  <div id="panelRows"></div>
+  <div class="actions">
+    <a id="panelNav" href="#" target="_blank" rel="noopener">Navigate</a>
+    <button id="panelFly">Fly to</button>
+  </div>
+</div>
+
+<div id="ctrlBar">
+  <button class="xrBtn" id="enterXrBtn" disabled>Enter VR</button>
+  <button class="xrBtn alt" id="flyBtn">Fly-through</button>
+  <button class="xrBtn alt" id="resetBtn">Reset View</button>
+</div>
+
+<div id="login">
+  <div class="box">
+    <h2>Sign in to Territory XR</h2>
+    <input id="xrEmail" type="email" placeholder="Email" autocomplete="email">
+    <input id="xrPass" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="xrLoginBtn">Sign in</button>
+    <div class="err" id="xrLoginErr"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://esm.sh/three@0.160.0",
+    "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+    "3d-tiles-renderer": "https://esm.sh/3d-tiles-renderer@0.3.39?deps=three@0.160.0"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TilesRenderer } from '3d-tiles-renderer';
+
+// ─── Config (reused from map.html) ────────────────────────────────────
+const FIREBASE_CFG = {
+  apiKey: "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E",
+  authDomain: "inventory-setup-b3f20.firebaseapp.com",
+  projectId: "inventory-setup-b3f20",
+  storageBucket: "inventory-setup-b3f20.firebasestorage.app",
+  messagingSenderId: "162750059985",
+  appId: "1:162750059985:web:bbe5328412c7ef49893cf0"
+};
+const GMAPS_KEY = "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E";
+
+// SE Texas centroid (Liberty, TX — covers Beaumont, Houston outskirts).
+const CENTER_LAT = 30.06;
+const CENTER_LNG = -94.40;
+const CENTER_ALT = 0;
+const VIEW_RADIUS_M = 80000;
+
+// Marker colors keyed by customer type.
+const TYPE_COLOR = {
+  whale:    { hex: 0xdc2626, css: 'red',    badge: 'bg-red',    label: 'WHALE' },
+  customer: { hex: 0xffd700, css: 'gold',   badge: 'bg-gold',   label: 'CUSTOMER' },
+  saved:    { hex: 0x22c55e, css: 'green',  badge: 'bg-green',  label: 'SAVED' },
+  prospect: { hex: 0xa855f7, css: 'purple', badge: 'bg-purple', label: 'PROSPECT' },
+  cold:     { hex: 0x9ca3af, css: 'gray',   badge: 'bg-gray',   label: 'COLD' },
+  wantgo:   { hex: 0xff6d00, css: 'gold',   badge: 'bg-gold',   label: 'WANT TO GO' },
+  home:     { hex: 0x3b82f6, css: 'green',  badge: 'bg-green',  label: 'HOME' }
+};
+const DEFAULT_COLOR = TYPE_COLOR.prospect;
+
+// ─── State ─────────────────────────────────────────────────────────────
+let renderer, scene, camera, controls, tiles;
+let dolly; // XR locomotion rig — camera is parented to dolly during XR
+let markersGroup;
+let raycaster = new THREE.Raycaster();
+let pointer = new THREE.Vector2();
+let hoverMarker = null;
+let activeMarker = null;
+let xrSupported = false;
+let flyState = null; // { stops:[], idx:0, t:0, segDur:6 }
+let allCustomers = []; // {id,name,lat,lng,type,...}
+let pickables = []; // marker meshes
+let xrController1, xrController2;
+let xrReticle = null;
+
+// ─── Toast / status helpers ────────────────────────────────────────────
+function setStatus(s) { document.getElementById('status').textContent = s; }
+function toast(msg, ms=2200) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// ─── Lat/Lng → ECEF (WGS84) ────────────────────────────────────────────
+const WGS84_A = 6378137.0;
+const WGS84_E2 = 6.69437999014e-3;
+function latLngToECEF(latDeg, lngDeg, hM) {
+  const lat = latDeg * Math.PI / 180;
+  const lng = lngDeg * Math.PI / 180;
+  const sinLat = Math.sin(lat), cosLat = Math.cos(lat);
+  const N = WGS84_A / Math.sqrt(1 - WGS84_E2 * sinLat * sinLat);
+  return new THREE.Vector3(
+    (N + hM) * cosLat * Math.cos(lng),
+    (N + hM) * cosLat * Math.sin(lng),
+    (N * (1 - WGS84_E2) + hM) * sinLat
+  );
+}
+// Local ENU frame at center: rotation that takes ECEF "up" to +Y.
+// Three.js uses right-handed Y-up; we orient the scene so that the local
+// ground tangent at CENTER lies on the XZ plane.
+function buildEnuBasis(latDeg, lngDeg) {
+  const lat = latDeg * Math.PI / 180;
+  const lng = lngDeg * Math.PI / 180;
+  const sinLat = Math.sin(lat), cosLat = Math.cos(lat);
+  const sinLng = Math.sin(lng), cosLng = Math.cos(lng);
+  const east  = new THREE.Vector3(-sinLng, cosLng, 0);
+  const north = new THREE.Vector3(-sinLat * cosLng, -sinLat * sinLng, cosLat);
+  const up    = new THREE.Vector3( cosLat * cosLng,  cosLat * sinLng, sinLat);
+  // Map: east → +X, up → +Y, -north → +Z (so +Z is south, like screen down).
+  return new THREE.Matrix4().makeBasis(east, up, north.clone().multiplyScalar(-1));
+}
+
+const CENTER_ECEF = latLngToECEF(CENTER_LAT, CENTER_LNG, CENTER_ALT);
+const ENU_BASIS = buildEnuBasis(CENTER_LAT, CENTER_LNG);
+const ENU_BASIS_INV = ENU_BASIS.clone().invert();
+
+// World transform for tilesGroup so local ENU frame is at world origin.
+function ecefToLocal(ecef) {
+  const v = ecef.clone().sub(CENTER_ECEF);
+  v.applyMatrix4(ENU_BASIS_INV);
+  return v;
+}
+
+// ─── Three.js setup ────────────────────────────────────────────────────
+function initThree() {
+  const app = document.getElementById('app');
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.xr.enabled = true;
+  app.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x06070b);
+  // Subtle exponential fog so far tiles fade rather than pop.
+  scene.fog = new THREE.Fog(0x06070b, 30000, 120000);
+
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 5, 400000);
+  // Start ~3km up, ~6km south of center, looking at center (cinematic tilt).
+  camera.position.set(0, 3000, 6000);
+  camera.lookAt(0, 0, 0);
+
+  dolly = new THREE.Group();
+  dolly.position.copy(camera.position);
+  scene.add(dolly);
+
+  // Lighting tuned for the photoreal tiles (which have baked illumination,
+  // so we keep ambient bright and add a soft sun).
+  scene.add(new THREE.HemisphereLight(0xfff5e0, 0x1a2030, 1.2));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+  sun.position.set(8000, 12000, 4000);
+  scene.add(sun);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.set(0, 0, 0);
+  controls.minDistance = 200;
+  controls.maxDistance = VIEW_RADIUS_M;
+  controls.maxPolarAngle = Math.PI * 0.49;
+
+  markersGroup = new THREE.Group();
+  scene.add(markersGroup);
+
+  window.addEventListener('resize', onResize);
+  renderer.domElement.addEventListener('pointerdown', onPointerDown);
+  renderer.domElement.addEventListener('pointermove', onPointerMove);
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// ─── Photorealistic 3D Tiles ───────────────────────────────────────────
+function initTiles() {
+  const url = `https://tile.googleapis.com/v1/3dtiles/root.json?key=${GMAPS_KEY}`;
+  tiles = new TilesRenderer(url);
+  tiles.setCamera(camera);
+  tiles.setResolutionFromRenderer(camera, renderer);
+
+  // Apply ENU rotation+translation so the tiles land at our local origin.
+  const m = ENU_BASIS_INV.clone();
+  // Translation portion: -CENTER_ECEF transformed by ENU_BASIS_INV is what
+  // we want, but easier: position the group directly.
+  tiles.group.matrixAutoUpdate = false;
+  const T = new THREE.Matrix4().makeTranslation(-CENTER_ECEF.x, -CENTER_ECEF.y, -CENTER_ECEF.z);
+  tiles.group.matrix.copy(m.multiply(T));
+  tiles.group.matrix.decompose(tiles.group.position, tiles.group.quaternion, tiles.group.scale);
+  tiles.group.matrixAutoUpdate = true;
+
+  // Google requires session-token style auth via query param; the URL key
+  // alone works for "Map Tiles API: Photorealistic 3D Tiles" once enabled.
+  // Add basic attribution overlay.
+  addAttribution();
+
+  scene.add(tiles.group);
+
+  tiles.errorTarget = 24;
+  tiles.maxDepth = Infinity;
+  tiles.addEventListener('load-tile-set', () => setStatus('Tiles loaded'));
+  tiles.addEventListener('tiles-load-error', e => {
+    console.warn('Tile error', e);
+    setStatus('Tiles error — check API key / billing');
+  });
+}
+
+function addAttribution() {
+  const a = document.createElement('div');
+  a.style.cssText = 'position:fixed;left:8px;bottom:60px;font-size:10px;color:#888;background:rgba(0,0,0,0.55);padding:3px 6px;border-radius:6px;z-index:4;pointer-events:none';
+  a.textContent = '© Google · Maps Tiles';
+  document.body.appendChild(a);
+}
+
+// ─── Markers ───────────────────────────────────────────────────────────
+function makeMarker(loc) {
+  const t = TYPE_COLOR[loc.type] || DEFAULT_COLOR;
+  const grp = new THREE.Group();
+  grp.userData.loc = loc;
+  grp.userData.type = loc.type;
+
+  // Vertical stalk so the marker hovers ~120 m above ground and is visible.
+  const stalkH = (loc.type === 'whale') ? 220 : 120;
+  const stalkGeo = new THREE.CylinderGeometry(2, 2, stalkH, 6);
+  const stalkMat = new THREE.MeshBasicMaterial({ color: t.hex, transparent: true, opacity: 0.55 });
+  const stalk = new THREE.Mesh(stalkGeo, stalkMat);
+  stalk.position.y = stalkH / 2;
+  grp.add(stalk);
+
+  // Floating glowing sphere head.
+  const headR = (loc.type === 'whale') ? 60 : 32;
+  const headGeo = new THREE.SphereGeometry(headR, 20, 16);
+  const headMat = new THREE.MeshStandardMaterial({
+    color: t.hex,
+    emissive: t.hex,
+    emissiveIntensity: 0.85,
+    roughness: 0.35,
+    metalness: 0.15
+  });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.position.y = stalkH;
+  head.userData.pickable = true;
+  head.userData.loc = loc;
+  head.userData.parentGroup = grp;
+  grp.add(head);
+  pickables.push(head);
+
+  // Soft halo billboard for visibility from far away.
+  const haloMat = new THREE.SpriteMaterial({
+    map: makeHaloTexture(t.hex),
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false
+  });
+  const halo = new THREE.Sprite(haloMat);
+  halo.scale.set(headR * 5, headR * 5, 1);
+  halo.position.y = stalkH;
+  grp.add(halo);
+
+  // Position the whole group at the lat/lng. Ground altitude is unknown
+  // without sampling tiles, so we anchor at sea level and rely on the
+  // stalk height to push the head above terrain (Liberty TX is ~5–60m).
+  const ecef = latLngToECEF(loc.lat, loc.lng, 0);
+  const local = ecefToLocal(ecef);
+  grp.position.copy(local);
+  // Orient stalk along local up. Local up at (lat,lng) differs slightly
+  // from world +Y when the point is offset from CENTER, but for an 80km
+  // radius the deviation is < 0.7° — negligible for a floating pin.
+  return grp;
+}
+
+const _haloCache = new Map();
+function makeHaloTexture(hex) {
+  if (_haloCache.has(hex)) return _haloCache.get(hex);
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 60);
+  const r = (hex >> 16) & 255, gg = (hex >> 8) & 255, b = hex & 255;
+  grd.addColorStop(0,    `rgba(${r},${gg},${b},0.95)`);
+  grd.addColorStop(0.35, `rgba(${r},${gg},${b},0.45)`);
+  grd.addColorStop(1,    `rgba(${r},${gg},${b},0)`);
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _haloCache.set(hex, tex);
+  return tex;
+}
+
+function rebuildMarkers() {
+  while (markersGroup.children.length) markersGroup.remove(markersGroup.children[0]);
+  pickables = [];
+  let added = 0;
+  for (const c of allCustomers) {
+    if (typeof c.lat !== 'number' || typeof c.lng !== 'number') continue;
+    if (Math.abs(c.lat - CENTER_LAT) > 4 || Math.abs(c.lng - CENTER_LNG) > 4) continue;
+    markersGroup.add(makeMarker(c));
+    added++;
+  }
+  setStatus(`${added} pins · ${xrSupported ? 'XR ready' : 'desktop'}`);
+}
+
+// ─── Picking + detail panel ────────────────────────────────────────────
+function onPointerMove(e) {
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+}
+function onPointerDown(e) {
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (hit && hit.object.userData.loc) {
+    showPanel(hit.object.userData.loc);
+  }
+}
+
+function showPanel(loc) {
+  activeMarker = loc;
+  const t = TYPE_COLOR[loc.type] || DEFAULT_COLOR;
+  document.getElementById('panelBadges').innerHTML =
+    `<span class="badge ${t.badge}">${t.label}</span>` +
+    (loc.industry ? `<span class="badge bg-gray">${loc.industry}</span>` : '');
+  document.getElementById('panelName').textContent = loc.name || loc.display_name || '(unnamed)';
+  document.getElementById('panelMeta').textContent =
+    [loc.addr, loc.locType].filter(Boolean).join(' · ');
+  const rows = [];
+  if (loc.phone) rows.push(['Phone', loc.phone]);
+  if (loc.trucks) rows.push(['Trucks', loc.trucks]);
+  if (loc.drivers) rows.push(['Drivers', loc.drivers]);
+  if (loc.spend) rows.push(['Spend', loc.spend]);
+  if (loc.notes) rows.push(['Notes', loc.notes]);
+  rows.push(['Lat / Lng', `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`]);
+  document.getElementById('panelRows').innerHTML = rows
+    .map(([k, v]) => `<div class="row"><span>${k}</span><span>${escapeHtml(String(v))}</span></div>`)
+    .join('');
+  const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}&travelmode=driving`;
+  document.getElementById('panelNav').href = navUrl;
+  document.getElementById('panel').classList.add('show');
+}
+function hidePanel() { document.getElementById('panel').classList.remove('show'); activeMarker = null; }
+function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ─── Fly-through ───────────────────────────────────────────────────────
+function startFlythrough() {
+  // Pick up to 8 high-value stops (whales first, then customers, then saved)
+  // sorted by an east-to-west sweep so the path is geographically sensible.
+  const pri = { whale: 0, customer: 1, saved: 2, prospect: 3 };
+  const stops = allCustomers
+    .filter(c => typeof c.lat === 'number' && typeof c.lng === 'number')
+    .filter(c => Math.abs(c.lat - CENTER_LAT) <= 4 && Math.abs(c.lng - CENTER_LNG) <= 4)
+    .filter(c => c.type === 'whale' || c.type === 'customer' || c.type === 'saved')
+    .sort((a, b) => (pri[a.type] - pri[b.type]) || (a.lng - b.lng))
+    .slice(0, 8);
+  if (!stops.length) { toast('No stops to fly'); return; }
+  flyState = { stops, idx: 0, t: 0, segDur: 6 };
+  document.getElementById('flyHud').style.display = 'block';
+  document.getElementById('flyTotal').textContent = stops.length;
+  controls.enabled = false;
+}
+function stopFlythrough() {
+  flyState = null;
+  document.getElementById('flyHud').style.display = 'none';
+  controls.enabled = true;
+}
+function updateFly(dt) {
+  if (!flyState) return;
+  const s = flyState.stops[flyState.idx];
+  if (!s) { stopFlythrough(); return; }
+  flyState.t += dt;
+  const a = Math.min(1, flyState.t / flyState.segDur);
+
+  const ecef = latLngToECEF(s.lat, s.lng, 0);
+  const local = ecefToLocal(ecef);
+  // Camera arc: orbit around the stop, descending from 4500m to 600m.
+  const angle = a * Math.PI * 0.6;
+  const r = 1500 + (1 - a) * 3000;
+  const h = 4500 - a * 3900;
+  const targetCam = new THREE.Vector3(local.x + Math.cos(angle) * r, local.y + h, local.z + Math.sin(angle) * r);
+  camera.position.lerp(targetCam, 0.08);
+  controls.target.lerp(new THREE.Vector3(local.x, local.y + 100, local.z), 0.12);
+  controls.update();
+
+  document.getElementById('flyIdx').textContent = flyState.idx + 1;
+  document.getElementById('flyName').textContent = s.name || '';
+
+  if (a >= 1) {
+    showPanel(s);
+    flyState.idx++;
+    flyState.t = 0;
+    if (flyState.idx >= flyState.stops.length) {
+      setTimeout(stopFlythrough, 2500);
+    }
+  }
+}
+
+// ─── WebXR ─────────────────────────────────────────────────────────────
+async function initXR() {
+  if (!('xr' in navigator)) { setStatus('No WebXR — desktop fallback'); return; }
+  try {
+    const ok = await navigator.xr.isSessionSupported('immersive-vr');
+    xrSupported = ok;
+    const btn = document.getElementById('enterXrBtn');
+    if (ok) {
+      btn.disabled = false;
+      btn.addEventListener('click', enterXR);
+      // Attach VRButton's logic but use our styled button.
+    } else {
+      btn.textContent = 'VR not available';
+      btn.disabled = true;
+    }
+  } catch (e) {
+    console.warn('XR check failed', e);
+    document.getElementById('enterXrBtn').textContent = 'VR unavailable';
+  }
+}
+
+async function enterXR() {
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr', {
+      optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+    });
+    renderer.xr.setReferenceSpaceType('local-floor');
+    await renderer.xr.setSession(session);
+    // Park the camera dolly above the center at a comfortable height so the
+    // user is standing on a virtual platform overlooking SE Texas.
+    dolly.position.set(0, 1500, 2500);
+    dolly.add(camera);
+    setupXRControllers();
+    setStatus('In VR · gaze + trigger to pick');
+    session.addEventListener('end', () => {
+      dolly.remove(camera);
+      camera.position.set(0, 3000, 6000);
+      camera.lookAt(0, 0, 0);
+      setStatus('Exited VR');
+      removeXRControllers();
+    });
+  } catch (e) {
+    console.warn(e);
+    toast('Could not start VR: ' + (e.message || e));
+  }
+}
+
+function setupXRControllers() {
+  const factory = new THREE.Group();
+  xrController1 = renderer.xr.getController(0);
+  xrController2 = renderer.xr.getController(1);
+  for (const c of [xrController1, xrController2]) {
+    if (!c) continue;
+    const ray = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-300)]),
+      new THREE.LineBasicMaterial({ color: 0xd4a12a })
+    );
+    c.add(ray);
+    c.addEventListener('selectstart', onXRSelect);
+    dolly.add(c);
+  }
+  // Reticle for gaze fallback (used if no controllers).
+  const ringGeo = new THREE.RingGeometry(2, 3, 24);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xd4a12a, side: THREE.DoubleSide });
+  xrReticle = new THREE.Mesh(ringGeo, ringMat);
+  xrReticle.position.set(0, 0, -50);
+  camera.add(xrReticle);
+}
+function removeXRControllers() {
+  if (xrReticle) { camera.remove(xrReticle); xrReticle = null; }
+  for (const c of [xrController1, xrController2]) { if (c) dolly.remove(c); }
+  xrController1 = xrController2 = null;
+}
+
+function onXRSelect(event) {
+  const c = event.target;
+  const m = new THREE.Matrix4().identity();
+  c.updateMatrixWorld();
+  m.copy(c.matrixWorld);
+  raycaster.ray.origin.setFromMatrixPosition(m);
+  raycaster.ray.direction.set(0, 0, -1).transformDirection(m);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (hit && hit.object.userData.loc) showPanel(hit.object.userData.loc);
+}
+
+function updateXRGazePick() {
+  if (!renderer.xr.isPresenting) return;
+  // Gaze pick from the headset's forward vector.
+  const cam = renderer.xr.getCamera();
+  raycaster.ray.origin.setFromMatrixPosition(cam.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).transformDirection(cam.matrixWorld);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (hit) {
+    if (hoverMarker !== hit.object) {
+      if (hoverMarker) hoverMarker.scale.set(1, 1, 1);
+      hoverMarker = hit.object;
+      hoverMarker.scale.set(1.4, 1.4, 1.4);
+    }
+  } else if (hoverMarker) {
+    hoverMarker.scale.set(1, 1, 1);
+    hoverMarker = null;
+  }
+}
+
+// ─── Render loop ───────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function tick() {
+  const dt = clock.getDelta();
+  if (controls.enabled) controls.update();
+  if (tiles) {
+    tiles.setCamera(camera);
+    tiles.setResolutionFromRenderer(camera, renderer);
+    camera.updateMatrixWorld();
+    tiles.update();
+  }
+  // Make halo sprites and stalks pulse for visibility.
+  const t = performance.now() * 0.001;
+  for (const m of pickables) {
+    const s = 1 + Math.sin(t * 2 + m.position.x * 0.0001) * 0.06;
+    if (m !== hoverMarker) m.scale.setScalar(s);
+  }
+  updateFly(dt);
+  updateXRGazePick();
+  renderer.render(scene, camera);
+}
+
+// ─── Firebase ──────────────────────────────────────────────────────────
+let fbAuth, fbDb, fbUser = null;
+function initFirebase() {
+  firebase.initializeApp(FIREBASE_CFG);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+  fbAuth.onAuthStateChanged(user => {
+    if (user) {
+      fbUser = user;
+      document.getElementById('login').classList.add('hidden');
+      loadCustomers();
+    } else {
+      document.getElementById('login').classList.remove('hidden');
+    }
+  });
+}
+function login() {
+  const email = document.getElementById('xrEmail').value;
+  const pass = document.getElementById('xrPass').value;
+  const err = document.getElementById('xrLoginErr');
+  err.style.display = 'none';
+  fbAuth.signInWithEmailAndPassword(email, pass).catch(e => {
+    err.textContent = e.message; err.style.display = 'block';
+  });
+}
+
+async function loadCustomers() {
+  setStatus('Loading customers…');
+  try {
+    const snap = await fbDb.collection('customers').get();
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Normalize: Firestore "customers" docs may not all have lat/lng, type.
+    // We classify whales by spend and missing types as 'customer'.
+    allCustomers = docs.map(d => ({
+      id: d.id,
+      name: d.display_name || d.company_name || d.name || '(unnamed)',
+      lat: typeof d.lat === 'number' ? d.lat : (d.location && d.location.lat),
+      lng: typeof d.lng === 'number' ? d.lng : (d.location && d.location.lng),
+      addr: d.address || d.bill_address || d.addr || '',
+      phone: d.phone || d.primary_phone || '',
+      type: d.type || classifyByBalance(d),
+      notes: d.notes || '',
+      spend: d.lifetime_spend || d.spend || null,
+      locType: d.industry || d.locType || ''
+    })).filter(c => typeof c.lat === 'number' && typeof c.lng === 'number');
+
+    // Also include the saved-places / hardcoded whales bundle that the
+    // legacy map.html uses, so the XR view shows the same pin universe
+    // even before every Firestore record has lat/lng populated.
+    allCustomers.push(...legacyPins());
+    rebuildMarkers();
+  } catch (e) {
+    console.error(e);
+    setStatus('Firestore error — using legacy bundle');
+    allCustomers = legacyPins();
+    rebuildMarkers();
+  }
+}
+
+function classifyByBalance(d) {
+  const s = +d.lifetime_spend || +d.spend || 0;
+  if (s > 250000) return 'whale';
+  if (s > 0) return 'customer';
+  return 'prospect';
+}
+
+// Subset of the legacy hardcoded pins from map.html so the XR scene has
+// content even on first auth before customers are loaded. Keeps the file
+// self-contained; Firestore data takes precedence when present.
+function legacyPins() {
+  return [
+    { name:"Curtis & Son Companies", lat:30.0904, lng:-94.7575, addr:"4408 N Main St, Liberty TX", phone:"(936) 334-1188", type:"customer", notes:"Oilfield services. $342K all-time.", spend:"$150K-$200K/yr", locType:"Oilfield services" },
+    { name:"Axis Power Generation", lat:30.0786, lng:-94.7704, addr:"Mizell Rd area, Liberty TX", phone:"(936) 336-6700", type:"whale", notes:"Oilfield generators, lowboy/flatbed.", spend:"$400K-$500K+/yr", locType:"Oilfield generators" },
+    { name:"Bright Star Solutions", lat:30.14, lng:-94.39, addr:"18788 Hwy 105, Sour Lake TX", phone:"(409) 287-3662", type:"whale", notes:"Logging/utility fleet.", spend:"$350K-$450K+/yr", locType:"Logging/utility" },
+    { name:"Huntsman Petrochemical", lat:29.9697, lng:-93.9292, addr:"6001 FM 366, Port Neches TX", phone:"(409) 724-4430", type:"whale", notes:"Fortune 500 chemical co.", spend:"$250K-$350K+/yr", locType:"Chemical" },
+    { name:"Shamrock Vacuum Service", lat:30.0461, lng:-94.7050, addr:"11616 US-90, Liberty TX", phone:"(936) 334-8100", type:"customer", notes:"Oilfield fluid hauling.", spend:"$110K-$140K/yr", locType:"Oilfield" },
+    { name:"M&D Supply Ace Hardware", lat:30.0687, lng:-94.1426, addr:"4580 College St, Beaumont, TX", type:"saved" },
+    { name:"Elite Recovery Services", lat:30.1307, lng:-94.2131, addr:"11181 N Keith Rd, Beaumont, TX", type:"saved" },
+    { name:"Anahuac Transport", lat:29.8344, lng:-94.5759, addr:"309 FM 1724, Hankamer, TX", type:"saved" },
+    { name:"South Hampton Refinery", lat:30.3747, lng:-94.1710, addr:"92 hwy, Silsbee, TX", type:"saved" },
+    { name:"Smart Materials Inc", lat:30.0194, lng:-94.7768, addr:"1404 Wallisville Rd, Liberty TX", phone:"(936) 336-3026", type:"prospect", notes:"Rock yard.", spend:"$38K-$50K/yr", locType:"Rock yard" },
+    { name:"Liberty Ready Mix", lat:30.0604, lng:-94.7694, addr:"3301 Beaumont Ave, Liberty TX", phone:"(936) 334-0304", type:"prospect", notes:"Concrete batch plant.", spend:"$18K-$25K/yr", locType:"Concrete" },
+    { name:"Clean Combustion Inc", lat:29.8885, lng:-94.8944, addr:"14210 TX-146, Dayton TX", phone:"(281) 385-0111", type:"prospect", notes:"Verified yard on 146.", spend:"$45K-$60K/yr", locType:"Oilfield" }
+  ];
+}
+
+// ─── Wire up UI ────────────────────────────────────────────────────────
+document.getElementById('panelClose').addEventListener('click', hidePanel);
+document.getElementById('panelFly').addEventListener('click', () => {
+  if (!activeMarker) return;
+  flyTo(activeMarker.lat, activeMarker.lng);
+});
+document.getElementById('flyBtn').addEventListener('click', () => {
+  if (flyState) stopFlythrough(); else startFlythrough();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  stopFlythrough();
+  controls.target.set(0, 0, 0);
+  camera.position.set(0, 3000, 6000);
+});
+document.getElementById('xrLoginBtn').addEventListener('click', login);
+document.getElementById('xrPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+
+function flyTo(lat, lng) {
+  const ecef = latLngToECEF(lat, lng, 0);
+  const local = ecefToLocal(ecef);
+  const target = new THREE.Vector3(local.x, local.y + 1500, local.z + 2200);
+  const start = camera.position.clone();
+  const t0 = performance.now();
+  const dur = 1500;
+  controls.enabled = false;
+  function step() {
+    const k = Math.min(1, (performance.now() - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    camera.position.lerpVectors(start, target, e);
+    controls.target.lerp(new THREE.Vector3(local.x, local.y, local.z), e);
+    controls.update();
+    if (k < 1) requestAnimationFrame(step);
+    else controls.enabled = true;
+  }
+  step();
+}
+
+// ─── Boot ──────────────────────────────────────────────────────────────
+async function boot() {
+  initThree();
+  initTiles();
+  await initXR();
+  initFirebase();
+  renderer.setAnimationLoop(tick);
+}
+boot().catch(err => {
+  console.error(err);
+  setStatus('Boot error: ' + (err.message || err));
+});
+</script>
+</body>
+</html>

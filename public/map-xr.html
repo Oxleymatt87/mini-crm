@@ -68,6 +68,16 @@
   #xrDebug .warn{color:#fbbf24}
   #xrDebugToggle{position:fixed;left:14px;top:60px;z-index:8;background:rgba(20,20,28,0.7);border:1px solid rgba(255,255,255,0.12);color:#fff;font-family:inherit;font-size:11px;padding:5px 9px;border-radius:8px;cursor:pointer;display:none}
 
+  /* Always-visible exit button shown only while in an XR session.
+     Sits above #topBar (z-index 100) so it overlays panels/legend, and
+     uses a heavy red treatment so users can find it instantly even
+     through a passthrough or VR camera feed. */
+  #xrExitBtn{position:fixed;top:max(14px,env(safe-area-inset-top,14px));right:max(14px,env(safe-area-inset-right,14px));z-index:100;display:none;background:#dc2626;color:#fff;border:3px solid #fff;border-radius:14px;padding:16px 22px;font-weight:900;font-size:18px;letter-spacing:1.5px;font-family:inherit;cursor:pointer;box-shadow:0 0 0 2px rgba(220,38,38,0.35),0 10px 30px rgba(220,38,38,0.55),0 0 24px rgba(255,68,68,0.55);text-transform:uppercase;-webkit-tap-highlight-color:transparent}
+  #xrExitBtn.show{display:block}
+  #xrExitBtn:active{transform:scale(0.96)}
+  @keyframes xrExitPulse{0%,100%{box-shadow:0 0 0 2px rgba(220,38,38,0.35),0 10px 30px rgba(220,38,38,0.55),0 0 24px rgba(255,68,68,0.55)}50%{box-shadow:0 0 0 4px rgba(220,38,38,0.55),0 10px 36px rgba(220,38,38,0.7),0 0 36px rgba(255,68,68,0.85)}}
+  #xrExitBtn.show{animation:xrExitPulse 1.6s ease-in-out infinite}
+
   #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,17,24,0.95);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;z-index:40;display:none}
   #toast.show{display:block;animation:fadeIn .2s ease}
   @keyframes fadeIn{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -140,6 +150,8 @@
   </div>
 </div>
 
+<button id="xrExitBtn" type="button" aria-label="Exit XR session">EXIT XR</button>
+
 <div id="toast"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -185,9 +197,11 @@ const FIREBASE_CFG = {
 };
 const GMAPS_KEY = "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E";
 
-// SE Texas centroid (Liberty, TX — covers Beaumont, Houston outskirts).
-const CENTER_LAT = 30.06;
-const CENTER_LNG = -94.40;
+// SE Texas centroid — Beaumont, TX. The previous Liberty-area center
+// (30.06, -94.40) put the camera over flat farmland; Beaumont gives the
+// downtown / refinery skyline that customers actually expect to see.
+const CENTER_LAT = 30.0860;
+const CENTER_LNG = -94.1018;
 const CENTER_ALT = 0;
 const VIEW_RADIUS_M = 80000;
 
@@ -217,6 +231,14 @@ let allCustomers = []; // {id,name,lat,lng,type,...}
 let pickables = []; // marker meshes
 let xrController1, xrController2;
 let xrReticle = null;
+let xrReticleCanvas = null;
+let xrReticleTex = null;
+let xrExitMesh = null;        // 3D EXIT panel that the user can gaze at
+let xrSession = null;         // active XRSession reference (for end())
+let xrExitDwell = 0;          // accumulated seconds of gaze on the exit target
+const XR_EXIT_DWELL_SEC = 2.0;
+let lastTapTime = 0;          // last empty-area tap, for double-tap exit
+let xrExitPending = false;    // guard against double-firing session.end()
 
 // ─── Toast / status helpers ────────────────────────────────────────────
 function setStatus(s) { document.getElementById('status').textContent = s; }
@@ -284,8 +306,9 @@ function initThree() {
   scene.fog = new THREE.Fog(0x06070b, 30000, 120000);
 
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 5, 400000);
-  // Start ~3km up, ~6km south of center, looking at center (cinematic tilt).
-  camera.position.set(0, 3000, 6000);
+  // Start ~2km up, ~4km south of Beaumont center, looking at downtown
+  // (cinematic tilt that frames the I-10 corridor and refinery cluster).
+  camera.position.set(0, 2000, 4000);
   camera.lookAt(0, 0, 0);
 
   dolly = new THREE.Group();
@@ -473,6 +496,20 @@ function onPointerDown(e) {
   const hit = raycaster.intersectObjects(pickables, false)[0];
   if (hit && hit.object.userData.loc) {
     showPanel(hit.object.userData.loc);
+    lastTapTime = 0;
+    return;
+  }
+  // Double-tap on empty space exits the XR session. We ignore taps that
+  // hit a marker so users can rapidly inspect pins without triggering an
+  // exit. 350 ms matches typical mobile double-tap thresholds.
+  if (xrSession) {
+    const now = performance.now();
+    if (now - lastTapTime < 350) {
+      lastTapTime = 0;
+      endXrSession('double-tap');
+      return;
+    }
+    lastTapTime = now;
   }
 }
 
@@ -661,21 +698,29 @@ async function enterXR() {
       const session = await navigator.xr.requestSession(mode, init);
       renderer.xr.setReferenceSpaceType('local-floor');
       await renderer.xr.setSession(session);
+      xrSession = session;
+      xrExitDwell = 0;
+      xrExitPending = false;
       // Park the camera dolly above the center at a comfortable height so
-      // the user is standing on a virtual platform overlooking SE Texas.
+      // the user is standing on a virtual platform overlooking Beaumont.
       dolly.position.set(0, 1500, 2500);
       dolly.add(camera);
       setupXRControllers();
       btn.textContent = mode === 'immersive-ar' ? 'Exit AR' : 'Exit VR';
-      setStatus(`In ${mode} · gaze + trigger to pick`);
+      setStatus(`In ${mode} · gaze EXIT 2s, double-tap, or button to leave`);
       dbgLog(`session active: ${mode}`, null);
+      document.getElementById('xrExitBtn').classList.add('show');
       session.addEventListener('end', () => {
+        xrSession = null;
+        xrExitDwell = 0;
+        xrExitPending = false;
         dolly.remove(camera);
-        camera.position.set(0, 3000, 6000);
+        camera.position.set(0, 2000, 4000);
         camera.lookAt(0, 0, 0);
         setStatus(`Exited ${mode}`);
         btn.textContent = mode === 'immersive-ar' ? 'Enter AR' : 'Enter VR';
         removeXRControllers();
+        document.getElementById('xrExitBtn').classList.remove('show');
         dbgLog('session ended');
       });
       return;
@@ -690,8 +735,117 @@ async function enterXR() {
   toast('Could not start XR session — see debug panel');
 }
 
+// Idempotent end of the current XR session — used by the DOM EXIT button,
+// the double-tap handler, and the gaze-dwell timer. We guard with
+// xrExitPending so concurrent triggers don't race the underlying
+// XRSession.end() promise.
+function endXrSession(reason) {
+  if (!xrSession || xrExitPending) return;
+  xrExitPending = true;
+  dbgLog(`exit requested: ${reason}`);
+  try { xrSession.end(); } catch (e) { dbgLog('session.end() threw', e); xrExitPending = false; }
+}
+
+// Renders the gaze reticle into a shared canvas. The outer ring is the
+// always-on target; while the user is dwelling on the EXIT panel a red
+// arc fills clockwise from 12 o'clock to show progress toward exit.
+function drawReticleCanvas(progress) {
+  if (!xrReticleCanvas) return;
+  const g = xrReticleCanvas.getContext('2d');
+  const W = xrReticleCanvas.width, H = xrReticleCanvas.height;
+  g.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2;
+  const rOuter = 56, rInner = 40;
+  // Soft outer glow so the reticle pops on bright tile imagery.
+  const grd = g.createRadialGradient(cx, cy, rInner, cx, cy, rOuter + 10);
+  grd.addColorStop(0, 'rgba(212,161,42,0)');
+  grd.addColorStop(0.6, 'rgba(212,161,42,0.35)');
+  grd.addColorStop(1, 'rgba(212,161,42,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, W, H);
+  // Outer ring stroke.
+  g.lineWidth = 6;
+  g.strokeStyle = '#d4a12a';
+  g.beginPath(); g.arc(cx, cy, (rOuter + rInner) / 2, 0, Math.PI * 2); g.stroke();
+  // Center dot.
+  g.fillStyle = '#fff5e0';
+  g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.fill();
+  // Dwell-progress arc (clockwise from top).
+  if (progress > 0) {
+    g.lineWidth = 12;
+    g.strokeStyle = '#ff4d4d';
+    g.lineCap = 'round';
+    g.beginPath();
+    const start = -Math.PI / 2;
+    g.arc(cx, cy, (rOuter + rInner) / 2, start, start + progress * Math.PI * 2);
+    g.stroke();
+  }
+  if (xrReticleTex) xrReticleTex.needsUpdate = true;
+}
+
+// Floating 3D EXIT panel placed at a fixed offset from the dolly. Sits
+// at z = -22m so it is well clear of the 5m near plane while still
+// large enough (~6m wide) to reliably catch a gaze ray. Parented to the
+// dolly so it follows the user but stays world-locked relative to head
+// rotation — that's what lets the user actually "look at" it.
+function makeXrExitMesh() {
+  const grp = new THREE.Group();
+  const W = 6, H = 3;
+  // Background red panel (also acts as the gaze pick target).
+  const bgMat = new THREE.MeshBasicMaterial({
+    color: 0xdc2626, transparent: true, opacity: 0.92,
+    side: THREE.DoubleSide, depthTest: false
+  });
+  const bg = new THREE.Mesh(new THREE.PlaneGeometry(W, H), bgMat);
+  bg.renderOrder = 9990;
+  bg.userData.exitTarget = true;
+  grp.add(bg);
+  // Label texture: white "EXIT" with border, drawn once.
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(0,0,0,0)'; g.clearRect(0, 0, 512, 256);
+  g.strokeStyle = '#ffffff'; g.lineWidth = 10;
+  g.strokeRect(12, 12, 488, 232);
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 130px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('EXIT', 256, 130);
+  g.font = 'bold 26px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
+  g.fillText('GAZE 2s', 256, 220);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const labelMat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthTest: false, side: THREE.DoubleSide
+  });
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(W, H), labelMat);
+  label.position.z = 0.01;
+  label.renderOrder = 9991;
+  grp.add(label);
+  // Dwell progress bar — geometry origin shifted to its left edge so
+  // scale.x maps directly to "fraction filled, anchored left".
+  const progGeo = new THREE.PlaneGeometry(1, 0.3);
+  progGeo.translate(0.5, 0, 0);
+  const progMat = new THREE.MeshBasicMaterial({
+    color: 0xfff5e0, transparent: true, opacity: 0.95,
+    side: THREE.DoubleSide, depthTest: false
+  });
+  const fullBarW = W * 0.9;
+  const prog = new THREE.Mesh(progGeo, progMat);
+  prog.position.set(-fullBarW / 2, -H / 2 + 0.25, 0.02);
+  prog.scale.x = 0.0001;
+  prog.renderOrder = 9992;
+  grp.add(prog);
+  grp.userData = { bg, prog, fullBarW };
+  // Place upper-right of the user's starting view, far enough to clear
+  // the near plane but close enough that gaze raycasting hits it before
+  // any distant tile geometry occludes it.
+  grp.position.set(7, 4, -22);
+  grp.lookAt(new THREE.Vector3(0, 4, 0)); // angle slightly toward user
+  return grp;
+}
+
 function setupXRControllers() {
-  const factory = new THREE.Group();
   xrController1 = renderer.xr.getController(0);
   xrController2 = renderer.xr.getController(1);
   for (const c of [xrController1, xrController2]) {
@@ -704,15 +858,32 @@ function setupXRControllers() {
     c.addEventListener('selectstart', onXRSelect);
     dolly.add(c);
   }
-  // Reticle for gaze fallback (used if no controllers).
-  const ringGeo = new THREE.RingGeometry(2, 3, 24);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xd4a12a, side: THREE.DoubleSide });
-  xrReticle = new THREE.Mesh(ringGeo, ringMat);
+  // Larger gold gaze reticle, drawn into a canvas so we can repaint a
+  // dwell-progress arc each frame without rebuilding geometry.
+  xrReticleCanvas = document.createElement('canvas');
+  xrReticleCanvas.width = xrReticleCanvas.height = 128;
+  xrReticleTex = new THREE.CanvasTexture(xrReticleCanvas);
+  xrReticleTex.colorSpace = THREE.SRGBColorSpace;
+  drawReticleCanvas(0);
+  const reticleMat = new THREE.MeshBasicMaterial({
+    map: xrReticleTex, transparent: true, depthTest: false, side: THREE.DoubleSide
+  });
+  // At z = -50 the reticle sits comfortably past the 5m near plane;
+  // a 14m plane gives a ~16° angular reticle — much easier to track
+  // than the original ~3° ring.
+  xrReticle = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), reticleMat);
   xrReticle.position.set(0, 0, -50);
+  xrReticle.renderOrder = 9995;
   camera.add(xrReticle);
+  // 3D EXIT panel — gaze target for hands-free exit.
+  xrExitMesh = makeXrExitMesh();
+  dolly.add(xrExitMesh);
 }
 function removeXRControllers() {
   if (xrReticle) { camera.remove(xrReticle); xrReticle = null; }
+  if (xrReticleTex) { xrReticleTex.dispose(); xrReticleTex = null; }
+  xrReticleCanvas = null;
+  if (xrExitMesh) { dolly.remove(xrExitMesh); xrExitMesh = null; }
   for (const c of [xrController1, xrController2]) { if (c) dolly.remove(c); }
   xrController1 = xrController2 = null;
 }
@@ -728,22 +899,54 @@ function onXRSelect(event) {
   if (hit && hit.object.userData.loc) showPanel(hit.object.userData.loc);
 }
 
-function updateXRGazePick() {
+function updateXRGazePick(dt) {
   if (!renderer.xr.isPresenting) return;
   // Gaze pick from the headset's forward vector.
   const cam = renderer.xr.getCamera();
   raycaster.ray.origin.setFromMatrixPosition(cam.matrixWorld);
   raycaster.ray.direction.set(0, 0, -1).transformDirection(cam.matrixWorld);
-  const hit = raycaster.intersectObjects(pickables, false)[0];
-  if (hit) {
-    if (hoverMarker !== hit.object) {
-      if (hoverMarker) hoverMarker.scale.set(1, 1, 1);
-      hoverMarker = hit.object;
-      hoverMarker.scale.set(1.4, 1.4, 1.4);
+
+  // Test the EXIT panel first so it always wins over distant markers
+  // that might happen to sit behind it on the same gaze ray.
+  let exitHit = false;
+  if (xrExitMesh && xrExitMesh.userData.bg) {
+    exitHit = raycaster.intersectObject(xrExitMesh.userData.bg, false).length > 0;
+  }
+
+  // Marker hover (skipped while gazing at EXIT so the highlight doesn't flicker).
+  if (!exitHit) {
+    const hit = raycaster.intersectObjects(pickables, false)[0];
+    if (hit) {
+      if (hoverMarker !== hit.object) {
+        if (hoverMarker) hoverMarker.scale.set(1, 1, 1);
+        hoverMarker = hit.object;
+        hoverMarker.scale.set(1.4, 1.4, 1.4);
+      }
+    } else if (hoverMarker) {
+      hoverMarker.scale.set(1, 1, 1);
+      hoverMarker = null;
     }
   } else if (hoverMarker) {
     hoverMarker.scale.set(1, 1, 1);
     hoverMarker = null;
+  }
+
+  // Dwell accumulator — fills while gaze is on EXIT, decays 2× as fast
+  // when it slides off so a brief glance away forgives quickly without
+  // committing to an exit on stray gaze drift.
+  if (exitHit) {
+    xrExitDwell = Math.min(XR_EXIT_DWELL_SEC, xrExitDwell + dt);
+  } else {
+    xrExitDwell = Math.max(0, xrExitDwell - dt * 2);
+  }
+  const progress = xrExitDwell / XR_EXIT_DWELL_SEC;
+  drawReticleCanvas(progress);
+  if (xrExitMesh) {
+    const { prog, fullBarW } = xrExitMesh.userData;
+    prog.scale.x = Math.max(0.0001, fullBarW * progress);
+  }
+  if (progress >= 1 && !xrExitPending) {
+    endXrSession('gaze-dwell');
   }
 }
 
@@ -765,7 +968,7 @@ function tick() {
     if (m !== hoverMarker) m.scale.setScalar(s);
   }
   updateFly(dt);
-  updateXRGazePick();
+  updateXRGazePick(dt);
   renderer.render(scene, camera);
 }
 
@@ -867,8 +1070,9 @@ document.getElementById('flyBtn').addEventListener('click', () => {
 document.getElementById('resetBtn').addEventListener('click', () => {
   stopFlythrough();
   controls.target.set(0, 0, 0);
-  camera.position.set(0, 3000, 6000);
+  camera.position.set(0, 2000, 4000);
 });
+document.getElementById('xrExitBtn').addEventListener('click', () => endXrSession('button'));
 document.getElementById('xrLoginBtn').addEventListener('click', login);
 document.getElementById('xrPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 document.getElementById('xrDebugHide').addEventListener('click', () => {

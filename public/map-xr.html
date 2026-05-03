@@ -94,16 +94,19 @@
   #xrCrosshair .hline{width:36px;height:3px;transform:translate(-50%,-50%)}
   #xrCrosshair .dot{position:absolute;left:50%;top:50%;width:6px;height:6px;background:#fff5e0;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 6px rgba(0,0,0,0.9)}
 
-  /* Nav D-pad lower-left, zoom column lower-right. Sized so the buttons
-     are easily hit with a thumb through a passthrough camera feed. */
-  #xrNav{position:fixed;left:max(14px,env(safe-area-inset-left,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:grid;grid-template-columns:repeat(3,84px);grid-template-rows:repeat(3,84px);gap:8px}
-  #xrZoom{position:fixed;right:max(14px,env(safe-area-inset-right,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:flex;flex-direction:column;gap:10px}
-  .xrNavBtn{appearance:none;background:rgba(20,22,30,0.85);color:#fff;border:2px solid rgba(255,255,255,0.28);border-radius:14px;font-weight:900;font-size:34px;line-height:1;padding:0;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(6px);box-shadow:0 6px 20px rgba(0,0,0,0.5);touch-action:manipulation;user-select:none;-webkit-user-select:none;min-width:84px;min-height:84px;width:84px;height:84px;display:flex;align-items:center;justify-content:center}
-  .xrNavBtn:active{transform:scale(0.93);background:rgba(212,161,42,0.92);color:#0a0c0f;border-color:#fff}
-  .xrNavBtn[data-pos="up"]{grid-column:2;grid-row:1}
-  .xrNavBtn[data-pos="left"]{grid-column:1;grid-row:2}
-  .xrNavBtn[data-pos="right"]{grid-column:3;grid-row:2}
-  .xrNavBtn[data-pos="down"]{grid-column:2;grid-row:3}
+  /* The old D-pad / zoom column have been replaced by gesture controls
+     (one-hand pinch-drag pan, two-hand pinch zoom, two-hand twist rotate
+     in XR; one-finger pan + two-finger pinch/twist on touch screens).
+     We keep the elements in the DOM as a hidden fallback so any stale
+     bindings don't throw, but they are never displayed. */
+  #xrNav, #xrZoom { display:none !important }
+  .xrNavBtn{display:none}
+
+  /* Gesture-hint toast that fades in for the first ~6s of an XR session
+     so the user knows what to do without burying the view in chrome. */
+  #xrGestureHint{position:fixed;left:50%;top:max(16px,env(safe-area-inset-top,16px));transform:translateX(-50%);z-index:97;background:rgba(15,17,24,0.92);border:1px solid rgba(212,161,42,0.6);border-radius:12px;padding:10px 16px;color:#fff5e0;font-size:13px;line-height:1.5;text-align:center;display:none;backdrop-filter:blur(8px);max-width:90vw;pointer-events:none;box-shadow:0 6px 22px rgba(0,0,0,0.55)}
+  #xrGestureHint.show{display:block;animation:fadeIn .25s ease}
+  #xrGestureHint b{color:#d4a12a}
 
   /* Standalone Fly button — bottom-center, only visible while a marker
      is selected. Lets the user fly without re-opening the detail panel. */
@@ -170,6 +173,7 @@
   <div id="panelRows"></div>
   <div class="actions">
     <a id="panelNav" href="#" target="_blank" rel="noopener">Navigate</a>
+    <a id="panelStreet" href="#" target="_blank" rel="noopener">Street View</a>
     <button id="panelFly">Fly to</button>
   </div>
 </div>
@@ -230,6 +234,10 @@
 <button id="xrFlyBtn" class="xrCtl" type="button" aria-label="Fly to selected marker">FLY TO PIN</button>
 
 <div id="xrTapCounter" aria-live="polite">Taps: 0</div>
+
+<div id="xrGestureHint" aria-live="polite">
+  <b>Pinch &amp; drag</b> to pan &middot; <b>two-hand pinch</b> to zoom &middot; <b>twist</b> to rotate &middot; <b>tap a pin</b> to inspect &middot; <b>double-pinch</b> to reset
+</div>
 
 <div id="toast"></div>
 
@@ -433,7 +441,7 @@ let xrExitMesh = null;        // 3D EXIT panel that the user can gaze at
 let xrSession = null;         // active XRSession reference (for end())
 let xrExitDwell = 0;          // accumulated seconds of gaze on the exit target
 const XR_EXIT_DWELL_SEC = 2.0;
-let lastTapTime = 0;          // last empty-area tap, for double-tap exit
+let lastTapTime = 0;          // last empty-area tap, for double-tap reset
 let xrExitPending = false;    // guard against double-firing session.end()
 
 // XRHand state. Joints come for free with `renderer.xr.getHand(i)` once
@@ -451,9 +459,12 @@ const handState1 = makeHandState();
 const handState2 = makeHandState();
 let twoHandStartDist = null;
 let twoHandStartAlt = null;
+let twoHandStartAngle = null;     // initial angle (rad) between the two tips, world XZ plane
+let twoHandStartDollyY = null;    // dolly Y rotation when the two-hand twist started
+let lastSinglePinchEndTime = 0;   // timestamp of the last single-hand pinch release — for double-pinch-reset
 function makeHandState() {
   return { active:false, suppressed:false, moved:false,
-           startRefPos:null, lastRefPos:null, startWorldPos:null, startTime:0 };
+           startWorldPos:null, lastWorldPos:null, lastDollyPos:null, startTime:0 };
 }
 
 // ─── Toast / status helpers ────────────────────────────────────────────
@@ -540,18 +551,47 @@ function initThree() {
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  controls.dampingFactor = 0.12;
   controls.target.set(0, 0, 0);
   controls.minDistance = 200;
   controls.maxDistance = VIEW_RADIUS_M;
   controls.maxPolarAngle = Math.PI * 0.49;
+  // Google-Maps-style touch + mouse: drag the map with one finger / left
+  // click; two-finger pinch zooms while a twist between the fingers
+  // rotates the heading. Right-drag (desktop) tilts. screenSpacePanning
+  // off so panning slides along the ground plane regardless of tilt.
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+  controls.screenSpacePanning = false;
+  controls.panSpeed = 1.6;
+  controls.rotateSpeed = 0.7;
+  controls.zoomSpeed = 1.3;
 
   markersGroup = new THREE.Group();
   scene.add(markersGroup);
 
   window.addEventListener('resize', onResize);
-  renderer.domElement.addEventListener('pointerdown', onPointerDown);
+  // Tap-vs-drag picker: track pointerdown position and only treat the
+  // gesture as a "tap to select pin" if the pointer barely moved before
+  // pointerup. Anything else is left for OrbitControls to handle as a
+  // pan / rotate. Without this filter every drag would also open the
+  // detail panel — which is exactly the "stiff" feel we're replacing.
   renderer.domElement.addEventListener('pointermove', onPointerMove);
+  let _tapStart = null;
+  renderer.domElement.addEventListener('pointerdown', e => {
+    _tapStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+  });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (!_tapStart || _tapStart.id !== e.pointerId) { _tapStart = null; return; }
+    const dx = e.clientX - _tapStart.x;
+    const dy = e.clientY - _tapStart.y;
+    const dist = Math.hypot(dx, dy);
+    const dur = performance.now() - _tapStart.t;
+    _tapStart = null;
+    // 8px / 400ms is forgiving enough for touch but excludes any actual drag.
+    if (dist > 8 || dur > 400) return;
+    onScreenTap(e);
+  });
 }
 
 function onResize() {
@@ -705,7 +745,7 @@ function onPointerMove(e) {
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
 }
-function onPointerDown(e) {
+function onScreenTap(e) {
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
@@ -715,18 +755,36 @@ function onPointerDown(e) {
     lastTapTime = 0;
     return;
   }
-  // Double-tap on empty space exits the XR session. We ignore taps that
-  // hit a marker so users can rapidly inspect pins without triggering an
-  // exit. 350 ms matches typical mobile double-tap thresholds.
-  if (xrSession) {
-    const now = performance.now();
-    if (now - lastTapTime < 350) {
-      lastTapTime = 0;
-      endXrSession('double-tap');
-      return;
-    }
-    lastTapTime = now;
+  // Double-tap on empty space resets the camera to the Beaumont overview.
+  // (Exit-XR is handled separately via the gaze-dwell EXIT panel and the
+  // big red EXIT button — those stay independent so a stray double-tap
+  // can never accidentally drop the user out of immersive mode.)
+  const now = performance.now();
+  if (now - lastTapTime < 350) {
+    lastTapTime = 0;
+    resetView('double-tap');
+    return;
   }
+  lastTapTime = now;
+}
+
+// Reset the active camera (XR dolly or desktop OrbitControls) to the
+// default Beaumont overview. Used by the double-tap / double-pinch
+// gesture and the on-screen Reset button.
+function resetView(reason) {
+  stopFlythrough();
+  if (renderer.xr.isPresenting) {
+    // In XR we move the dolly (the camera lives on the dolly during a
+    // session). 1500m altitude / ~2.5km south matches the parking pose
+    // we set when entering XR.
+    dolly.position.set(0, 1500, 2500);
+    dolly.rotation.set(0, 0, 0);
+  } else {
+    controls.target.set(0, 0, 0);
+    camera.position.set(0, 2000, 4000);
+    controls.update();
+  }
+  toast(`Reset · ${reason || 'overview'}`);
 }
 
 function showPanel(loc) {
@@ -749,7 +807,12 @@ function showPanel(loc) {
     .map(([k, v]) => `<div class="row"><span>${k}</span><span>${escapeHtml(String(v))}</span></div>`)
     .join('');
   const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}&travelmode=driving`;
+  // Google's Street View deep-link. Drops the user at ground level facing
+  // the customer site — useful when the AR overview shows a building you
+  // want to actually look at before driving out there.
+  const svUrl  = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${loc.lat},${loc.lng}`;
   document.getElementById('panelNav').href = navUrl;
+  document.getElementById('panelStreet').href = svUrl;
   document.getElementById('panel').classList.add('show');
   // Surface the standalone Fly button while a pin is selected so the
   // user can fly without re-opening the (closeable) detail panel.
@@ -932,10 +995,17 @@ async function enterXR() {
       // Park the camera dolly above the center at a comfortable height so
       // the user is standing on a virtual platform overlooking Beaumont.
       dolly.position.set(0, 1500, 2500);
+      dolly.rotation.set(0, 0, 0);
       dolly.add(camera);
       setupXRControllers();
       btn.textContent = mode === 'immersive-ar' ? 'Exit AR' : 'Exit VR';
-      setStatus(`In ${mode} · tap pin · ◀▲▼▶ to move · +/− zoom`);
+      setStatus(`In ${mode} · pinch-drag to pan · two-hand pinch to zoom · tap a pin`);
+      // Gesture-hint toast: visible for ~6 s on session start, fades out.
+      const hint = document.getElementById('xrGestureHint');
+      if (hint) {
+        hint.classList.add('show');
+        setTimeout(() => hint.classList.remove('show'), 6000);
+      }
       dbgLog(`session active: ${mode}`, null);
       document.body.classList.add('xr-active');
       document.getElementById('xrExitBtn').classList.add('show');
@@ -946,6 +1016,7 @@ async function enterXR() {
         xrExitDwell = 0;
         xrExitPending = false;
         dolly.remove(camera);
+        dolly.rotation.set(0, 0, 0);
         camera.position.set(0, 2000, 4000);
         camera.lookAt(0, 0, 0);
         setStatus(`Exited ${mode}`);
@@ -954,6 +1025,8 @@ async function enterXR() {
         document.body.classList.remove('xr-active');
         document.getElementById('xrExitBtn').classList.remove('show');
         document.getElementById('xrFlyBtn').classList.remove('show');
+        const hint = document.getElementById('xrGestureHint');
+        if (hint) hint.classList.remove('show');
         dbgLog('session ended');
       });
       return;
@@ -1034,18 +1107,38 @@ function animateDolly(delta) {
   step();
 }
 
-// Pan the dolly horizontally relative to the user's current heading.
-// Step scales with altitude so taps feel proportional whether the user
-// is at 200 m or 5 km up.
+// Compute the user's current heading basis (right + forward, in world
+// space, with vertical stripped) from the active XR camera. Used by
+// every XR gesture so a 1 cm hand drag at any heading panning produces
+// 1 cm-times-altitude of dolly motion in the *visual* direction the
+// user expects, not in some fixed reference-space axis.
+function xrHeadingBasis() {
+  const cam = renderer.xr.getCamera();
+  const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+  right.y = 0;
+  if (right.lengthSq() < 1e-6) right.set(1, 0, 0); else right.normalize();
+  const fwd = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 2).negate();
+  fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); else fwd.normalize();
+  return { right, fwd };
+}
+
+// Apply a world-space pan to the dolly relative to current heading.
+// `dx` is to the user's right, `dz` is forward. Scaled by altitude so
+// the same gesture covers the same fraction of the visible map at any
+// zoom level — that's what makes Google Maps feel proportional.
+function xrPanByHeading(dxRight, dzFwd) {
+  if (!renderer.xr.isPresenting) return;
+  const { right, fwd } = xrHeadingBasis();
+  dolly.position.addScaledVector(right, dxRight);
+  dolly.position.addScaledVector(fwd, dzFwd);
+}
+
+// Discrete pan (still used by the legacy hidden D-pad / fly bindings).
+// Goes through animateDolly for a smooth glide.
 function xrPan(dir) {
   if (!renderer.xr.isPresenting) return;
-  const cam = renderer.xr.getCamera();
-  const fwd = new THREE.Vector3();
-  fwd.setFromMatrixColumn(cam.matrixWorld, 2).negate();
-  fwd.y = 0;
-  if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
-  fwd.normalize();
-  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+  const { right, fwd } = xrHeadingBasis();
   const step = Math.max(150, dolly.position.y * 0.25);
   const v = new THREE.Vector3();
   if (dir === 'up')    v.copy(fwd).multiplyScalar(step);
@@ -1260,12 +1353,10 @@ function onXRSelect(event) {
 }
 
 // ─── XRHand tracking ───────────────────────────────────────────────────
-// Read joint poses for one hand and return positions + pinch distance.
-// `tipWorld` / `thumbWorld` include the dolly transform (use for
-// visualization and world-space raycasting). `tipRef` is the index-tip
-// pose in the renderer's reference space (independent of dolly motion)
-// — that's what we diff frame-to-frame so a moving dolly doesn't feed
-// back into pan tracking.
+// Read joint poses for one hand and return tip world positions + pinch
+// distance. World-space positions feed both visualization and the
+// pinch-drag logic (which subtracts dolly motion to recover the user's
+// real hand displacement — see updatePinchState).
 function getHandJointInfo(hand) {
   if (!hand || !hand.joints) return null;
   const indexTip = hand.joints['index-finger-tip'];
@@ -1274,10 +1365,7 @@ function getHandJointInfo(hand) {
   if (indexTip.visible === false || thumbTip.visible === false) return null;
   const tipWorld   = new THREE.Vector3().setFromMatrixPosition(indexTip.matrixWorld);
   const thumbWorld = new THREE.Vector3().setFromMatrixPosition(thumbTip.matrixWorld);
-  // matrixPosition — same as setting from indexTip.matrix (ref-space).
-  // setFromMatrixPosition reads the translation column of any 4x4.
-  const tipRef = new THREE.Vector3().setFromMatrixPosition(indexTip.matrix);
-  return { tipWorld, thumbWorld, tipRef, dist: tipWorld.distanceTo(thumbWorld) };
+  return { tipWorld, thumbWorld, dist: tipWorld.distanceTo(thumbWorld) };
 }
 
 function updateXRHands(dt) {
@@ -1295,26 +1383,54 @@ function updateXRHands(dt) {
     else xrHandTip2.visible = false;
   }
 
-  // Two-hand pinch zoom: when both hands are pinching, the distance
-  // between the index tips drives altitude. Apart = zoom in (descend),
-  // together = zoom out (ascend). Suppresses single-hand pan while
-  // engaged so the camera doesn't fight itself.
+  // Two-hand gestures. When both hands are pinching simultaneously we
+  // interpret it as a combined zoom + rotate, mirroring Google Maps
+  // pinch-to-zoom and twist-to-rotate. Suppresses single-hand pan while
+  // engaged so the same hand motion doesn't also slide the dolly.
+  //
+  //   tips moving APART     → ratio > 1 → altitude UP   (zoom out)
+  //   tips moving TOGETHER  → ratio < 1 → altitude DOWN (zoom in)
+  //
+  // The previous build inverted this (newAlt = startAlt / ratio) which
+  // is why the user reported "only zoom-down works": every two-hand
+  // pinch was driving altitude in the wrong direction.
   const bothPinching = handState1.active && handState2.active && info1 && info2;
   if (bothPinching) {
+    const v = new THREE.Vector3().subVectors(info1.tipWorld, info2.tipWorld);
     const d = info1.tipWorld.distanceTo(info2.tipWorld);
+    // Heading angle of the line between the two tips, projected to the
+    // ground plane. Used so a wrist-twist between the tips rotates the
+    // map heading just like spinning two fingers on a phone.
+    const flat = new THREE.Vector3(v.x, 0, v.z);
+    const angle = (flat.lengthSq() > 1e-6) ? Math.atan2(flat.z, flat.x) : 0;
+
     if (twoHandStartDist == null) {
       twoHandStartDist = d;
       twoHandStartAlt = dolly.position.y;
+      twoHandStartAngle = angle;
+      twoHandStartDollyY = dolly.rotation.y;
     } else if (twoHandStartDist > 0.02) {
+      // Zoom (altitude). Apart = up, together = down — fixed direction.
       const ratio = d / twoHandStartDist;
-      const newAlt = Math.min(20000, Math.max(50, twoHandStartAlt / ratio));
-      dolly.position.y = newAlt;
+      dolly.position.y = Math.min(20000, Math.max(50, twoHandStartAlt * ratio));
+      // Rotate. We want the world to rotate WITH the user's hand twist,
+      // so rotating the tips clockwise (positive angle delta in our
+      // atan2(z,x) convention with right-handed Y-up) rotates the dolly
+      // counter-clockwise — i.e. the visible map spins clockwise under
+      // the user, matching the hand's rotation. Wrap-around handled by
+      // the atan2 difference being kept in (-π, π].
+      let da = angle - twoHandStartAngle;
+      while (da >  Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      dolly.rotation.y = twoHandStartDollyY - da;
     }
     handState1.suppressed = true;
     handState2.suppressed = true;
   } else {
     twoHandStartDist = null;
     twoHandStartAlt = null;
+    twoHandStartAngle = null;
+    twoHandStartDollyY = null;
     handState1.suppressed = false;
     handState2.suppressed = false;
   }
@@ -1329,21 +1445,23 @@ function updatePinchState(state, info, hand) {
       // Lost tracking mid-pinch — drop without firing a tap.
       state.active = false;
     }
-    state.startRefPos = state.lastRefPos = state.startWorldPos = null;
+    state.startWorldPos = state.lastWorldPos = state.lastDollyPos = null;
     state.moved = false;
     state.startTime = 0;
     return;
   }
-  // Hysteresis: enter at 2.5 cm, release at 4 cm.
+  // Hysteresis: enter at 2.5 cm, release at 4 cm — without this the pinch
+  // jitters open/closed at the boundary and every drag breaks into a
+  // shower of tiny pan steps that read as "stiff" instead of fluid.
   const isPinching = state.active
     ? info.dist < PINCH_RELEASE_M
     : info.dist < PINCH_ENGAGE_M;
 
   if (isPinching && !state.active) {
     state.active = true;
-    state.startRefPos   = info.tipRef.clone();
-    state.lastRefPos    = info.tipRef.clone();
     state.startWorldPos = info.tipWorld.clone();
+    state.lastWorldPos  = info.tipWorld.clone();
+    state.lastDollyPos  = dolly.position.clone();
     state.moved = false;
     state.startTime = performance.now();
     return;
@@ -1351,24 +1469,41 @@ function updatePinchState(state, info, hand) {
   if (!isPinching && state.active) {
     onPinchEnd(state, hand, info);
     state.active = false;
-    state.startRefPos = state.lastRefPos = state.startWorldPos = null;
+    state.startWorldPos = state.lastWorldPos = state.lastDollyPos = null;
     state.moved = false;
     return;
   }
   if (isPinching && state.active) {
-    // Diff in reference space so dolly motion doesn't loop back as hand motion.
-    const totalMove = info.tipRef.distanceTo(state.startRefPos);
+    // World-space hand delta = (tip world now) − (tip world last frame).
+    // The hand object is parented to the dolly, so when the dolly moves
+    // the tip world position appears to move too. Subtract the dolly's
+    // own delta to recover the user's actual hand motion. Without this
+    // correction, panning produced positive feedback (dolly moves →
+    // hand "moves" → dolly moves more) and only the vertical axis,
+    // which is independent of dolly XZ pan, registered cleanly — that's
+    // why the user saw "only up/down works".
+    const handWorldDelta = info.tipWorld.clone().sub(state.lastWorldPos);
+    const dollyDelta = dolly.position.clone().sub(state.lastDollyPos);
+    handWorldDelta.sub(dollyDelta);
+
+    const totalMove = info.tipWorld.distanceTo(state.startWorldPos);
     if (totalMove > PINCH_MOVE_M) state.moved = true;
+
     if (state.moved && !state.suppressed) {
-      const delta = info.tipRef.clone().sub(state.lastRefPos);
-      // Drag-the-map: hand right shifts the world right under the user,
-      // which means dolly moves left. Scale by altitude so a 1 cm hand
-      // motion at 5 km altitude pans further than at 50 m.
-      const scale = -Math.max(120, dolly.position.y * 0.6);
-      dolly.position.x += delta.x * scale;
-      dolly.position.z += delta.z * scale;
+      const { right, fwd } = xrHeadingBasis();
+      // Hand motion projected onto camera-relative right and forward —
+      // so dragging the hand to the user's right pans the map right
+      // regardless of which way they're physically facing.
+      const dRight = handWorldDelta.dot(right);
+      const dFwd   = handWorldDelta.dot(fwd);
+      // Drag-the-map convention: hand right → world slides right under
+      // the user → dolly moves left. Hence the negative scale.
+      const scale = -Math.max(50, dolly.position.y * 0.5);
+      dolly.position.addScaledVector(right, dRight * scale);
+      dolly.position.addScaledVector(fwd,   dFwd   * scale);
     }
-    state.lastRefPos = info.tipRef.clone();
+    state.lastWorldPos = info.tipWorld.clone();
+    state.lastDollyPos = dolly.position.clone();
   }
 }
 
@@ -1376,6 +1511,10 @@ function updatePinchState(state, info, hand) {
 // camera through the pinch point — that mirrors how AR tap-to-select
 // usually works ("whatever I'm covering with my fingers gets picked").
 // EXIT panel is tested first so it always wins over distant markers.
+// A second pinch within DOUBLE_PINCH_MS of the previous one — anywhere
+// in empty space — resets the view, matching the spec's "double pinch
+// resets to default Beaumont overview".
+const DOUBLE_PINCH_MS = 450;
 function onPinchEnd(state, hand, info) {
   if (state.moved) return;
   if (!state.startWorldPos) return;
@@ -1389,16 +1528,29 @@ function onPinchEnd(state, hand, info) {
   dir.normalize();
   raycaster.ray.origin.copy(camPos);
   raycaster.ray.direction.copy(dir);
+  // 1) EXIT panel wins (gaze-cast + pinch).
   if (xrExitMesh && xrExitMesh.userData.bg) {
     if (raycaster.intersectObject(xrExitMesh.userData.bg, false).length > 0) {
       endXrSession('hand-pinch-exit');
+      lastSinglePinchEndTime = 0;
       return;
     }
   }
+  // 2) Pin pick — name/phone/address/trucks panel + Street View link.
   const hit = raycaster.intersectObjects(pickables, false)[0];
   if (hit && hit.object.userData.loc) {
     showPanel(hit.object.userData.loc);
+    lastSinglePinchEndTime = 0;
+    return;
   }
+  // 3) Empty-space pinch — second one within ~450 ms = reset view.
+  const now = performance.now();
+  if (now - lastSinglePinchEndTime < DOUBLE_PINCH_MS) {
+    lastSinglePinchEndTime = 0;
+    resetView('double-pinch');
+    return;
+  }
+  lastSinglePinchEndTime = now;
 }
 
 function updateXRGazePick(dt) {
@@ -1574,11 +1726,7 @@ bindTap(document.getElementById('panelFly'), () => {
 bindTap(document.getElementById('flyBtn'), () => {
   if (flyState) stopFlythrough(); else startFlythrough();
 });
-bindTap(document.getElementById('resetBtn'), () => {
-  stopFlythrough();
-  controls.target.set(0, 0, 0);
-  camera.position.set(0, 2000, 4000);
-});
+bindTap(document.getElementById('resetBtn'), () => resetView('button'));
 bindTap(document.getElementById('xrExitBtn'), () => endXrSession('button'));
 document.getElementById('xrLoginBtn').addEventListener('click', login);
 

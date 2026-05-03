@@ -1047,80 +1047,12 @@ document.getElementById('btnFly').addEventListener('click', () => {
 
 // ─── 3D+ Photorealistic Immersive View ───
 let map3dEl = null, markers3d = [], is3DPlus = false, maps3dLibs = null;
-
-function build3DMarkerContent(loc, opts) {
-  // Nested structure: .m3d-outer is the slot root (may receive engine
-  // transforms for positioning). .m3d-bob carries the CSS hover animation
-  // on a separate layer so the engine's transform doesn't clobber it.
-  const outer = document.createElement('div');
-  outer.className = 'm3d-outer';
-  const bob = document.createElement('div');
-  bob.className = 'm3d-bob';
-  const icon = document.createElement('div');
-  icon.className = 'm3d-icon';
-  if (opts.inRoute) {
-    icon.classList.add('m3d-route');
-    icon.textContent = '🚩';
-  } else if (loc.type === 'whale') {
-    icon.classList.add('m3d-whale');
-    icon.textContent = loc.trucks ? String(loc.trucks) : 'W';
-  } else if (loc.type === 'home') {
-    icon.style.background = '#3b82f6';
-    icon.textContent = '🏠';
-  } else if (loc.type === 'customer') {
-    icon.style.background = '#22c55e';
-    icon.textContent = '💰';
-  } else {
-    const code = getIndustryCode(loc);
-    const ind = INDUSTRY[code];
-    icon.style.background = ind.bg;
-    icon.textContent = ind.emoji || '📍';
-  }
-  bob.appendChild(icon);
-  outer.appendChild(bob);
-  return outer;
-}
+let xrSession = null, xrRefSpace = null, xrGL = null, xrCanvas = null;
 
 function altitudeFor(loc, inRoute) {
   if (inRoute) return 60;
   if (loc.type === 'whale') return 80;
   return 30;
-}
-
-function pick3DMarkerCtor() {
-  if (!maps3dLibs) return { ctor: null, kind: 'none' };
-  if (maps3dLibs.Marker3DInteractiveElement) return { ctor: maps3dLibs.Marker3DInteractiveElement, kind: 'interactive' };
-  if (maps3dLibs.Marker3DElement) return { ctor: maps3dLibs.Marker3DElement, kind: 'basic' };
-  return { ctor: null, kind: 'none' };
-}
-
-function add3DMarker(loc) {
-  if (!map3dEl || !maps3dLibs) return null;
-  const { ctor: Marker3DCtor, kind } = pick3DMarkerCtor();
-  if (!Marker3DCtor) return null;
-  let m3d;
-  try {
-    m3d = new Marker3DCtor({
-      position: { lat: loc.lat, lng: loc.lng, altitude: 30 },
-      altitudeMode: 'RELATIVE_TO_GROUND',
-      label: loc.name
-    });
-  } catch (e) {
-    console.error('[3D+] Marker ctor failed for', loc.name, e);
-    return null;
-  }
-  m3d.appendChild(getMarkerContent(loc));
-  const handler = () => openSheet(loc);
-  if (kind === 'interactive') {
-    m3d.addEventListener('gmp-click', handler);
-  } else {
-    m3d.addEventListener('click', handler);
-  }
-  m3d._loc = loc;
-  m3d._alt = 30;
-  map3dEl.appendChild(m3d);
-  markers3d.push(m3d);
-  return m3d;
 }
 
 function collect3DSourceLocs() {
@@ -1136,34 +1068,136 @@ function collect3DSourceLocs() {
   return out;
 }
 
+function add3DMarker(loc) {
+  // Use the gmp-marker-3d custom element directly, appended as a child of
+  // the gmp-map-3d element. Attributes (lat, lng, altitude) are read by
+  // the Maps3D engine after the marker is parented.
+  const mapEl = document.querySelector('gmp-map-3d');
+  if (!mapEl) return null;
+  const alt = altitudeFor(loc, false);
+  const m3d = document.createElement('gmp-marker-3d');
+  m3d.setAttribute('lat', String(loc.lat));
+  m3d.setAttribute('lng', String(loc.lng));
+  m3d.setAttribute('altitude', String(alt));
+  m3d.setAttribute('altitude-mode', 'RELATIVE_TO_GROUND');
+  m3d.setAttribute('label', loc.name);
+  m3d.appendChild(getMarkerContent(loc));
+  const handler = () => openSheet(loc);
+  m3d.addEventListener('gmp-click', handler);
+  m3d.addEventListener('click', handler);
+  m3d._loc = loc;
+  m3d._alt = alt;
+  mapEl.appendChild(m3d);
+  markers3d.push(m3d);
+  return m3d;
+}
+
 function rebuild3DMarkers() {
-  if (!map3dEl) return;
-  markers3d.forEach(m => { try { map3dEl.removeChild(m); } catch (e) {} });
+  const mapEl = document.querySelector('gmp-map-3d');
+  if (!mapEl) return;
+  markers3d.forEach(m => { try { m.remove(); } catch (e) {} });
   markers3d = [];
   collect3DSourceLocs().forEach(loc => add3DMarker(loc));
   log3DMarkerStats('rebuild');
 }
 
 function log3DMarkerStats(phase) {
-  const { kind } = pick3DMarkerCtor();
-  const parented = markers3d.filter(m => m.parentNode === map3dEl).length;
-  const altitudes = markers3d.map(m => m._alt);
-  const counts = altitudes.reduce((a, v) => (a[v] = (a[v] || 0) + 1, a), {});
+  const mapEl = document.querySelector('gmp-map-3d');
+  const parented = markers3d.filter(m => m.parentNode === mapEl).length;
   console.log(
-    '[3D+][' + phase + '] markerCtor=' + kind +
-    ' created=' + markers3d.length +
-    ' parentedToMap3d=' + parented +
-    ' altitudes(m)=' + JSON.stringify(counts)
+    '[3D+][' + phase + '] created=' + markers3d.length +
+    ' parentedToMap3d=' + parented
   );
+}
+
+// ─── WebXR immersive session ───
+async function detectXRMode() {
+  if (!('xr' in navigator) || !navigator.xr) return null;
+  try {
+    if (await navigator.xr.isSessionSupported('immersive-ar')) return 'immersive-ar';
+  } catch (e) {}
+  try {
+    if (await navigator.xr.isSessionSupported('immersive-vr')) return 'immersive-vr';
+  } catch (e) {}
+  return null;
+}
+
+async function tryEnterWebXR(mode) {
+  const container = document.getElementById('map3d');
+  container.innerHTML = '';
+  container.style.display = 'block';
+
+  // Build Map3DElement scene that the XR session will display.
+  const centerLL = map.getCenter().toJSON();
+  const zoom = map.getZoom();
+  const heading = map.getHeading() || 0;
+  const range = Math.max(400, 40000000 / Math.pow(2, zoom));
+  map3dEl = new maps3dLibs.Map3DElement({
+    center: { lat: centerLL.lat, lng: centerLL.lng, altitude: 0 },
+    heading: heading,
+    tilt: 67.5,
+    range: range
+  });
+  try { map3dEl.mode = 'HYBRID'; } catch (e) {}
+  container.appendChild(map3dEl);
+
+  // WebGL canvas for the XRWebGLLayer.
+  xrCanvas = document.createElement('canvas');
+  xrCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9998';
+  document.body.appendChild(xrCanvas);
+  xrGL = xrCanvas.getContext('webgl', { xrCompatible: true });
+  if (!xrGL) throw new Error('webgl context unavailable');
+
+  const sessionInit = mode === 'immersive-ar'
+    ? { optionalFeatures: ['dom-overlay', 'local-floor'], domOverlay: { root: container } }
+    : { optionalFeatures: ['local-floor'] };
+
+  xrSession = await navigator.xr.requestSession(mode, sessionInit);
+  await xrGL.makeXRCompatible();
+  xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGL) });
+  xrRefSpace = await xrSession.requestReferenceSpace('local-floor').catch(() =>
+    xrSession.requestReferenceSpace('local'));
+
+  xrSession.addEventListener('end', () => {
+    xrSession = null; xrRefSpace = null; xrGL = null;
+    if (xrCanvas) { xrCanvas.remove(); xrCanvas = null; }
+    if (is3DPlus) exit3DPlus();
+  });
+
+  const onFrame = (_time, frame) => {
+    const session = frame.session;
+    session.requestAnimationFrame(onFrame);
+    const layer = session.renderState.baseLayer;
+    xrGL.bindFramebuffer(xrGL.FRAMEBUFFER, layer.framebuffer);
+    xrGL.clearColor(0.05, 0.07, 0.10, mode === 'immersive-ar' ? 0.0 : 1.0);
+    xrGL.clear(xrGL.COLOR_BUFFER_BIT | xrGL.DEPTH_BUFFER_BIT);
+  };
+  xrSession.requestAnimationFrame(onFrame);
+
+  // Wait for Map3DElement to upgrade and attach markers via gmp-marker-3d.
+  await whenMap3dReady();
+  markers3d = [];
+  collect3DSourceLocs().forEach(loc => add3DMarker(loc));
+  log3DMarkerStats('xr-enter:' + mode);
+}
+
+function whenMap3dReady() {
+  return new Promise(resolve => {
+    const check = () => {
+      const el = document.querySelector('gmp-map-3d');
+      if (el && customElements.get('gmp-map-3d')) {
+        customElements.whenDefined('gmp-map-3d').then(() => resolve(el));
+      } else {
+        setTimeout(check, 50);
+      }
+    };
+    check();
+  });
 }
 
 async function enter3DPlus() {
   const btn = document.getElementById('btn3DPlus');
   if (!map) return;
-  const centerLL = map.getCenter();
-  const center = centerLL.toJSON();
-  const zoom = map.getZoom();
-  const heading = map.getHeading() || 0;
 
   stopFly();
 
@@ -1175,14 +1209,33 @@ async function enter3DPlus() {
     return;
   }
   console.log('[3D+] maps3d lib keys:', Object.keys(maps3dLibs));
-  console.log('[3D+] Marker3DInteractiveElement?', !!maps3dLibs.Marker3DInteractiveElement,
-              'Marker3DElement?', !!maps3dLibs.Marker3DElement);
 
-  const { Map3DElement } = maps3dLibs;
+  is3DPlus = true;
+  btn.classList.add('active');
+  btn.querySelector('.actIcon').textContent = '2D';
 
+  const xrMode = await detectXRMode();
+  if (xrMode) {
+    console.log('[3D+] WebXR supported, entering ' + xrMode);
+    try {
+      await tryEnterWebXR(xrMode);
+      showToast('Immersive ' + (xrMode === 'immersive-ar' ? 'AR' : 'VR') + ' session started');
+      return;
+    } catch (e) {
+      console.warn('[3D+] WebXR session failed, falling back to Map3DElement:', e);
+      if (xrCanvas) { xrCanvas.remove(); xrCanvas = null; }
+    }
+  } else {
+    console.log('[3D+] WebXR unavailable, using Map3DElement');
+  }
+
+  // Fallback: standard Map3DElement view.
+  const center = map.getCenter().toJSON();
+  const zoom = map.getZoom();
+  const heading = map.getHeading() || 0;
   const range = Math.max(400, 40000000 / Math.pow(2, zoom));
 
-  map3dEl = new Map3DElement({
+  map3dEl = new maps3dLibs.Map3DElement({
     center: { lat: center.lat, lng: center.lng, altitude: 0 },
     heading: heading,
     tilt: 67.5,
@@ -1195,26 +1248,17 @@ async function enter3DPlus() {
   container.appendChild(map3dEl);
   container.style.display = 'block';
 
+  await whenMap3dReady();
   markers3d = [];
-  const { kind } = pick3DMarkerCtor();
-  if (kind === 'none') {
-    console.warn('[3D+] No Maps3D marker API available — markers will be skipped. ' +
-                 'Map3DElement still renders the photorealistic scene.');
-    showToast('3D markers unsupported on this browser');
-  } else {
-    if (kind !== 'interactive') {
-      console.warn('[3D+] Marker3DInteractiveElement unavailable; falling back to ' + kind);
-    }
-    collect3DSourceLocs().forEach(loc => add3DMarker(loc));
-    log3DMarkerStats('enter');
-  }
-
-  is3DPlus = true;
-  btn.classList.add('active');
-  btn.querySelector('.actIcon').textContent = '2D';
+  collect3DSourceLocs().forEach(loc => add3DMarker(loc));
+  log3DMarkerStats('enter');
 }
 
 function exit3DPlus() {
+  if (xrSession) {
+    try { xrSession.end(); } catch (e) {}
+  }
+  if (xrCanvas) { xrCanvas.remove(); xrCanvas = null; }
   const container = document.getElementById('map3d');
   if (container) {
     container.style.display = 'none';

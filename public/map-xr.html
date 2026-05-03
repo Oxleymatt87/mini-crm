@@ -125,9 +125,21 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TilesRenderer } from '3d-tiles-renderer';
+
+// Google Photorealistic 3D Tiles require a session token appended to every
+// child fetch. The 3d-tiles-renderer plugin handles that. Its export path
+// has shifted across versions, so we try both and degrade gracefully.
+let GoogleCloudAuthPlugin = null;
+try {
+  ({ GoogleCloudAuthPlugin } = await import('3d-tiles-renderer'));
+} catch (_) {}
+if (!GoogleCloudAuthPlugin) {
+  try {
+    ({ GoogleCloudAuthPlugin } = await import('https://esm.sh/3d-tiles-renderer@0.3.39/plugins?deps=three@0.160.0'));
+  } catch (_) {}
+}
 
 // ─── Config (reused from map.html) ────────────────────────────────────
 const FIREBASE_CFG = {
@@ -278,8 +290,19 @@ function onResize() {
 
 // ─── Photorealistic 3D Tiles ───────────────────────────────────────────
 function initTiles() {
-  const url = `https://tile.googleapis.com/v1/3dtiles/root.json?key=${GMAPS_KEY}`;
-  tiles = new TilesRenderer(url);
+  if (GoogleCloudAuthPlugin) {
+    tiles = new TilesRenderer();
+    tiles.registerPlugin(new GoogleCloudAuthPlugin({
+      apiToken: GMAPS_KEY,
+      autoRefreshToken: true
+    }));
+  } else {
+    // Fallback: root.json only — child tiles will likely fail without a
+    // session token, but at least the renderer initializes cleanly.
+    const url = `https://tile.googleapis.com/v1/3dtiles/root.json?key=${GMAPS_KEY}`;
+    tiles = new TilesRenderer(url);
+    setStatus('Tiles plugin missing — limited 3D');
+  }
   tiles.setCamera(camera);
   tiles.setResolutionFromRenderer(camera, renderer);
 

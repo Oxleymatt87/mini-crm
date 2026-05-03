@@ -1,0 +1,15 @@
+# Cross-origin isolation + permissions policy required for WebXR sessions
+# (immersive-vr / immersive-ar) on Samsung Galaxy XR + Chrome XR headsets.
+#
+# Scoped to /map-xr.html so the rest of the app (which loads cross-origin
+# CDN scripts) is unaffected. NOTE: Firebase Hosting does NOT read this
+# _headers file — it uses the `headers` array in firebase.json. We mirror
+# the rules in both places so the headers also apply on Netlify /
+# Cloudflare Pages and as a single source of truth.
+
+/map-xr.html
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cross-Origin-Resource-Policy: cross-origin
+  Permissions-Policy: xr-spatial-tracking=(self), camera=(self), microphone=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self), fullscreen=(self)
+  Feature-Policy: xr-spatial-tracking 'self'; vr 'self'; camera 'self'; microphone 'self'

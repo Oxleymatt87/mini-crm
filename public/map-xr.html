@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a0c0f">
+<meta http-equiv="origin-trial" content="">
+<!-- WebXR feature-policy / permissions-policy. Without xr-spatial-tracking
+     enabled in the document policy, immersive sessions can be blocked on
+     headset browsers (Samsung Internet on Galaxy XR, Chrome on Android XR). -->
+<meta http-equiv="Permissions-Policy" content="xr-spatial-tracking=(self), camera=(self), microphone=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)">
+<meta http-equiv="feature-policy" content="xr-spatial-tracking 'self'; vr 'self'; camera 'self'; microphone 'self'; accelerometer 'self'; gyroscope 'self'; magnetometer 'self'">
 <title>Territory XR — SE Texas</title>
 <link rel="manifest" href="manifest.json">
 <style>
@@ -51,6 +57,17 @@
   #login button{width:100%;padding:12px;border-radius:10px;border:none;background:#d4a12a;color:#000;font-weight:700;font-size:14px;cursor:pointer}
   #login .err{color:#e74c3c;font-size:12px;margin-top:6px;display:none}
 
+  #xrDebug{position:fixed;left:14px;top:60px;z-index:7;background:rgba(10,12,18,0.92);border:1px solid #2a2d36;border-radius:12px;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#cfd3dc;max-width:min(360px,90vw);max-height:50vh;overflow:auto;backdrop-filter:blur(8px)}
+  #xrDebug h3{margin:0 0 6px;font-size:11px;color:#d4a12a;letter-spacing:0.6px;text-transform:uppercase;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+  #xrDebug .dbgRow{display:flex;justify-content:space-between;gap:10px;padding:2px 0;border-bottom:1px dashed rgba(255,255,255,0.06)}
+  #xrDebug .dbgRow:last-child{border-bottom:none}
+  #xrDebug .dbgKey{color:#9ca3af}
+  #xrDebug .dbgVal{color:#fff;font-weight:600;text-align:right;word-break:break-word}
+  #xrDebug .ok{color:#22c55e}
+  #xrDebug .bad{color:#ef4444}
+  #xrDebug .warn{color:#fbbf24}
+  #xrDebugToggle{position:fixed;left:14px;top:60px;z-index:8;background:rgba(20,20,28,0.7);border:1px solid rgba(255,255,255,0.12);color:#fff;font-family:inherit;font-size:11px;padding:5px 9px;border-radius:8px;cursor:pointer;display:none}
+
   #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,17,24,0.95);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;z-index:40;display:none}
   #toast.show{display:block;animation:fadeIn .2s ease}
   @keyframes fadeIn{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -91,8 +108,24 @@
   </div>
 </div>
 
+<button id="xrDebugToggle" type="button">Show XR debug</button>
+<div id="xrDebug">
+  <h3>WebXR Diagnostics</h3>
+  <div class="dbgRow"><span class="dbgKey">navigator.xr</span><span class="dbgVal" id="dbgNavXr">…</span></div>
+  <div class="dbgRow"><span class="dbgKey">isSecureContext</span><span class="dbgVal" id="dbgSecure">…</span></div>
+  <div class="dbgRow"><span class="dbgKey">protocol</span><span class="dbgVal" id="dbgProto">…</span></div>
+  <div class="dbgRow"><span class="dbgKey">crossOriginIsolated</span><span class="dbgVal" id="dbgCoi">…</span></div>
+  <div class="dbgRow"><span class="dbgKey">immersive-vr</span><span class="dbgVal" id="dbgVR">checking…</span></div>
+  <div class="dbgRow"><span class="dbgKey">immersive-ar</span><span class="dbgVal" id="dbgAR">checking…</span></div>
+  <div class="dbgRow"><span class="dbgKey">inline</span><span class="dbgVal" id="dbgInline">checking…</span></div>
+  <div class="dbgRow"><span class="dbgKey">user-agent</span><span class="dbgVal" id="dbgUA">…</span></div>
+  <div class="dbgRow"><span class="dbgKey">last action</span><span class="dbgVal" id="dbgLast">—</span></div>
+  <div class="dbgRow"><span class="dbgKey">last error</span><span class="dbgVal" id="dbgErr">—</span></div>
+  <div style="margin-top:8px;text-align:right"><button id="xrDebugHide" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#9ca3af;font-size:10px;padding:3px 8px;border-radius:6px;cursor:pointer;font-family:inherit">hide</button></div>
+</div>
+
 <div id="ctrlBar">
-  <button class="xrBtn" id="enterXrBtn" disabled>Enter VR</button>
+  <button class="xrBtn" id="enterXrBtn" disabled>Checking XR…</button>
   <button class="xrBtn alt" id="flyBtn">Fly-through</button>
   <button class="xrBtn alt" id="resetBtn">Reset View</button>
 </div>
@@ -523,50 +556,138 @@ function updateFly(dt) {
 }
 
 // ─── WebXR ─────────────────────────────────────────────────────────────
+// Probe results live here so the on-screen debug panel can render them.
+const xrProbe = { vr: null, ar: null, inline: null, error: null };
+let xrPreferredMode = null; // 'immersive-ar' | 'immersive-vr' | null
+
+function dbgSet(id, txt, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = txt;
+  el.className = 'dbgVal' + (cls ? ' ' + cls : '');
+}
+function dbgLog(action, err) {
+  if (action) dbgSet('dbgLast', action);
+  if (err !== undefined) {
+    xrProbe.error = err;
+    dbgSet('dbgErr', err ? (err.name ? `${err.name}: ${err.message || err}` : String(err)) : '—', err ? 'bad' : '');
+  }
+}
+function refreshXrDebugStaticRows() {
+  dbgSet('dbgNavXr', ('xr' in navigator) ? 'present' : 'missing', ('xr' in navigator) ? 'ok' : 'bad');
+  dbgSet('dbgSecure', String(window.isSecureContext), window.isSecureContext ? 'ok' : 'bad');
+  dbgSet('dbgProto', location.protocol, location.protocol === 'https:' ? 'ok' : 'warn');
+  dbgSet('dbgCoi', String(self.crossOriginIsolated), self.crossOriginIsolated ? 'ok' : 'warn');
+  dbgSet('dbgUA', navigator.userAgent.slice(0, 80));
+}
+
+async function probeXrMode(mode) {
+  if (!('xr' in navigator)) return false;
+  try { return await navigator.xr.isSessionSupported(mode); }
+  catch (e) { dbgLog(`probe ${mode} failed`, e); return false; }
+}
+
 async function initXR() {
-  if (!('xr' in navigator)) { setStatus('No WebXR — desktop fallback'); return; }
-  try {
-    const ok = await navigator.xr.isSessionSupported('immersive-vr');
-    xrSupported = ok;
-    const btn = document.getElementById('enterXrBtn');
-    if (ok) {
-      btn.disabled = false;
-      btn.addEventListener('click', enterXR);
-      // Attach VRButton's logic but use our styled button.
+  refreshXrDebugStaticRows();
+  const btn = document.getElementById('enterXrBtn');
+
+  if (!('xr' in navigator)) {
+    setStatus('No WebXR — desktop fallback');
+    btn.textContent = 'WebXR unavailable';
+    dbgSet('dbgVR', 'n/a', 'bad'); dbgSet('dbgAR', 'n/a', 'bad'); dbgSet('dbgInline', 'n/a', 'bad');
+    return;
+  }
+
+  // Probe all three modes in parallel and surface results in the debug
+  // panel. Prefer immersive-ar (passthrough on Galaxy XR) → immersive-vr
+  // → inline. Whichever is supported decides what the button launches.
+  dbgLog('probing session modes');
+  const [vr, ar, inline] = await Promise.all([
+    probeXrMode('immersive-vr'),
+    probeXrMode('immersive-ar'),
+    probeXrMode('inline')
+  ]);
+  xrProbe.vr = vr; xrProbe.ar = ar; xrProbe.inline = inline;
+  dbgSet('dbgVR', vr ? 'supported' : 'not supported', vr ? 'ok' : 'bad');
+  dbgSet('dbgAR', ar ? 'supported' : 'not supported', ar ? 'ok' : 'bad');
+  dbgSet('dbgInline', inline ? 'supported' : 'not supported', inline ? 'ok' : 'warn');
+
+  if (ar) xrPreferredMode = 'immersive-ar';
+  else if (vr) xrPreferredMode = 'immersive-vr';
+  else xrPreferredMode = null;
+
+  xrSupported = !!xrPreferredMode;
+
+  if (xrPreferredMode) {
+    btn.disabled = false;
+    btn.textContent = xrPreferredMode === 'immersive-ar' ? 'Enter AR' : 'Enter VR';
+    btn.title = `Will request ${xrPreferredMode}`;
+    btn.addEventListener('click', enterXR);
+    dbgLog(`ready: will request ${xrPreferredMode}`);
+  } else {
+    btn.disabled = true;
+    btn.textContent = 'No immersive XR';
+    dbgLog('no immersive mode available');
+    // Likely cause on a real headset: page not served over HTTPS, or
+    // missing Permissions-Policy / cross-origin-isolated headers. Surface
+    // a hint right in the status bar so the user can act on it.
+    if (location.protocol !== 'https:') {
+      setStatus('XR needs HTTPS — open via https://');
+    } else if (!self.crossOriginIsolated) {
+      setStatus('XR blocked: page is not cross-origin-isolated');
     } else {
-      btn.textContent = 'VR not available';
-      btn.disabled = true;
+      setStatus('Headset reports no immersive sessions');
     }
-  } catch (e) {
-    console.warn('XR check failed', e);
-    document.getElementById('enterXrBtn').textContent = 'VR unavailable';
   }
 }
 
 async function enterXR() {
-  try {
-    const session = await navigator.xr.requestSession('immersive-vr', {
-      optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
-    });
-    renderer.xr.setReferenceSpaceType('local-floor');
-    await renderer.xr.setSession(session);
-    // Park the camera dolly above the center at a comfortable height so the
-    // user is standing on a virtual platform overlooking SE Texas.
-    dolly.position.set(0, 1500, 2500);
-    dolly.add(camera);
-    setupXRControllers();
-    setStatus('In VR · gaze + trigger to pick');
-    session.addEventListener('end', () => {
-      dolly.remove(camera);
-      camera.position.set(0, 3000, 6000);
-      camera.lookAt(0, 0, 0);
-      setStatus('Exited VR');
-      removeXRControllers();
-    });
-  } catch (e) {
-    console.warn(e);
-    toast('Could not start VR: ' + (e.message || e));
+  const btn = document.getElementById('enterXrBtn');
+  // Try the preferred mode first; if the headset rejects it (e.g. AR
+  // probed true but the session start fails because no compatible
+  // reference space), fall back to immersive-vr.
+  const order = [];
+  if (xrPreferredMode) order.push(xrPreferredMode);
+  if (xrPreferredMode !== 'immersive-vr' && xrProbe.vr) order.push('immersive-vr');
+  if (!order.length) { toast('No XR mode available'); return; }
+
+  for (const mode of order) {
+    btn.textContent = `Requesting ${mode}…`;
+    dbgLog(`requestSession ${mode}`);
+    try {
+      const init = mode === 'immersive-ar'
+        ? { requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'hit-test', 'anchors', 'dom-overlay'], domOverlay: { root: document.body } }
+        : { requiredFeatures: ['local-floor'], optionalFeatures: ['bounded-floor', 'hand-tracking', 'dom-overlay'], domOverlay: { root: document.body } };
+      const session = await navigator.xr.requestSession(mode, init);
+      renderer.xr.setReferenceSpaceType('local-floor');
+      await renderer.xr.setSession(session);
+      // Park the camera dolly above the center at a comfortable height so
+      // the user is standing on a virtual platform overlooking SE Texas.
+      dolly.position.set(0, 1500, 2500);
+      dolly.add(camera);
+      setupXRControllers();
+      btn.textContent = mode === 'immersive-ar' ? 'Exit AR' : 'Exit VR';
+      setStatus(`In ${mode} · gaze + trigger to pick`);
+      dbgLog(`session active: ${mode}`, null);
+      session.addEventListener('end', () => {
+        dolly.remove(camera);
+        camera.position.set(0, 3000, 6000);
+        camera.lookAt(0, 0, 0);
+        setStatus(`Exited ${mode}`);
+        btn.textContent = mode === 'immersive-ar' ? 'Enter AR' : 'Enter VR';
+        removeXRControllers();
+        dbgLog('session ended');
+      });
+      return;
+    } catch (e) {
+      console.warn(`requestSession(${mode}) failed`, e);
+      dbgLog(`${mode} failed`, e);
+      // Try next fallback mode.
+    }
   }
+
+  btn.textContent = xrPreferredMode === 'immersive-ar' ? 'Enter AR' : 'Enter VR';
+  toast('Could not start XR session — see debug panel');
 }
 
 function setupXRControllers() {
@@ -750,6 +871,14 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 });
 document.getElementById('xrLoginBtn').addEventListener('click', login);
 document.getElementById('xrPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+document.getElementById('xrDebugHide').addEventListener('click', () => {
+  document.getElementById('xrDebug').style.display = 'none';
+  document.getElementById('xrDebugToggle').style.display = 'inline-block';
+});
+document.getElementById('xrDebugToggle').addEventListener('click', () => {
+  document.getElementById('xrDebug').style.display = 'block';
+  document.getElementById('xrDebugToggle').style.display = 'none';
+});
 
 function flyTo(lat, lng) {
   const ecef = latLngToECEF(lat, lng, 0);

@@ -1098,22 +1098,18 @@ function add3DMarker(loc) {
   if (!map3dEl || !maps3dLibs) return null;
   const { ctor: Marker3DCtor, kind } = pick3DMarkerCtor();
   if (!Marker3DCtor) return null;
-  const inRoute = !!routeLocations.find(r => r.name === loc.name);
-  const alt = altitudeFor(loc, inRoute);
   let m3d;
   try {
     m3d = new Marker3DCtor({
-      position: { lat: loc.lat, lng: loc.lng, altitude: alt },
+      position: { lat: loc.lat, lng: loc.lng, altitude: 30 },
       altitudeMode: 'RELATIVE_TO_GROUND',
-      extruded: true,
-      sizePreserved: true,
       label: loc.name
     });
   } catch (e) {
     console.error('[3D+] Marker ctor failed for', loc.name, e);
     return null;
   }
-  m3d.appendChild(build3DMarkerContent(loc, { inRoute }));
+  m3d.appendChild(getMarkerContent(loc));
   const handler = () => openSheet(loc);
   if (kind === 'interactive') {
     m3d.addEventListener('gmp-click', handler);
@@ -1121,7 +1117,7 @@ function add3DMarker(loc) {
     m3d.addEventListener('click', handler);
   }
   m3d._loc = loc;
-  m3d._alt = alt;
+  m3d._alt = 30;
   map3dEl.appendChild(m3d);
   markers3d.push(m3d);
   return m3d;

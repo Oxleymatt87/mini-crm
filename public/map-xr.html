@@ -436,6 +436,26 @@ const XR_EXIT_DWELL_SEC = 2.0;
 let lastTapTime = 0;          // last empty-area tap, for double-tap exit
 let xrExitPending = false;    // guard against double-firing session.end()
 
+// XRHand state. Joints come for free with `renderer.xr.getHand(i)` once
+// the session has 'hand-tracking' enabled (already in optionalFeatures).
+// We track index-finger-tip + thumb-tip for pinch detection, and parent
+// the hand objects to the dolly so their world matrices line up with
+// the rest of the XR scene (camera lives on dolly too).
+let xrHand1 = null, xrHand2 = null;
+let xrHandTip1 = null, xrHandTip2 = null;
+const PINCH_ENGAGE_M  = 0.025; // start a pinch when tips within 2.5 cm
+const PINCH_RELEASE_M = 0.040; // hysteresis: release at 4 cm to avoid jitter
+const PINCH_MOVE_M    = 0.025; // total tip motion past which a pinch is a "drag" not a "tap"
+const PINCH_TAP_MAX_MS = 800;  // pinches longer than this don't fire as taps
+const handState1 = makeHandState();
+const handState2 = makeHandState();
+let twoHandStartDist = null;
+let twoHandStartAlt = null;
+function makeHandState() {
+  return { active:false, suppressed:false, moved:false,
+           startRefPos:null, lastRefPos:null, startWorldPos:null, startTime:0 };
+}
+
 // ─── Toast / status helpers ────────────────────────────────────────────
 function setStatus(s) { document.getElementById('status').textContent = s; }
 function toast(msg, ms=2200) {
@@ -981,27 +1001,6 @@ function bindTap(el, fn) {
   });
 }
 
-// Pointerdown variant for the nav D-pad and zoom buttons. Firing on
-// pointerdown gives the user immediate feedback when panning/zooming —
-// they don't have to wait for the finger lift. Desktop click remains as
-// a fallback path.
-function bindPointerDown(el, fn) {
-  if (!el) return;
-  let lastT = 0;
-  el.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (performance.now() - lastT < 200) return;
-    lastT = performance.now();
-    fn(e);
-  });
-  el.addEventListener('click', e => {
-    if (performance.now() - lastT < 700) return;
-    lastT = performance.now();
-    fn(e);
-  });
-}
-
 // Raycast straight forward from the current (XR or desktop) camera and
 // open the detail panel for whatever marker is centered. Used both by
 // the body tap handler in XR and by direct invocation.
@@ -1198,6 +1197,33 @@ function setupXRControllers() {
   // 3D EXIT panel — gaze target for hands-free exit.
   xrExitMesh = makeXrExitMesh();
   dolly.add(xrExitMesh);
+
+  // XRHand tracking. On Samsung Internet for Galaxy XR, `hand-tracking`
+  // is granted as an optional feature and these objects start receiving
+  // joint poses on the next frame. On devices without hand tracking the
+  // joints stay empty and updateXRHands becomes a no-op.
+  xrHand1 = renderer.xr.getHand(0);
+  xrHand2 = renderer.xr.getHand(1);
+  if (xrHand1) dolly.add(xrHand1);
+  if (xrHand2) dolly.add(xrHand2);
+
+  // Small gold spheres at each index-finger-tip — gives the user a
+  // visible "I see your hand" cue in passthrough AR. Drawn on top
+  // (depthTest:false, high renderOrder) so they're never hidden by
+  // tile geometry.
+  const tipMatA = new THREE.MeshBasicMaterial({
+    color: 0xd4a12a, transparent: true, opacity: 0.95,
+    depthTest: false, side: THREE.DoubleSide
+  });
+  const tipMatB = tipMatA.clone();
+  xrHandTip1 = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 12), tipMatA);
+  xrHandTip2 = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 12), tipMatB);
+  for (const tip of [xrHandTip1, xrHandTip2]) {
+    tip.renderOrder = 9994;
+    tip.visible = false;
+    tip.frustumCulled = false;
+    scene.add(tip);
+  }
 }
 function removeXRControllers() {
   if (xrReticle) { camera.remove(xrReticle); xrReticle = null; }
@@ -1206,6 +1232,20 @@ function removeXRControllers() {
   if (xrExitMesh) { dolly.remove(xrExitMesh); xrExitMesh = null; }
   for (const c of [xrController1, xrController2]) { if (c) dolly.remove(c); }
   xrController1 = xrController2 = null;
+  // Hand-tracking cleanup.
+  for (const h of [xrHand1, xrHand2]) { if (h) dolly.remove(h); }
+  xrHand1 = xrHand2 = null;
+  for (const tip of [xrHandTip1, xrHandTip2]) {
+    if (!tip) continue;
+    scene.remove(tip);
+    tip.geometry.dispose();
+    tip.material.dispose();
+  }
+  xrHandTip1 = xrHandTip2 = null;
+  Object.assign(handState1, makeHandState());
+  Object.assign(handState2, makeHandState());
+  twoHandStartDist = null;
+  twoHandStartAlt = null;
 }
 
 function onXRSelect(event) {
@@ -1217,6 +1257,148 @@ function onXRSelect(event) {
   raycaster.ray.direction.set(0, 0, -1).transformDirection(m);
   const hit = raycaster.intersectObjects(pickables, false)[0];
   if (hit && hit.object.userData.loc) showPanel(hit.object.userData.loc);
+}
+
+// ─── XRHand tracking ───────────────────────────────────────────────────
+// Read joint poses for one hand and return positions + pinch distance.
+// `tipWorld` / `thumbWorld` include the dolly transform (use for
+// visualization and world-space raycasting). `tipRef` is the index-tip
+// pose in the renderer's reference space (independent of dolly motion)
+// — that's what we diff frame-to-frame so a moving dolly doesn't feed
+// back into pan tracking.
+function getHandJointInfo(hand) {
+  if (!hand || !hand.joints) return null;
+  const indexTip = hand.joints['index-finger-tip'];
+  const thumbTip = hand.joints['thumb-tip'];
+  if (!indexTip || !thumbTip) return null;
+  if (indexTip.visible === false || thumbTip.visible === false) return null;
+  const tipWorld   = new THREE.Vector3().setFromMatrixPosition(indexTip.matrixWorld);
+  const thumbWorld = new THREE.Vector3().setFromMatrixPosition(thumbTip.matrixWorld);
+  // matrixPosition — same as setting from indexTip.matrix (ref-space).
+  // setFromMatrixPosition reads the translation column of any 4x4.
+  const tipRef = new THREE.Vector3().setFromMatrixPosition(indexTip.matrix);
+  return { tipWorld, thumbWorld, tipRef, dist: tipWorld.distanceTo(thumbWorld) };
+}
+
+function updateXRHands(dt) {
+  if (!renderer.xr.isPresenting) return;
+  const info1 = getHandJointInfo(xrHand1);
+  const info2 = getHandJointInfo(xrHand2);
+
+  // Visual hand tips.
+  if (xrHandTip1) {
+    if (info1) { xrHandTip1.position.copy(info1.tipWorld); xrHandTip1.visible = true; }
+    else xrHandTip1.visible = false;
+  }
+  if (xrHandTip2) {
+    if (info2) { xrHandTip2.position.copy(info2.tipWorld); xrHandTip2.visible = true; }
+    else xrHandTip2.visible = false;
+  }
+
+  // Two-hand pinch zoom: when both hands are pinching, the distance
+  // between the index tips drives altitude. Apart = zoom in (descend),
+  // together = zoom out (ascend). Suppresses single-hand pan while
+  // engaged so the camera doesn't fight itself.
+  const bothPinching = handState1.active && handState2.active && info1 && info2;
+  if (bothPinching) {
+    const d = info1.tipWorld.distanceTo(info2.tipWorld);
+    if (twoHandStartDist == null) {
+      twoHandStartDist = d;
+      twoHandStartAlt = dolly.position.y;
+    } else if (twoHandStartDist > 0.02) {
+      const ratio = d / twoHandStartDist;
+      const newAlt = Math.min(20000, Math.max(50, twoHandStartAlt / ratio));
+      dolly.position.y = newAlt;
+    }
+    handState1.suppressed = true;
+    handState2.suppressed = true;
+  } else {
+    twoHandStartDist = null;
+    twoHandStartAlt = null;
+    handState1.suppressed = false;
+    handState2.suppressed = false;
+  }
+
+  updatePinchState(handState1, info1, xrHand1);
+  updatePinchState(handState2, info2, xrHand2);
+}
+
+function updatePinchState(state, info, hand) {
+  if (!info || !hand) {
+    if (state.active) {
+      // Lost tracking mid-pinch — drop without firing a tap.
+      state.active = false;
+    }
+    state.startRefPos = state.lastRefPos = state.startWorldPos = null;
+    state.moved = false;
+    state.startTime = 0;
+    return;
+  }
+  // Hysteresis: enter at 2.5 cm, release at 4 cm.
+  const isPinching = state.active
+    ? info.dist < PINCH_RELEASE_M
+    : info.dist < PINCH_ENGAGE_M;
+
+  if (isPinching && !state.active) {
+    state.active = true;
+    state.startRefPos   = info.tipRef.clone();
+    state.lastRefPos    = info.tipRef.clone();
+    state.startWorldPos = info.tipWorld.clone();
+    state.moved = false;
+    state.startTime = performance.now();
+    return;
+  }
+  if (!isPinching && state.active) {
+    onPinchEnd(state, hand, info);
+    state.active = false;
+    state.startRefPos = state.lastRefPos = state.startWorldPos = null;
+    state.moved = false;
+    return;
+  }
+  if (isPinching && state.active) {
+    // Diff in reference space so dolly motion doesn't loop back as hand motion.
+    const totalMove = info.tipRef.distanceTo(state.startRefPos);
+    if (totalMove > PINCH_MOVE_M) state.moved = true;
+    if (state.moved && !state.suppressed) {
+      const delta = info.tipRef.clone().sub(state.lastRefPos);
+      // Drag-the-map: hand right shifts the world right under the user,
+      // which means dolly moves left. Scale by altitude so a 1 cm hand
+      // motion at 5 km altitude pans further than at 50 m.
+      const scale = -Math.max(120, dolly.position.y * 0.6);
+      dolly.position.x += delta.x * scale;
+      dolly.position.z += delta.z * scale;
+    }
+    state.lastRefPos = info.tipRef.clone();
+  }
+}
+
+// Pinch-and-release without significant movement = tap. Raycast from the
+// camera through the pinch point — that mirrors how AR tap-to-select
+// usually works ("whatever I'm covering with my fingers gets picked").
+// EXIT panel is tested first so it always wins over distant markers.
+function onPinchEnd(state, hand, info) {
+  if (state.moved) return;
+  if (!state.startWorldPos) return;
+  const held = performance.now() - (state.startTime || 0);
+  if (held > PINCH_TAP_MAX_MS) return;
+  const pinchPos = (info && info.tipWorld) ? info.tipWorld : state.startWorldPos;
+  const cam = renderer.xr.getCamera();
+  const camPos = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+  const dir = pinchPos.clone().sub(camPos);
+  if (dir.lengthSq() < 1e-6) return;
+  dir.normalize();
+  raycaster.ray.origin.copy(camPos);
+  raycaster.ray.direction.copy(dir);
+  if (xrExitMesh && xrExitMesh.userData.bg) {
+    if (raycaster.intersectObject(xrExitMesh.userData.bg, false).length > 0) {
+      endXrSession('hand-pinch-exit');
+      return;
+    }
+  }
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (hit && hit.object.userData.loc) {
+    showPanel(hit.object.userData.loc);
+  }
 }
 
 function updateXRGazePick(dt) {
@@ -1289,6 +1471,7 @@ function tick() {
   }
   updateFly(dt);
   updateXRGazePick(dt);
+  updateXRHands(dt);
   renderer.render(scene, camera);
 }
 
@@ -1381,18 +1564,17 @@ function legacyPins() {
 // ─── Wire up UI ────────────────────────────────────────────────────────
 // All XR-relevant buttons are bound via bindTap (pointerup + click) so
 // they work in Samsung Internet's dom-overlay session, where bare
-// `click` listeners are unreliable. Pan/zoom buttons use bindPointerDown
-// so they fire the instant the finger touches. Plain desktop buttons
-// keep `click`.
+// `click` listeners are unreliable. Same pattern across the board so
+// behavior matches the EXIT button, which is known to fire reliably.
 bindTap(document.getElementById('panelClose'), hidePanel);
 bindTap(document.getElementById('panelFly'), () => {
   if (!activeMarker) return;
   flyTo(activeMarker.lat, activeMarker.lng);
 });
-document.getElementById('flyBtn').addEventListener('click', () => {
+bindTap(document.getElementById('flyBtn'), () => {
   if (flyState) stopFlythrough(); else startFlythrough();
 });
-document.getElementById('resetBtn').addEventListener('click', () => {
+bindTap(document.getElementById('resetBtn'), () => {
   stopFlythrough();
   controls.target.set(0, 0, 0);
   camera.position.set(0, 2000, 4000);
@@ -1400,11 +1582,12 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 bindTap(document.getElementById('xrExitBtn'), () => endXrSession('button'));
 document.getElementById('xrLoginBtn').addEventListener('click', login);
 
-// Pan + zoom buttons — fire on pointerdown so the camera starts moving
-// the instant the finger touches the button, without waiting for lift.
+// Pan + zoom buttons use the same pointerup+click bindTap pattern as the
+// EXIT button — that's the binding Samsung Internet's dom-overlay
+// actually delivers reliably.
 for (const btn of document.querySelectorAll('#xrNav .xrNavBtn, #xrZoom .xrNavBtn')) {
   const act = btn.dataset.act;
-  bindPointerDown(btn, () => {
+  bindTap(btn, () => {
     if (act === 'pan-up')    xrPan('up');
     if (act === 'pan-down')  xrPan('down');
     if (act === 'pan-left')  xrPan('left');
@@ -1420,22 +1603,30 @@ bindTap(document.getElementById('xrFlyBtn'), () => {
   flyTo(activeMarker.lat, activeMarker.lng);
 });
 
-// Body-level tap → "select centered marker". `pointerup` is the most
-// reliable signal in Samsung Internet's dom-overlay; we fall back to
-// `click` for desktop WebXR emulators that proxy headset taps as mouse
-// clicks. Taps on any interactive overlay are ignored via closest() so
-// the buttons keep their own bindings.
-document.body.addEventListener('pointerup', e => {
-  if (!xrSession) return;
-  if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
-  e.preventDefault();
-  selectCenterMarker();
-}, { passive: false });
-document.body.addEventListener('click', e => {
-  if (!xrSession) return;
-  if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
-  selectCenterMarker();
-});
+// Body-level tap → "select centered marker". Mirrors the EXIT button's
+// bindTap pattern exactly (pointerup primary, click fallback, dedupe
+// between them) so it works in Samsung Internet's dom-overlay session.
+// Taps on any interactive overlay are ignored via closest() so the
+// buttons keep their own bindings.
+(function () {
+  let lastT = 0;
+  document.body.addEventListener('pointerup', e => {
+    if (!xrSession) return;
+    if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (performance.now() - lastT < 250) return;
+    lastT = performance.now();
+    selectCenterMarker();
+  }, { passive: false });
+  document.body.addEventListener('click', e => {
+    if (!xrSession) return;
+    if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
+    if (performance.now() - lastT < 700) return;
+    lastT = performance.now();
+    selectCenterMarker();
+  });
+})();
 
 // Diagnostic counter — increments on every overlay-level pointer/touch/
 // click event so we can confirm Samsung Internet is delivering input to

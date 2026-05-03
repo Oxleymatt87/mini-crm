@@ -29,7 +29,7 @@
   .lgDot{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.6)}
 
   #ctrlBar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:center;gap:8px;padding:12px env(safe-area-inset-right,12px) calc(12px + env(safe-area-inset-bottom,0px)) env(safe-area-inset-left,12px);background:linear-gradient(0deg,rgba(0,0,0,0.85),rgba(0,0,0,0))}
-  .xrBtn{appearance:none;background:#d4a12a;color:#0a0c0f;border:none;border-radius:12px;padding:12px 18px;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:0.4px;box-shadow:0 4px 18px rgba(212,161,42,0.45)}
+  .xrBtn{appearance:none;background:#d4a12a;color:#0a0c0f;border:none;border-radius:12px;padding:12px 18px;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:0.4px;box-shadow:0 4px 18px rgba(212,161,42,0.45);touch-action:manipulation;user-select:none;-webkit-user-select:none}
   .xrBtn.alt{background:rgba(40,42,52,0.9);color:#fff;border:1px solid rgba(255,255,255,0.15);box-shadow:none}
   .xrBtn[disabled]{opacity:0.45;cursor:not-allowed}
 
@@ -72,16 +72,17 @@
      Sits above #topBar (z-index 100) so it overlays panels/legend, and
      uses a heavy red treatment so users can find it instantly even
      through a passthrough or VR camera feed. */
-  #xrExitBtn{position:fixed;top:max(14px,env(safe-area-inset-top,14px));right:max(14px,env(safe-area-inset-right,14px));z-index:100;display:none;background:#dc2626;color:#fff;border:3px solid #fff;border-radius:14px;padding:16px 22px;font-weight:900;font-size:18px;letter-spacing:1.5px;font-family:inherit;cursor:pointer;box-shadow:0 0 0 2px rgba(220,38,38,0.35),0 10px 30px rgba(220,38,38,0.55),0 0 24px rgba(255,68,68,0.55);text-transform:uppercase;-webkit-tap-highlight-color:transparent}
+  #xrExitBtn{position:fixed;top:max(14px,env(safe-area-inset-top,14px));right:max(14px,env(safe-area-inset-right,14px));z-index:100;display:none;background:#dc2626;color:#fff;border:3px solid #fff;border-radius:14px;padding:18px 26px;font-weight:900;font-size:18px;letter-spacing:1.5px;font-family:inherit;cursor:pointer;box-shadow:0 0 0 2px rgba(220,38,38,0.35),0 10px 30px rgba(220,38,38,0.55),0 0 24px rgba(255,68,68,0.55);text-transform:uppercase;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;min-width:120px;min-height:80px}
   #xrExitBtn.show{display:block}
   #xrExitBtn:active{transform:scale(0.96)}
   @keyframes xrExitPulse{0%,100%{box-shadow:0 0 0 2px rgba(220,38,38,0.35),0 10px 30px rgba(220,38,38,0.55),0 0 24px rgba(255,68,68,0.55)}50%{box-shadow:0 0 0 4px rgba(220,38,38,0.55),0 10px 36px rgba(220,38,38,0.7),0 0 36px rgba(255,68,68,0.85)}}
   #xrExitBtn.show{animation:xrExitPulse 1.6s ease-in-out infinite}
 
   /* XR-only DOM controls. Hidden by default; revealed only while a
-     session is active by toggling body.xr-active. Buttons use touch-action
-     none + bindTap so Samsung Internet on Galaxy XR (which often skips
-     the synthesized click in dom-overlay mode) still fires reliably. */
+     session is active by toggling body.xr-active. Buttons use
+     touch-action:manipulation + bindTap (pointerup) so Samsung Internet
+     on Galaxy XR — which often skips the synthesized click in
+     dom-overlay mode — still fires reliably. */
   body:not(.xr-active) .xrCtl{display:none!important}
 
   /* Center crosshair — purely visual; pointer events pass through so a
@@ -95,9 +96,9 @@
 
   /* Nav D-pad lower-left, zoom column lower-right. Sized so the buttons
      are easily hit with a thumb through a passthrough camera feed. */
-  #xrNav{position:fixed;left:max(14px,env(safe-area-inset-left,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:grid;grid-template-columns:repeat(3,76px);grid-template-rows:repeat(3,76px);gap:6px}
-  #xrZoom{position:fixed;right:max(14px,env(safe-area-inset-right,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:flex;flex-direction:column;gap:8px}
-  .xrNavBtn{appearance:none;background:rgba(20,22,30,0.85);color:#fff;border:2px solid rgba(255,255,255,0.28);border-radius:14px;font-weight:900;font-size:30px;line-height:1;padding:0;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(6px);box-shadow:0 6px 20px rgba(0,0,0,0.5);touch-action:manipulation;width:76px;height:76px;display:flex;align-items:center;justify-content:center}
+  #xrNav{position:fixed;left:max(14px,env(safe-area-inset-left,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:grid;grid-template-columns:repeat(3,84px);grid-template-rows:repeat(3,84px);gap:8px}
+  #xrZoom{position:fixed;right:max(14px,env(safe-area-inset-right,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:flex;flex-direction:column;gap:10px}
+  .xrNavBtn{appearance:none;background:rgba(20,22,30,0.85);color:#fff;border:2px solid rgba(255,255,255,0.28);border-radius:14px;font-weight:900;font-size:34px;line-height:1;padding:0;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(6px);box-shadow:0 6px 20px rgba(0,0,0,0.5);touch-action:manipulation;user-select:none;-webkit-user-select:none;min-width:84px;min-height:84px;width:84px;height:84px;display:flex;align-items:center;justify-content:center}
   .xrNavBtn:active{transform:scale(0.93);background:rgba(212,161,42,0.92);color:#0a0c0f;border-color:#fff}
   .xrNavBtn[data-pos="up"]{grid-column:2;grid-row:1}
   .xrNavBtn[data-pos="left"]{grid-column:1;grid-row:2}
@@ -106,7 +107,7 @@
 
   /* Standalone Fly button — bottom-center, only visible while a marker
      is selected. Lets the user fly without re-opening the detail panel. */
-  #xrFlyBtn{position:fixed;left:50%;bottom:max(28px,env(safe-area-inset-bottom,28px));transform:translateX(-50%);z-index:99;display:none;background:#d4a12a;color:#0a0c0f;border:none;border-radius:14px;padding:14px 28px;font-weight:900;font-size:16px;letter-spacing:1px;font-family:inherit;cursor:pointer;box-shadow:0 8px 30px rgba(212,161,42,0.55);text-transform:uppercase;touch-action:manipulation;-webkit-tap-highlight-color:transparent;max-width:80vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #xrFlyBtn{position:fixed;left:50%;bottom:max(28px,env(safe-area-inset-bottom,28px));transform:translateX(-50%);z-index:99;display:none;background:#d4a12a;color:#0a0c0f;border:none;border-radius:14px;padding:18px 32px;font-weight:900;font-size:16px;letter-spacing:1px;font-family:inherit;cursor:pointer;box-shadow:0 8px 30px rgba(212,161,42,0.55);text-transform:uppercase;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;max-width:80vw;min-height:80px;min-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #xrFlyBtn.show{display:block}
   #xrFlyBtn:active{transform:translateX(-50%) scale(0.96)}
 
@@ -120,6 +121,13 @@
 
   #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,17,24,0.95);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;z-index:40;display:none}
   #toast.show{display:block;animation:fadeIn .2s ease}
+
+  /* Tap-event diagnostic. Visible only inside an XR session. Increments on
+     every pointer/touch/click event the dom-overlay layer sees, so we can
+     confirm Samsung Internet is actually delivering input even when a
+     specific button doesn't appear to respond. */
+  #xrTapCounter{position:fixed;top:max(14px,env(safe-area-inset-top,14px));left:50%;transform:translateX(-50%);z-index:101;background:rgba(0,0,0,0.85);border:2px solid #d4a12a;color:#fff5e0;padding:8px 14px;border-radius:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:700;letter-spacing:0.4px;display:none;pointer-events:none;white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis}
+  body.xr-active #xrTapCounter{display:block}
   @keyframes fadeIn{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
 
   #flyHud{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:6;background:rgba(0,0,0,0.78);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:10px 16px;display:none;text-align:center;min-width:220px;backdrop-filter:blur(6px)}
@@ -212,6 +220,8 @@
 </div>
 
 <button id="xrFlyBtn" class="xrCtl" type="button" aria-label="Fly to selected marker">FLY TO PIN</button>
+
+<div id="xrTapCounter" aria-live="polite">Taps: 0</div>
 
 <div id="toast"></div>
 
@@ -824,26 +834,45 @@ function endXrSession(reason) {
   try { xrSession.end(); } catch (e) { dbgLog('session.end() threw', e); xrExitPending = false; }
 }
 
-// Touch-first tap binding. Samsung Internet's XR browser does not
-// reliably synthesize a `click` from a screen tap inside a dom-overlay
-// session, so we listen for `touchend` first and use `click` only as a
-// desktop / non-touch fallback. preventDefault() on touchend suppresses
-// the late synthesized click, and a 700 ms dedupe guards against the
-// rare case where both still fire.
+// Pointer-first tap binding. Samsung Internet's XR dom-overlay reliably
+// delivers `pointerup` but not always `touchend`/`click`, so we use
+// pointerup as the primary trigger. `click` stays as a desktop fallback,
+// gated by a 700 ms dedupe so a real click after a pointerup doesn't
+// fire twice.
 function bindTap(el, fn) {
   if (!el) return;
-  let lastTouchT = 0;
-  el.addEventListener('touchend', e => {
+  let lastT = 0;
+  el.addEventListener('pointerup', e => {
     e.preventDefault();
     e.stopPropagation();
-    lastTouchT = performance.now();
+    if (performance.now() - lastT < 250) return;
+    lastT = performance.now();
     fn(e);
-  }, { passive: false });
-  el.addEventListener('touchstart', e => {
-    e.stopPropagation();
-  }, { passive: true });
+  });
   el.addEventListener('click', e => {
-    if (performance.now() - lastTouchT < 700) return;
+    if (performance.now() - lastT < 700) return;
+    lastT = performance.now();
+    fn(e);
+  });
+}
+
+// Pointerdown variant for the nav D-pad and zoom buttons. Firing on
+// pointerdown gives the user immediate feedback when panning/zooming —
+// they don't have to wait for the finger lift. Desktop click remains as
+// a fallback path.
+function bindPointerDown(el, fn) {
+  if (!el) return;
+  let lastT = 0;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (performance.now() - lastT < 200) return;
+    lastT = performance.now();
+    fn(e);
+  });
+  el.addEventListener('click', e => {
+    if (performance.now() - lastT < 700) return;
+    lastT = performance.now();
     fn(e);
   });
 }
@@ -1225,9 +1254,11 @@ function legacyPins() {
 }
 
 // ─── Wire up UI ────────────────────────────────────────────────────────
-// All XR-relevant buttons are bound via bindTap (touchend + click) so
+// All XR-relevant buttons are bound via bindTap (pointerup + click) so
 // they work in Samsung Internet's dom-overlay session, where bare
-// `click` listeners are unreliable. Plain desktop buttons keep `click`.
+// `click` listeners are unreliable. Pan/zoom buttons use bindPointerDown
+// so they fire the instant the finger touches. Plain desktop buttons
+// keep `click`.
 bindTap(document.getElementById('panelClose'), hidePanel);
 bindTap(document.getElementById('panelFly'), () => {
   if (!activeMarker) return;
@@ -1244,11 +1275,11 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 bindTap(document.getElementById('xrExitBtn'), () => endXrSession('button'));
 document.getElementById('xrLoginBtn').addEventListener('click', login);
 
-// Pan + zoom buttons — one delegated handler per group so adding more
-// buttons later is just a matter of marking them with data-act.
+// Pan + zoom buttons — fire on pointerdown so the camera starts moving
+// the instant the finger touches the button, without waiting for lift.
 for (const btn of document.querySelectorAll('#xrNav .xrNavBtn, #xrZoom .xrNavBtn')) {
   const act = btn.dataset.act;
-  bindTap(btn, () => {
+  bindPointerDown(btn, () => {
     if (act === 'pan-up')    xrPan('up');
     if (act === 'pan-down')  xrPan('down');
     if (act === 'pan-left')  xrPan('left');
@@ -1264,24 +1295,39 @@ bindTap(document.getElementById('xrFlyBtn'), () => {
   flyTo(activeMarker.lat, activeMarker.lng);
 });
 
-// Body-level tap → "select centered marker". We listen on the body so
-// that the dom-overlay layer (which only forwards taps to DOM elements)
-// gives us a reliable tap signal even when the WebGL canvas is starved
-// of pointer events. Taps on any interactive overlay are ignored via
-// closest() so the buttons keep their own bindings.
-document.body.addEventListener('touchend', e => {
+// Body-level tap → "select centered marker". `pointerup` is the most
+// reliable signal in Samsung Internet's dom-overlay; we fall back to
+// `click` for desktop WebXR emulators that proxy headset taps as mouse
+// clicks. Taps on any interactive overlay are ignored via closest() so
+// the buttons keep their own bindings.
+document.body.addEventListener('pointerup', e => {
   if (!xrSession) return;
   if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
   e.preventDefault();
   selectCenterMarker();
 }, { passive: false });
-// Mouse fallback for desktop emulation in browsers' WebXR DevTools that
-// proxy headset taps as mouse clicks on the page.
 document.body.addEventListener('click', e => {
   if (!xrSession) return;
   if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
   selectCenterMarker();
 });
+
+// Diagnostic counter — increments on every overlay-level pointer/touch/
+// click event so we can confirm Samsung Internet is delivering input to
+// the dom-overlay layer at all. Capture phase so it sees events even
+// when child handlers stopPropagation. Visible only while body.xr-active.
+let xrTapCount = 0;
+function bumpXrTapCounter(type, target) {
+  xrTapCount++;
+  const el = document.getElementById('xrTapCounter');
+  if (!el) return;
+  const tag = (target && target.id) ? `#${target.id}` :
+              (target && target.tagName) ? target.tagName.toLowerCase() : '?';
+  el.textContent = `Taps: ${xrTapCount} · ${type} · ${tag}`;
+}
+for (const t of ['pointerdown','pointerup','touchstart','touchend','click']) {
+  document.body.addEventListener(t, e => bumpXrTapCounter(t, e.target), { capture: true, passive: true });
+}
 document.getElementById('xrPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 document.getElementById('xrDebugHide').addEventListener('click', () => {
   document.getElementById('xrDebug').style.display = 'none';

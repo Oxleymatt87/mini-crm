@@ -133,6 +133,13 @@
   #flyHud{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:6;background:rgba(0,0,0,0.78);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:10px 16px;display:none;text-align:center;min-width:220px;backdrop-filter:blur(6px)}
   #flyHud .stop{font-size:12px;color:#fbbf24;margin-bottom:2px;letter-spacing:0.5px;text-transform:uppercase}
   #flyHud .name{font-size:15px;color:#fff;font-weight:700}
+
+  /* PWA install prompt — visible only after the browser fires
+     beforeinstallprompt and only while the page is running in a normal
+     tab (display-mode: browser). Disappears once installed. */
+  #installBtn{background:#22c55e;color:#0a0c0f;border:none;border-radius:10px;padding:8px 12px;font-weight:800;font-size:13px;cursor:pointer;letter-spacing:0.4px;display:none;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+  #installBtn.show{display:inline-block}
+  body.xr-active #installBtn{display:none!important}
 </style>
 </head>
 <body>
@@ -143,6 +150,7 @@
   <a id="backLink" href="map.html">&larr; Map</a>
   <span id="title">TERRITORY XR</span>
   <span id="status">Initializing&hellip;</span>
+  <button id="installBtn" type="button" aria-label="Install Territory XR app">Install app</button>
 </div>
 
 <div id="legend">
@@ -224,6 +232,123 @@
 <div id="xrTapCounter" aria-live="polite">Taps: 0</div>
 
 <div id="toast"></div>
+
+<script>
+// PWA bootstrap — runs synchronously, before the import-map module, so
+// the service worker is registered as early as possible (Galaxy XR /
+// Samsung Internet only treats the page as installable once a SW is
+// active and the manifest is loaded). All work here is best-effort:
+// failures fall through silently so they never block the AR experience.
+(function () {
+  // Service-worker registration. Scope '/' lets it cover map.html and
+  // index.html too, so navigations between the CRM pages stay offline.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(reg => {
+          // Try to push out updates immediately on next visit.
+          if (reg && reg.waiting) reg.waiting.postMessage('skip-waiting');
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (sw) sw.addEventListener('statechange', () => {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                sw.postMessage && sw.postMessage('skip-waiting');
+              }
+            });
+          });
+        })
+        .catch(err => console.warn('[XR] SW registration failed', err));
+    });
+  }
+
+  // Capture the install prompt event so we can show our own button. The
+  // browser only fires this when the page meets installability criteria
+  // (HTTPS + manifest + SW + icons).
+  let deferredInstall = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstall = e;
+    const btn = document.getElementById('installBtn');
+    if (btn && !window.matchMedia('(display-mode: standalone)').matches
+            && !window.matchMedia('(display-mode: fullscreen)').matches) {
+      btn.classList.add('show');
+    }
+  });
+  window.addEventListener('appinstalled', () => {
+    const btn = document.getElementById('installBtn');
+    if (btn) btn.classList.remove('show');
+    deferredInstall = null;
+  });
+  // Wire the button via DOMContentLoaded so it works even if the import-
+  // map module errors out for unrelated reasons.
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('installBtn');
+    if (!btn) return;
+    btn.addEventListener('pointerup', async (e) => {
+      e.preventDefault();
+      if (!deferredInstall) return;
+      deferredInstall.prompt();
+      try { await deferredInstall.userChoice; } catch (_) {}
+      deferredInstall = null;
+      btn.classList.remove('show');
+    });
+  });
+
+  // Request all XR-adjacent permissions on load rather than waiting for
+  // the Enter-AR button tap. On Samsung Internet for Galaxy XR this
+  // surfaces the system permission sheet up front so the actual session
+  // start has nothing left to prompt. Each call is wrapped because most
+  // browsers gate one or more of these on a user gesture; failures here
+  // are expected on bare load and we just retry implicitly when the
+  // user taps Enter AR.
+  async function requestXrPermissionsEarly() {
+    // Permissions API best-effort probe. Doesn't prompt, but warms up
+    // the permission state and surfaces denials early in the debug log.
+    if (navigator.permissions && navigator.permissions.query) {
+      const names = ['xr', 'camera', 'microphone', 'accelerometer',
+                     'gyroscope', 'magnetometer'];
+      for (const name of names) {
+        try {
+          const p = await navigator.permissions.query({ name });
+          console.log(`[XR perms] ${name}: ${p.state}`);
+        } catch (_) { /* unsupported names throw — fine */ }
+      }
+    }
+    // iOS-style motion/orientation prompt — the only way to get sensor
+    // access on iOS Safari and some Samsung builds. Must run inside a
+    // user-gesture handler on iOS, but on Galaxy XR's Samsung Internet
+    // it can run on load.
+    for (const Ev of [window.DeviceMotionEvent, window.DeviceOrientationEvent]) {
+      try {
+        if (Ev && typeof Ev.requestPermission === 'function') {
+          await Ev.requestPermission();
+        }
+      } catch (_) {}
+    }
+    // Camera grant — required for AR passthrough on most Android XR
+    // browsers. We start the stream then immediately stop it; we only
+    // care about the permission grant, not the frames.
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+        stream.getTracks().forEach(t => t.stop());
+      }
+    } catch (err) {
+      console.warn('[XR perms] camera not granted on load', err && err.name);
+    }
+  }
+  // Kick this off as soon as the document is interactive so it overlaps
+  // the Three.js boot.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', requestXrPermissionsEarly, { once: true });
+  } else {
+    requestXrPermissionsEarly();
+  }
+})();
+</script>
 
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>

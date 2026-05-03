@@ -22,6 +22,20 @@
           { "key": "Permissions-Policy", "value": "xr-spatial-tracking=(self), camera=(self), microphone=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self), fullscreen=(self)" },
           { "key": "Feature-Policy", "value": "xr-spatial-tracking 'self'; vr 'self'; camera 'self'; microphone 'self'" }
         ]
+      },
+      {
+        "source": "/sw.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+          { "key": "Service-Worker-Allowed", "value": "/" }
+        ]
+      },
+      {
+        "source": "/manifest.json",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=300" },
+          { "key": "Content-Type", "value": "application/manifest+json" }
+        ]
       }
     ]
   },

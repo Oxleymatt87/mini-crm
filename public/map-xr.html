@@ -78,6 +78,46 @@
   @keyframes xrExitPulse{0%,100%{box-shadow:0 0 0 2px rgba(220,38,38,0.35),0 10px 30px rgba(220,38,38,0.55),0 0 24px rgba(255,68,68,0.55)}50%{box-shadow:0 0 0 4px rgba(220,38,38,0.55),0 10px 36px rgba(220,38,38,0.7),0 0 36px rgba(255,68,68,0.85)}}
   #xrExitBtn.show{animation:xrExitPulse 1.6s ease-in-out infinite}
 
+  /* XR-only DOM controls. Hidden by default; revealed only while a
+     session is active by toggling body.xr-active. Buttons use touch-action
+     none + bindTap so Samsung Internet on Galaxy XR (which often skips
+     the synthesized click in dom-overlay mode) still fires reliably. */
+  body:not(.xr-active) .xrCtl{display:none!important}
+
+  /* Center crosshair — purely visual; pointer events pass through so a
+     screen tap goes to the underlying tap zone, not the crosshair. */
+  #xrCrosshair{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:96px;height:96px;z-index:99;pointer-events:none}
+  #xrCrosshair .ring{position:absolute;inset:24px;border:3px solid rgba(212,161,42,0.95);border-radius:50%;box-shadow:0 0 14px rgba(0,0,0,0.7),inset 0 0 8px rgba(0,0,0,0.5)}
+  #xrCrosshair .vline,#xrCrosshair .hline{position:absolute;left:50%;top:50%;background:#d4a12a;border-radius:2px;box-shadow:0 0 8px rgba(0,0,0,0.85)}
+  #xrCrosshair .vline{width:3px;height:36px;transform:translate(-50%,-50%)}
+  #xrCrosshair .hline{width:36px;height:3px;transform:translate(-50%,-50%)}
+  #xrCrosshair .dot{position:absolute;left:50%;top:50%;width:6px;height:6px;background:#fff5e0;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 6px rgba(0,0,0,0.9)}
+
+  /* Nav D-pad lower-left, zoom column lower-right. Sized so the buttons
+     are easily hit with a thumb through a passthrough camera feed. */
+  #xrNav{position:fixed;left:max(14px,env(safe-area-inset-left,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:grid;grid-template-columns:repeat(3,76px);grid-template-rows:repeat(3,76px);gap:6px}
+  #xrZoom{position:fixed;right:max(14px,env(safe-area-inset-right,14px));bottom:max(14px,env(safe-area-inset-bottom,14px));z-index:99;display:flex;flex-direction:column;gap:8px}
+  .xrNavBtn{appearance:none;background:rgba(20,22,30,0.85);color:#fff;border:2px solid rgba(255,255,255,0.28);border-radius:14px;font-weight:900;font-size:30px;line-height:1;padding:0;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(6px);box-shadow:0 6px 20px rgba(0,0,0,0.5);touch-action:manipulation;width:76px;height:76px;display:flex;align-items:center;justify-content:center}
+  .xrNavBtn:active{transform:scale(0.93);background:rgba(212,161,42,0.92);color:#0a0c0f;border-color:#fff}
+  .xrNavBtn[data-pos="up"]{grid-column:2;grid-row:1}
+  .xrNavBtn[data-pos="left"]{grid-column:1;grid-row:2}
+  .xrNavBtn[data-pos="right"]{grid-column:3;grid-row:2}
+  .xrNavBtn[data-pos="down"]{grid-column:2;grid-row:3}
+
+  /* Standalone Fly button — bottom-center, only visible while a marker
+     is selected. Lets the user fly without re-opening the detail panel. */
+  #xrFlyBtn{position:fixed;left:50%;bottom:max(28px,env(safe-area-inset-bottom,28px));transform:translateX(-50%);z-index:99;display:none;background:#d4a12a;color:#0a0c0f;border:none;border-radius:14px;padding:14px 28px;font-weight:900;font-size:16px;letter-spacing:1px;font-family:inherit;cursor:pointer;box-shadow:0 8px 30px rgba(212,161,42,0.55);text-transform:uppercase;touch-action:manipulation;-webkit-tap-highlight-color:transparent;max-width:80vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #xrFlyBtn.show{display:block}
+  #xrFlyBtn:active{transform:translateX(-50%) scale(0.96)}
+
+  /* While in XR, hide screen-mode chrome that would just cover the AR
+     view (the desktop top bar / ctrl bar). Panel + exit + nav stay. */
+  body.xr-active #ctrlBar,
+  body.xr-active #legend,
+  body.xr-active #topBar,
+  body.xr-active #xrDebug,
+  body.xr-active #xrDebugToggle{display:none!important}
+
   #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,17,24,0.95);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;z-index:40;display:none}
   #toast.show{display:block;animation:fadeIn .2s ease}
   @keyframes fadeIn{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -151,6 +191,27 @@
 </div>
 
 <button id="xrExitBtn" type="button" aria-label="Exit XR session">EXIT XR</button>
+
+<div id="xrCrosshair" class="xrCtl" aria-hidden="true">
+  <div class="ring"></div>
+  <div class="hline"></div>
+  <div class="vline"></div>
+  <div class="dot"></div>
+</div>
+
+<div id="xrNav" class="xrCtl" role="group" aria-label="Pan camera">
+  <button class="xrNavBtn" type="button" data-pos="up"    data-act="pan-up"    aria-label="Pan forward">&#9650;</button>
+  <button class="xrNavBtn" type="button" data-pos="left"  data-act="pan-left"  aria-label="Pan left">&#9664;</button>
+  <button class="xrNavBtn" type="button" data-pos="right" data-act="pan-right" aria-label="Pan right">&#9654;</button>
+  <button class="xrNavBtn" type="button" data-pos="down"  data-act="pan-down"  aria-label="Pan back">&#9660;</button>
+</div>
+
+<div id="xrZoom" class="xrCtl" role="group" aria-label="Zoom">
+  <button class="xrNavBtn" type="button" data-act="zoom-in"  aria-label="Zoom in (descend)">+</button>
+  <button class="xrNavBtn" type="button" data-act="zoom-out" aria-label="Zoom out (ascend)">&minus;</button>
+</div>
+
+<button id="xrFlyBtn" class="xrCtl" type="button" aria-label="Fly to selected marker">FLY TO PIN</button>
 
 <div id="toast"></div>
 
@@ -535,8 +596,20 @@ function showPanel(loc) {
   const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}&travelmode=driving`;
   document.getElementById('panelNav').href = navUrl;
   document.getElementById('panel').classList.add('show');
+  // Surface the standalone Fly button while a pin is selected so the
+  // user can fly without re-opening the (closeable) detail panel.
+  const flyBtn = document.getElementById('xrFlyBtn');
+  if (flyBtn) {
+    flyBtn.textContent = `FLY TO ${(loc.name || 'PIN').toUpperCase().slice(0, 24)}`;
+    flyBtn.classList.add('show');
+  }
 }
-function hidePanel() { document.getElementById('panel').classList.remove('show'); activeMarker = null; }
+function hidePanel() {
+  document.getElementById('panel').classList.remove('show');
+  activeMarker = null;
+  const flyBtn = document.getElementById('xrFlyBtn');
+  if (flyBtn) flyBtn.classList.remove('show');
+}
 function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 // ─── Fly-through ───────────────────────────────────────────────────────
@@ -707,9 +780,12 @@ async function enterXR() {
       dolly.add(camera);
       setupXRControllers();
       btn.textContent = mode === 'immersive-ar' ? 'Exit AR' : 'Exit VR';
-      setStatus(`In ${mode} · gaze EXIT 2s, double-tap, or button to leave`);
+      setStatus(`In ${mode} · tap pin · ◀▲▼▶ to move · +/− zoom`);
       dbgLog(`session active: ${mode}`, null);
+      document.body.classList.add('xr-active');
       document.getElementById('xrExitBtn').classList.add('show');
+      // Fly button visibility tracks activeMarker; re-evaluate at start.
+      document.getElementById('xrFlyBtn').classList.toggle('show', !!activeMarker);
       session.addEventListener('end', () => {
         xrSession = null;
         xrExitDwell = 0;
@@ -720,7 +796,9 @@ async function enterXR() {
         setStatus(`Exited ${mode}`);
         btn.textContent = mode === 'immersive-ar' ? 'Enter AR' : 'Enter VR';
         removeXRControllers();
+        document.body.classList.remove('xr-active');
         document.getElementById('xrExitBtn').classList.remove('show');
+        document.getElementById('xrFlyBtn').classList.remove('show');
         dbgLog('session ended');
       });
       return;
@@ -744,6 +822,94 @@ function endXrSession(reason) {
   xrExitPending = true;
   dbgLog(`exit requested: ${reason}`);
   try { xrSession.end(); } catch (e) { dbgLog('session.end() threw', e); xrExitPending = false; }
+}
+
+// Touch-first tap binding. Samsung Internet's XR browser does not
+// reliably synthesize a `click` from a screen tap inside a dom-overlay
+// session, so we listen for `touchend` first and use `click` only as a
+// desktop / non-touch fallback. preventDefault() on touchend suppresses
+// the late synthesized click, and a 700 ms dedupe guards against the
+// rare case where both still fire.
+function bindTap(el, fn) {
+  if (!el) return;
+  let lastTouchT = 0;
+  el.addEventListener('touchend', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    lastTouchT = performance.now();
+    fn(e);
+  }, { passive: false });
+  el.addEventListener('touchstart', e => {
+    e.stopPropagation();
+  }, { passive: true });
+  el.addEventListener('click', e => {
+    if (performance.now() - lastTouchT < 700) return;
+    fn(e);
+  });
+}
+
+// Raycast straight forward from the current (XR or desktop) camera and
+// open the detail panel for whatever marker is centered. Used both by
+// the body tap handler in XR and by direct invocation.
+function selectCenterMarker() {
+  const cam = (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera);
+  raycaster.ray.origin.setFromMatrixPosition(cam.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).transformDirection(cam.matrixWorld);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (hit && hit.object.userData.loc) {
+    showPanel(hit.object.userData.loc);
+    return true;
+  }
+  toast('No pin centered — aim crosshair at a marker');
+  return false;
+}
+
+// Smoothly translate the dolly by a world-space delta. We animate over
+// ~350 ms so the user gets motion parallax (helps avoid disorientation
+// in passthrough AR) instead of teleporting.
+function animateDolly(delta) {
+  const start = dolly.position.clone();
+  const end = start.clone().add(delta);
+  const t0 = performance.now();
+  const dur = 350;
+  function step() {
+    const k = Math.min(1, (performance.now() - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    dolly.position.lerpVectors(start, end, e);
+    if (k < 1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+// Pan the dolly horizontally relative to the user's current heading.
+// Step scales with altitude so taps feel proportional whether the user
+// is at 200 m or 5 km up.
+function xrPan(dir) {
+  if (!renderer.xr.isPresenting) return;
+  const cam = renderer.xr.getCamera();
+  const fwd = new THREE.Vector3();
+  fwd.setFromMatrixColumn(cam.matrixWorld, 2).negate();
+  fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+  fwd.normalize();
+  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+  const step = Math.max(150, dolly.position.y * 0.25);
+  const v = new THREE.Vector3();
+  if (dir === 'up')    v.copy(fwd).multiplyScalar(step);
+  if (dir === 'down')  v.copy(fwd).multiplyScalar(-step);
+  if (dir === 'left')  v.copy(right).multiplyScalar(-step);
+  if (dir === 'right') v.copy(right).multiplyScalar(step);
+  animateDolly(v);
+}
+
+// Zoom by changing dolly altitude. Clamped to keep the user above the
+// virtual ground and below an absurd ceiling.
+function xrZoom(dir) {
+  if (!renderer.xr.isPresenting) return;
+  const step = Math.max(120, dolly.position.y * 0.30);
+  const dy = dir === 'in' ? -step : step;
+  const newY = Math.min(20000, Math.max(50, dolly.position.y + dy));
+  animateDolly(new THREE.Vector3(0, newY - dolly.position.y, 0));
 }
 
 // Renders the gaze reticle into a shared canvas. The outer ring is the
@@ -1059,8 +1225,11 @@ function legacyPins() {
 }
 
 // ─── Wire up UI ────────────────────────────────────────────────────────
-document.getElementById('panelClose').addEventListener('click', hidePanel);
-document.getElementById('panelFly').addEventListener('click', () => {
+// All XR-relevant buttons are bound via bindTap (touchend + click) so
+// they work in Samsung Internet's dom-overlay session, where bare
+// `click` listeners are unreliable. Plain desktop buttons keep `click`.
+bindTap(document.getElementById('panelClose'), hidePanel);
+bindTap(document.getElementById('panelFly'), () => {
   if (!activeMarker) return;
   flyTo(activeMarker.lat, activeMarker.lng);
 });
@@ -1072,8 +1241,47 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   controls.target.set(0, 0, 0);
   camera.position.set(0, 2000, 4000);
 });
-document.getElementById('xrExitBtn').addEventListener('click', () => endXrSession('button'));
+bindTap(document.getElementById('xrExitBtn'), () => endXrSession('button'));
 document.getElementById('xrLoginBtn').addEventListener('click', login);
+
+// Pan + zoom buttons — one delegated handler per group so adding more
+// buttons later is just a matter of marking them with data-act.
+for (const btn of document.querySelectorAll('#xrNav .xrNavBtn, #xrZoom .xrNavBtn')) {
+  const act = btn.dataset.act;
+  bindTap(btn, () => {
+    if (act === 'pan-up')    xrPan('up');
+    if (act === 'pan-down')  xrPan('down');
+    if (act === 'pan-left')  xrPan('left');
+    if (act === 'pan-right') xrPan('right');
+    if (act === 'zoom-in')   xrZoom('in');
+    if (act === 'zoom-out')  xrZoom('out');
+  });
+}
+
+// Standalone Fly button — flies to the currently selected marker.
+bindTap(document.getElementById('xrFlyBtn'), () => {
+  if (!activeMarker) { toast('Tap a pin first'); return; }
+  flyTo(activeMarker.lat, activeMarker.lng);
+});
+
+// Body-level tap → "select centered marker". We listen on the body so
+// that the dom-overlay layer (which only forwards taps to DOM elements)
+// gives us a reliable tap signal even when the WebGL canvas is starved
+// of pointer events. Taps on any interactive overlay are ignored via
+// closest() so the buttons keep their own bindings.
+document.body.addEventListener('touchend', e => {
+  if (!xrSession) return;
+  if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
+  e.preventDefault();
+  selectCenterMarker();
+}, { passive: false });
+// Mouse fallback for desktop emulation in browsers' WebXR DevTools that
+// proxy headset taps as mouse clicks on the page.
+document.body.addEventListener('click', e => {
+  if (!xrSession) return;
+  if (e.target.closest('button, a, input, #panel, #login, .xrCtl')) return;
+  selectCenterMarker();
+});
 document.getElementById('xrPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 document.getElementById('xrDebugHide').addEventListener('click', () => {
   document.getElementById('xrDebug').style.display = 'none';

@@ -14,8 +14,12 @@
 
   <!-- Login Screen -->
   <div id="login-screen" style="display:none">
-    <div style="max-width:360px;margin:80px auto;padding:24px">
-      <h1 style="text-align:center;color:var(--gold);margin-bottom:24px">Oxley Tire CRM</h1>
+    <div style="max-width:380px;margin:80px auto;padding:24px">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:24px">
+        <div aria-hidden="true" style="width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#f3c64b,#d4a12a 55%,#a67e1e);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:30px;color:#1a1305;letter-spacing:.02em;box-shadow:0 10px 30px rgba(212,161,42,.35),inset 0 1px 0 rgba(255,255,255,.3)">O</div>
+        <h1 style="text-align:center;margin:0">Oxley Tire CRM</h1>
+        <p style="font-size:.78rem;color:var(--text-2);letter-spacing:.12em;text-transform:uppercase;margin:0">Inventory · Orders · Field Ops</p>
+      </div>
       <div class="card">
         <div class="form-group">
           <label>Email</label>
@@ -50,22 +54,47 @@
 
     <!-- DASHBOARD TAB -->
     <div class="tab-content active" id="tab-dashboard">
+      <!-- Shared SVG defs for KPI sparkline gradient -->
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <defs>
+          <linearGradient id="kpiFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#d4a12a" stop-opacity=".55"/>
+            <stop offset="100%" stop-color="#d4a12a" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+      </svg>
       <div class="card-grid">
         <div class="card">
           <div class="card-title">Total SKUs</div>
           <div class="card-value" id="stat-skus">--</div>
+          <svg class="kpi-spark" viewBox="0 0 84 32" preserveAspectRatio="none">
+            <path class="kpi-fill" d="M0,24 L8,20 L18,22 L28,14 L40,16 L52,8 L64,12 L74,6 L84,9 L84,32 L0,32 Z"/>
+            <path d="M0,24 L8,20 L18,22 L28,14 L40,16 L52,8 L64,12 L74,6 L84,9"/>
+          </svg>
         </div>
         <div class="card">
           <div class="card-title">Total Units</div>
           <div class="card-value" id="stat-units">--</div>
+          <svg class="kpi-spark" viewBox="0 0 84 32" preserveAspectRatio="none">
+            <path class="kpi-fill" d="M0,18 L10,22 L22,14 L34,18 L46,10 L58,14 L70,7 L84,11 L84,32 L0,32 Z"/>
+            <path d="M0,18 L10,22 L22,14 L34,18 L46,10 L58,14 L70,7 L84,11"/>
+          </svg>
         </div>
         <div class="card">
           <div class="card-title">Inventory Value</div>
           <div class="card-value" id="stat-value">--</div>
+          <svg class="kpi-spark" viewBox="0 0 84 32" preserveAspectRatio="none">
+            <path class="kpi-fill" d="M0,26 L12,22 L24,24 L36,16 L48,18 L60,10 L72,12 L84,5 L84,32 L0,32 Z"/>
+            <path d="M0,26 L12,22 L24,24 L36,16 L48,18 L60,10 L72,12 L84,5"/>
+          </svg>
         </div>
         <div class="card">
           <div class="card-title">Customers</div>
           <div class="card-value" id="stat-customers">--</div>
+          <svg class="kpi-spark" viewBox="0 0 84 32" preserveAspectRatio="none">
+            <path class="kpi-fill" d="M0,20 L12,18 L24,20 L36,14 L48,16 L60,10 L72,12 L84,7 L84,32 L0,32 Z"/>
+            <path d="M0,20 L12,18 L24,20 L36,14 L48,16 L60,10 L72,12 L84,7"/>
+          </svg>
         </div>
       </div>
       <div class="card">

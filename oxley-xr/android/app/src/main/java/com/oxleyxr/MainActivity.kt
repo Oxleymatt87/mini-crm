@@ -1,5 +1,6 @@
 package com.oxleyxr
 
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -12,6 +13,15 @@ class MainActivity : ReactActivity() {
    * rendering of the component.
    */
   override fun getMainComponentName(): String = "OxleyXR"
+
+  /**
+   * react-native-screens needs us to pass null instead of savedInstanceState
+   * so fragment state isn't restored — otherwise the bottom-tab navigator's
+   * fragments come back wired to stale React views and render blank.
+   */
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(null)
+  }
 
   /**
    * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]

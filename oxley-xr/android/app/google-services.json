@@ -1,18 +1,17 @@
 {
-  "_comment": "PLACEHOLDER. Replace with the real google-services.json from Firebase console for the com.oxleyxr Android app. The google-services Gradle plugin will fail at build time until this is replaced.",
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "REPLACE-ME",
-    "storage_bucket": "REPLACE-ME.appspot.com"
+    "project_number": "162750059985",
+    "project_id": "inventory-setup-b3f20",
+    "storage_bucket": "inventory-setup-b3f20.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "1:162750059985:android:bbe5328412c7ef49893cf0",
         "android_client_info": { "package_name": "com.oxleyxr" }
       },
       "oauth_client": [],
-      "api_key": [{ "current_key": "REPLACE-ME" }],
+      "api_key": [{ "current_key": "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E" }],
       "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
     }
   ],

@@ -2,9 +2,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Android XR (Samsung Galaxy XR). Required = device must support immersive XR. -->
-    <uses-feature android:name="android.software.xr.immersive" android:required="true" />
-    <uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />
+    <!-- Android XR (Samsung Galaxy XR). The app runs as a 2D panel in the
+         user's home space — WebViews can still hand off to immersive XR via
+         the WebXR Enter AR button. -->
+    <uses-feature android:name="android.software.xr.immersive" android:required="false" />
+    <uses-feature android:name="android.hardware.vr.headtracking" android:required="false" android:version="1" />
 
     <application
       android:name=".MainApplication"
@@ -16,10 +18,12 @@
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
 
-      <!-- Marks this app as an Android XR experience. -->
+      <!-- Launch as a regular 2D Android panel in the XR home space, not an
+           immersive full-space XR session. The actual XR experience lives
+           inside the Map WebView and is initiated by user gesture. -->
       <property
         android:name="android.window.PROPERTY_XR_ACTIVITY_START_MODE"
-        android:value="XR_ACTIVITY_START_MODE_FULL_SPACE_MANAGED" />
+        android:value="XR_ACTIVITY_START_MODE_HOME_SPACE_MANAGED" />
 
       <meta-data
         android:name="com.google.android.geo.API_KEY"
@@ -35,7 +39,6 @@
         <intent-filter>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
-            <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
         </intent-filter>
       </activity>
     </application>

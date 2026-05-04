@@ -519,7 +519,7 @@ function ecefToLocal(ecef) {
 function initThree() {
   const app = document.getElementById('app');
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -529,8 +529,8 @@ function initThree() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x06070b);
-  // Subtle exponential fog so far tiles fade rather than pop.
-  scene.fog = new THREE.Fog(0x06070b, 30000, 120000);
+  // Atmospheric haze: exponential fog with horizon-blue tint.
+  scene.fog = new THREE.FogExp2(0x1a2535, 0.000007);
 
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 5, 400000);
   // Start ~2km up, ~4km south of Beaumont center, looking at downtown
@@ -635,7 +635,7 @@ function initTiles() {
 
   scene.add(tiles.group);
 
-  tiles.errorTarget = 24;
+  tiles.errorTarget = 40;  // higher = fewer tiles = faster; adaptive in tick()
   tiles.maxDepth = Infinity;
   tiles.addEventListener('load-tile-set', () => setStatus('Tiles loaded'));
   tiles.addEventListener('tiles-load-error', e => {
@@ -651,93 +651,137 @@ function addAttribution() {
   document.body.appendChild(a);
 }
 
-// ─── Markers ───────────────────────────────────────────────────────────
+// ─── Canvas sprite markers ─────────────────────────────────────────────
+const TYPE_EMOJI = {
+  whale:    '🐳',
+  customer: '⭐',
+  saved:    '📍',
+  prospect: '💜',
+  cold:     '⚫',
+  wantgo:   '🔥',
+  home:     '🏠'
+};
+
+const _spriteCache = new Map();
+function makeMarkerTexture(type) {
+  if (_spriteCache.has(type)) return _spriteCache.get(type);
+  const t = TYPE_COLOR[type] || DEFAULT_COLOR;
+  const emoji = TYPE_EMOJI[type] || '📍';
+  const SIZE = 192;
+  const c = document.createElement('canvas');
+  c.width = c.height = SIZE;
+  const g = c.getContext('2d');
+  const cx = SIZE / 2, cy = SIZE / 2;
+  const r = (t.hex >> 16) & 255, gr = (t.hex >> 8) & 255, b = t.hex & 255;
+
+  // Outer atmosphere glow
+  const atmos = g.createRadialGradient(cx, cy, 20, cx, cy, 90);
+  atmos.addColorStop(0,   `rgba(${r},${gr},${b},0.75)`);
+  atmos.addColorStop(0.4, `rgba(${r},${gr},${b},0.30)`);
+  atmos.addColorStop(1,   `rgba(${r},${gr},${b},0)`);
+  g.fillStyle = atmos;
+  g.fillRect(0, 0, SIZE, SIZE);
+
+  // Gold ring for high-value pins
+  if (type === 'whale' || type === 'customer') {
+    g.beginPath();
+    g.arc(cx, cy, 52, 0, Math.PI * 2);
+    g.strokeStyle = 'rgba(212,161,42,0.85)';
+    g.lineWidth = 4;
+    g.stroke();
+    // Second, fainter ring
+    g.beginPath();
+    g.arc(cx, cy, 60, 0, Math.PI * 2);
+    g.strokeStyle = 'rgba(212,161,42,0.30)';
+    g.lineWidth = 2;
+    g.stroke();
+  }
+
+  // Solid disc
+  g.beginPath();
+  g.arc(cx, cy, 36, 0, Math.PI * 2);
+  g.fillStyle = `rgb(${r},${gr},${b})`;
+  g.fill();
+  // White border
+  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.lineWidth = 3.5;
+  g.stroke();
+
+  // Emoji
+  g.font = `${type === 'whale' ? 30 : 26}px serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(emoji, cx, cy + 1);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _spriteCache.set(type, tex);
+  return tex;
+}
+
 function makeMarker(loc) {
   const t = TYPE_COLOR[loc.type] || DEFAULT_COLOR;
   const grp = new THREE.Group();
   grp.userData.loc = loc;
-  grp.userData.type = loc.type;
 
-  // Vertical stalk so the marker hovers ~120 m above ground and is visible.
   const stalkH = (loc.type === 'whale') ? 220 : 120;
-  const stalkGeo = new THREE.CylinderGeometry(2, 2, stalkH, 6);
-  const stalkMat = new THREE.MeshBasicMaterial({ color: t.hex, transparent: true, opacity: 0.55 });
+
+  // Thin emissive stalk — cheaper than MeshStandardMaterial
+  const stalkGeo = new THREE.CylinderGeometry(1.5, 1.5, stalkH, 5);
+  const stalkMat = new THREE.MeshBasicMaterial({ color: t.hex, transparent: true, opacity: 0.5 });
   const stalk = new THREE.Mesh(stalkGeo, stalkMat);
   stalk.position.y = stalkH / 2;
+  stalk.frustumCulled = true;
   grp.add(stalk);
 
-  // Floating glowing sphere head.
-  const headR = (loc.type === 'whale') ? 60 : 32;
-  const headGeo = new THREE.SphereGeometry(headR, 20, 16);
-  const headMat = new THREE.MeshStandardMaterial({
-    color: t.hex,
-    emissive: t.hex,
-    emissiveIntensity: 0.85,
-    roughness: 0.35,
-    metalness: 0.15
-  });
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = stalkH;
-  head.userData.pickable = true;
-  head.userData.loc = loc;
-  head.userData.parentGroup = grp;
-  grp.add(head);
-  pickables.push(head);
-
-  // Soft halo billboard for visibility from far away.
-  const haloMat = new THREE.SpriteMaterial({
-    map: makeHaloTexture(t.hex),
-    color: 0xffffff,
+  // Canvas sprite head — single draw call, always faces camera
+  const spriteMat = new THREE.SpriteMaterial({
+    map: makeMarkerTexture(loc.type || 'prospect'),
     transparent: true,
-    opacity: 0.85,
-    depthWrite: false
+    depthWrite: false,
+    sizeAttenuation: true
   });
-  const halo = new THREE.Sprite(haloMat);
-  halo.scale.set(headR * 5, headR * 5, 1);
-  halo.position.y = stalkH;
-  grp.add(halo);
+  const sprite = new THREE.Sprite(spriteMat);
+  const sz = (loc.type === 'whale') ? 130 : 80;
+  sprite.scale.set(sz, sz, 1);
+  sprite.userData._baseScale = sz;
+  sprite.position.y = stalkH;
+  sprite.userData.pickable = true;
+  sprite.userData.loc = loc;
+  sprite.userData.parentGroup = grp;
+  grp.add(sprite);
+  pickables.push(sprite);
 
-  // Position the whole group at the lat/lng. Ground altitude is unknown
-  // without sampling tiles, so we anchor at sea level and rely on the
-  // stalk height to push the head above terrain (Liberty TX is ~5–60m).
   const ecef = latLngToECEF(loc.lat, loc.lng, 0);
   const local = ecefToLocal(ecef);
   grp.position.copy(local);
-  // Orient stalk along local up. Local up at (lat,lng) differs slightly
-  // from world +Y when the point is offset from CENTER, but for an 80km
-  // radius the deviation is < 0.7° — negligible for a floating pin.
   return grp;
 }
 
-const _haloCache = new Map();
-function makeHaloTexture(hex) {
-  if (_haloCache.has(hex)) return _haloCache.get(hex);
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 60);
-  const r = (hex >> 16) & 255, gg = (hex >> 8) & 255, b = hex & 255;
-  grd.addColorStop(0,    `rgba(${r},${gg},${b},0.95)`);
-  grd.addColorStop(0.35, `rgba(${r},${gg},${b},0.45)`);
-  grd.addColorStop(1,    `rgba(${r},${gg},${b},0)`);
-  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  _haloCache.set(hex, tex);
-  return tex;
-}
-
+// Max 100 markers, prioritised by type value
 function rebuildMarkers() {
-  while (markersGroup.children.length) markersGroup.remove(markersGroup.children[0]);
-  pickables = [];
-  let added = 0;
-  for (const c of allCustomers) {
-    if (typeof c.lat !== 'number' || typeof c.lng !== 'number') continue;
-    if (Math.abs(c.lat - CENTER_LAT) > 4 || Math.abs(c.lng - CENTER_LNG) > 4) continue;
-    markersGroup.add(makeMarker(c));
-    added++;
+  // Dispose old marker geometry/materials before clearing
+  for (const grp of markersGroup.children) {
+    grp.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
+        else o.material.dispose();
+      }
+    });
   }
-  setStatus(`${added} pins · ${xrSupported ? 'XR ready' : 'desktop'}`);
+  markersGroup.clear();
+  pickables = [];
+
+  const PRI = { whale: 0, customer: 1, saved: 2, prospect: 3, wantgo: 3, home: 4, cold: 5 };
+  const visible = allCustomers
+    .filter(c => typeof c.lat === 'number' && typeof c.lng === 'number')
+    .filter(c => Math.abs(c.lat - CENTER_LAT) <= 4 && Math.abs(c.lng - CENTER_LNG) <= 4)
+    .sort((a, b) => (PRI[a.type] ?? 6) - (PRI[b.type] ?? 6))
+    .slice(0, 100);
+
+  for (const c of visible) markersGroup.add(makeMarker(c));
+  setStatus(`${visible.length} pins · ${xrSupported ? 'XR ready' : 'desktop'}`);
 }
 
 // ─── Picking + detail panel ────────────────────────────────────────────
@@ -1572,12 +1616,14 @@ function updateXRGazePick(dt) {
     const hit = raycaster.intersectObjects(pickables, false)[0];
     if (hit) {
       if (hoverMarker !== hit.object) {
-        if (hoverMarker) hoverMarker.scale.set(1, 1, 1);
+        if (hoverMarker) { const bs = hoverMarker.userData._baseScale || 1; hoverMarker.scale.set(bs, bs, 1); }
         hoverMarker = hit.object;
-        hoverMarker.scale.set(1.4, 1.4, 1.4);
+        const hs = (hoverMarker.userData._baseScale || 1) * 1.4;
+        hoverMarker.scale.set(hs, hs, 1);
       }
     } else if (hoverMarker) {
-      hoverMarker.scale.set(1, 1, 1);
+      const bs = hoverMarker.userData._baseScale || 1;
+      hoverMarker.scale.set(bs, bs, 1);
       hoverMarker = null;
     }
   } else if (hoverMarker) {
@@ -1604,10 +1650,106 @@ function updateXRGazePick(dt) {
   }
 }
 
+// ─── Atmosphere (sky dome + sun sprite) ───────────────────────────────
+function initAtmosphere() {
+  // Sky dome — inward-facing sphere with vertical gradient texture.
+  const skyGeo = new THREE.SphereGeometry(VIEW_RADIUS_M * 0.92, 32, 16);
+  const skyCv = document.createElement('canvas');
+  skyCv.width = 4; skyCv.height = 256;
+  const skyCtx = skyCv.getContext('2d');
+  const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+  skyGrad.addColorStop(0,    '#08101e'); // deep-night zenith
+  skyGrad.addColorStop(0.35, '#0c1826');
+  skyGrad.addColorStop(0.70, '#162032');
+  skyGrad.addColorStop(0.88, '#253448'); // atmospheric haze band
+  skyGrad.addColorStop(1,    '#2e3f55'); // warm horizon
+  skyCtx.fillStyle = skyGrad;
+  skyCtx.fillRect(0, 0, 4, 256);
+  const skyTex = new THREE.CanvasTexture(skyCv);
+  const skyMat = new THREE.MeshBasicMaterial({
+    map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false
+  });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  sky.renderOrder = -100;
+  scene.add(sky);
+
+  // Sun billboard — warm Texas midday position (SSW, high angle).
+  const sunCv = document.createElement('canvas');
+  sunCv.width = sunCv.height = 256;
+  const sCtx = sunCv.getContext('2d');
+  const sunGrd = sCtx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  sunGrd.addColorStop(0,    'rgba(255,235,170,1)');
+  sunGrd.addColorStop(0.06, 'rgba(255,210,120,0.95)');
+  sunGrd.addColorStop(0.22, 'rgba(255,175,60,0.45)');
+  sunGrd.addColorStop(0.55, 'rgba(255,130,30,0.15)');
+  sunGrd.addColorStop(1,    'rgba(255,90,10,0)');
+  sCtx.fillStyle = sunGrd;
+  sCtx.fillRect(0, 0, 256, 256);
+  const sunTex = new THREE.CanvasTexture(sunCv);
+  const sunMat = new THREE.SpriteMaterial({
+    map: sunTex, transparent: true, depthWrite: false, fog: false
+  });
+  const sunSprite = new THREE.Sprite(sunMat);
+  const sd = VIEW_RADIUS_M * 0.78;
+  sunSprite.position.set(-sd * 0.35, sd * 0.75, -sd * 0.55);
+  sunSprite.scale.set(14000, 14000, 1);
+  scene.add(sunSprite);
+}
+
+// ─── Google Maps Static API ground tile ───────────────────────────────
+// Ground resolution at lat 30, zoom 11 ≈ 66 m/px → 1024px ≈ 68 km/side.
+const STATIC_TILE_M = 68000;
+function initStaticMapTile() {
+  const geo = new THREE.PlaneGeometry(STATIC_TILE_M, STATIC_TILE_M);
+  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${CENTER_LAT},${CENTER_LNG}&zoom=11&size=1024x1024&maptype=satellite&key=${GMAPS_KEY}`;
+  const loader = new THREE.TextureLoader();
+  const fallbackMat = new THREE.MeshBasicMaterial({ color: 0x080e14, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geo, fallbackMat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = -8; // just below sea level so 3D tiles sit on top
+  mesh.renderOrder = -50;
+  scene.add(mesh);
+
+  loader.load(url, (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mesh.material = new THREE.MeshBasicMaterial({
+      map: tex, side: THREE.DoubleSide, fog: false
+    });
+    fallbackMat.dispose();
+    setStatus('Satellite tile loaded');
+  }, undefined, (err) => {
+    console.warn('[XR] Static map tile failed', err && err.message);
+  });
+}
+
 // ─── Render loop ───────────────────────────────────────────────────────
 const clock = new THREE.Clock();
+let _frameCount = 0;
+let _lastFrameMs = performance.now();
+let _avgFrameMs  = 16.67; // EMA of frame time — drives adaptive quality
+
 function tick() {
   const dt = clock.getDelta();
+
+  // Adaptive quality: sample frame time every 90 frames (~1.5s at 60fps).
+  const now = performance.now();
+  _avgFrameMs = _avgFrameMs * 0.97 + (now - _lastFrameMs) * 0.03;
+  _lastFrameMs = now;
+  _frameCount++;
+  if (_frameCount % 90 === 0) {
+    const slow = _avgFrameMs > 24; // below ~42fps
+    // Adjust pixel ratio to claw back GPU headroom.
+    const targetDpr = slow
+      ? Math.max(1.0, renderer.getPixelRatio() - 0.25)
+      : Math.min(Math.min(window.devicePixelRatio, 1.5), renderer.getPixelRatio() + 0.125);
+    if (Math.abs(targetDpr - renderer.getPixelRatio()) > 0.1) {
+      renderer.setPixelRatio(targetDpr);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    // Relax tile error target when struggling (fewer tiles = cheaper).
+    if (tiles) tiles.errorTarget = slow ? 60 : 40;
+  }
+
   if (controls.enabled) controls.update();
   if (tiles) {
     tiles.setCamera(camera);
@@ -1615,12 +1757,18 @@ function tick() {
     camera.updateMatrixWorld();
     tiles.update();
   }
-  // Make halo sprites and stalks pulse for visibility.
-  const t = performance.now() * 0.001;
-  for (const m of pickables) {
-    const s = 1 + Math.sin(t * 2 + m.position.x * 0.0001) * 0.06;
-    if (m !== hoverMarker) m.scale.setScalar(s);
+
+  // Sprite heartbeat pulse — every other frame to save CPU.
+  if (_frameCount % 2 === 0) {
+    const t = now * 0.001;
+    for (const m of pickables) {
+      if (m === hoverMarker) continue;
+      const s = 1 + Math.sin(t * 1.8 + m.position.x * 0.0001) * 0.05;
+      m.scale.set(m.scale.x > 0 ? m.userData._baseScale * s || s : s,
+                  m.scale.y > 0 ? m.userData._baseScale * s || s : s, 1);
+    }
   }
+
   updateFly(dt);
   updateXRGazePick(dt);
   updateXRHands(dt);
@@ -1825,6 +1973,8 @@ function flyTo(lat, lng) {
 // ─── Boot ──────────────────────────────────────────────────────────────
 async function boot() {
   initThree();
+  initAtmosphere();
+  initStaticMapTile();
   initTiles();
   await initXR();
   initFirebase();

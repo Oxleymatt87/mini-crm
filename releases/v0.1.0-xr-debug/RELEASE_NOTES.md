@@ -1,22 +1,45 @@
-# OxleyXR v0.1.0 — debug build
+# OxleyXR v0.1.0 — XR build
 
-Single-arch (arm64-v8a) debug APK of the React Native 0.85 + Jetpack XR Galaxy
-XR client. Targets the Firebase project `inventory-setup-b3f20` and uses the
+Single-arch (arm64-v8a) APKs of the React Native 0.85 + Jetpack XR Galaxy XR
+client. Targets the Firebase project `inventory-setup-b3f20` and uses the
 shared Google Maps API key.
+
+Two flavors are attached. **Use the release APK for sideloading onto the
+headset** — it has the JS bundle and Hermes bytecode embedded so it boots
+fully offline with no Metro packager running. The debug APK is kept for
+faster iteration on a workstation when a Metro server *is* available.
+
+## Release (recommended for headset use)
 
 | | |
 |---|---|
-| File | `oxley-xr-v0.1.0-debug-arm64-v8a.apk` |
+| File | `oxley-xr-v0.1.0-release-arm64-v8a.apk` |
 | Package | `com.oxleyxr` |
 | versionCode / versionName | `1` / `1.0` |
 | minSdk / targetSdk | `34` / `36` |
 | ABI | `arm64-v8a` only |
-| Signed with | bundled Android debug keystore |
+| JS engine | Hermes (`libhermesvm.so` bundled, JS pre-compiled to bytecode) |
+| Embedded bundle | `assets/index.android.bundle` (~1.1 MB) — **no Metro needed** |
+| Signed with | bundled Android debug keystore (sideload-friendly) |
+| Size | ~38 MB |
+| SHA-256 | `30d232cb69dc8b99b2cc9cdb8cbeed30aabfcddf5da674456af1f2617adf808b` |
+
+Direct download:
+
+```
+https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-release-arm64-v8a.apk
+```
+
+## Debug (workstation/dev use only — needs Metro)
+
+| | |
+|---|---|
+| File | `oxley-xr-v0.1.0-debug-arm64-v8a.apk` |
 | Size | ~59 MB |
 | SHA-256 | `750412418f360a164d022ae477497f015c22fcb81942bd05e418feddddbfedea` |
+| Note | On launch, connects to a Metro packager on the host machine. Won't run on a headset that can't reach Metro. |
 
-Direct download (stable as long as the `release/v0.1.0-xr-debug` branch
-exists):
+Direct download:
 
 ```
 https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk
@@ -27,9 +50,10 @@ https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.
 > To create both in one step, on github.com go to **Releases → Draft a new
 > release**, set **Tag** = `v0.1.0-xr-debug`, **Target** = the
 > `release/v0.1.0-xr-debug` branch, paste this file's contents into the body,
-> and attach the APK. After that, the canonical tag URL will also work:
+> and attach both APKs. After that, the canonical tag URLs also work:
 >
-> `https://github.com/Oxleymatt87/mini-crm/raw/refs/tags/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk`
+> - `https://github.com/Oxleymatt87/mini-crm/raw/refs/tags/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-release-arm64-v8a.apk`
+> - `https://github.com/Oxleymatt87/mini-crm/raw/refs/tags/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk`
 
 ---
 
@@ -65,11 +89,11 @@ pkg update && pkg install android-tools wget
 
 ```sh
 cd ~/storage/downloads 2>/dev/null || cd ~
-wget https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk
+wget https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-release-arm64-v8a.apk
 
 # Verify integrity:
-sha256sum oxley-xr-v0.1.0-debug-arm64-v8a.apk
-# Expected: 750412418f360a164d022ae477497f015c22fcb81942bd05e418feddddbfedea
+sha256sum oxley-xr-v0.1.0-release-arm64-v8a.apk
+# Expected: 30d232cb69dc8b99b2cc9cdb8cbeed30aabfcddf5da674456af1f2617adf808b
 ```
 
 ### 4. Pair, connect, install
@@ -86,16 +110,15 @@ adb devices
 # expected:
 #   192.168.1.42:5555    device
 
-adb install -r oxley-xr-v0.1.0-debug-arm64-v8a.apk
+adb install -r oxley-xr-v0.1.0-release-arm64-v8a.apk
 ```
 
 If `adb install` reports `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, the package is
-already installed with a different signature (e.g. an older release-signed
-build). Uninstall first:
+already installed with a different signature. Uninstall first:
 
 ```sh
 adb uninstall com.oxleyxr
-adb install -r oxley-xr-v0.1.0-debug-arm64-v8a.apk
+adb install -r oxley-xr-v0.1.0-release-arm64-v8a.apk
 ```
 
 ### 5. Launch on the headset

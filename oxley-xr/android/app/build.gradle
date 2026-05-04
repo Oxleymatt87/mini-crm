@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -116,4 +117,11 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Jetpack XR — Samsung Galaxy XR / Android XR runtime (OpenXR-backed)
+    implementation "androidx.xr.scenecore:scenecore:${rootProject.ext.androidxXrVersion}"
+    implementation "androidx.xr.arcore:arcore:${rootProject.ext.androidxXrVersion}"
+
+    // Firebase BOM — versions of individual Firebase libs are aligned by the BOM
+    implementation platform("com.google.firebase:firebase-bom:33.5.1")
 }

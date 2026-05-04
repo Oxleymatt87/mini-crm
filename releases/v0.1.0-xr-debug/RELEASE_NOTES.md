@@ -15,11 +15,21 @@ shared Google Maps API key.
 | Size | ~59 MB |
 | SHA-256 | `750412418f360a164d022ae477497f015c22fcb81942bd05e418feddddbfedea` |
 
-Direct download:
+Direct download (stable as long as the `release/v0.1.0-xr-debug` branch
+exists):
 
 ```
-https://github.com/Oxleymatt87/mini-crm/raw/refs/tags/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk
+https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk
 ```
+
+> The matching `v0.1.0-xr-debug` git tag and a published GitHub Release have
+> not been created yet — the build sandbox cannot push tag refs (proxy 403).
+> To create both in one step, on github.com go to **Releases → Draft a new
+> release**, set **Tag** = `v0.1.0-xr-debug`, **Target** = the
+> `release/v0.1.0-xr-debug` branch, paste this file's contents into the body,
+> and attach the APK. After that, the canonical tag URL will also work:
+>
+> `https://github.com/Oxleymatt87/mini-crm/raw/refs/tags/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk`
 
 ---
 
@@ -55,7 +65,7 @@ pkg update && pkg install android-tools wget
 
 ```sh
 cd ~/storage/downloads 2>/dev/null || cd ~
-wget https://github.com/Oxleymatt87/mini-crm/raw/refs/tags/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk
+wget https://github.com/Oxleymatt87/mini-crm/raw/release/v0.1.0-xr-debug/releases/v0.1.0-xr-debug/oxley-xr-v0.1.0-debug-arm64-v8a.apk
 
 # Verify integrity:
 sha256sum oxley-xr-v0.1.0-debug-arm64-v8a.apk

@@ -427,12 +427,26 @@ let dolly; // XR locomotion rig — camera is parented to dolly during XR
 let markersGroup;
 let raycaster = new THREE.Raycaster();
 let pointer = new THREE.Vector2();
-let hoverMarker = null;
+let hoverInstanceId = -1;
 let activeMarker = null;
 let xrSupported = false;
 let flyState = null; // { stops:[], idx:0, t:0, segDur:6 }
 let allCustomers = []; // {id,name,lat,lng,type,...}
-let pickables = []; // marker meshes
+
+// Instanced marker rendering. All stalks share one InstancedMesh and
+// all heads share another (billboarded quads sampling a single atlas
+// texture), so the entire pin universe is two draw calls regardless
+// of count.
+const MAX_MARKERS = 1024;
+let stalkInstances = null;
+let headInstances = null;
+let markerLocs = [];           // i -> customer object (parallel to instances)
+let markerBaseScale = null;    // Float32Array; head size in world units
+let markerWorldX = null;       // Float32Array; cached for heartbeat phase
+let markerScaleAttr = null;    // InstancedBufferAttribute, per-frame head scale
+let markerTypeAttr = null;     // InstancedBufferAttribute, atlas tile index
+let markerCount = 0;           // active instances; <= MAX_MARKERS
+let markerAtlasTex = null;
 let xrController1, xrController2;
 let xrReticle = null;
 let xrReticleCanvas = null;
@@ -569,6 +583,7 @@ function initThree() {
 
   markersGroup = new THREE.Group();
   scene.add(markersGroup);
+  buildMarkerInstances();
 
   window.addEventListener('resize', onResize);
   // Tap-vs-drag picker: track pointerdown position and only treat the
@@ -651,7 +666,12 @@ function addAttribution() {
   document.body.appendChild(a);
 }
 
-// ─── Canvas sprite markers ─────────────────────────────────────────────
+// ─── Instanced markers ─────────────────────────────────────────────────
+// Two InstancedMeshes (stalks + billboarded heads) replace the per-pin
+// Group + Mesh + Sprite trio. Heads share one atlas texture; per-instance
+// scale and tile index ride on instanced buffer attributes consumed by a
+// custom shader. Rebuilds upload matrices/attrs in place — no allocation
+// in the hot path.
 const TYPE_EMOJI = {
   whale:    '🐳',
   customer: '⭐',
@@ -661,35 +681,32 @@ const TYPE_EMOJI = {
   wantgo:   '🔥',
   home:     '🏠'
 };
+const TYPE_LIST = ['whale', 'customer', 'saved', 'prospect', 'cold', 'wantgo', 'home'];
+const TYPE_INDEX = Object.fromEntries(TYPE_LIST.map((t, i) => [t, i]));
+const ATLAS_COLS = 4;
+const ATLAS_ROWS = 2;
+const ATLAS_TILE = 192;
 
-const _spriteCache = new Map();
-function makeMarkerTexture(type) {
-  if (_spriteCache.has(type)) return _spriteCache.get(type);
+function drawMarkerHead(g, x0, y0, type) {
   const t = TYPE_COLOR[type] || DEFAULT_COLOR;
   const emoji = TYPE_EMOJI[type] || '📍';
-  const SIZE = 192;
-  const c = document.createElement('canvas');
-  c.width = c.height = SIZE;
-  const g = c.getContext('2d');
-  const cx = SIZE / 2, cy = SIZE / 2;
+  const cx = x0 + ATLAS_TILE / 2;
+  const cy = y0 + ATLAS_TILE / 2;
   const r = (t.hex >> 16) & 255, gr = (t.hex >> 8) & 255, b = t.hex & 255;
 
-  // Outer atmosphere glow
   const atmos = g.createRadialGradient(cx, cy, 20, cx, cy, 90);
   atmos.addColorStop(0,   `rgba(${r},${gr},${b},0.75)`);
   atmos.addColorStop(0.4, `rgba(${r},${gr},${b},0.30)`);
   atmos.addColorStop(1,   `rgba(${r},${gr},${b},0)`);
   g.fillStyle = atmos;
-  g.fillRect(0, 0, SIZE, SIZE);
+  g.fillRect(x0, y0, ATLAS_TILE, ATLAS_TILE);
 
-  // Gold ring for high-value pins
   if (type === 'whale' || type === 'customer') {
     g.beginPath();
     g.arc(cx, cy, 52, 0, Math.PI * 2);
     g.strokeStyle = 'rgba(212,161,42,0.85)';
     g.lineWidth = 4;
     g.stroke();
-    // Second, fainter ring
     g.beginPath();
     g.arc(cx, cy, 60, 0, Math.PI * 2);
     g.strokeStyle = 'rgba(212,161,42,0.30)';
@@ -697,91 +714,226 @@ function makeMarkerTexture(type) {
     g.stroke();
   }
 
-  // Solid disc
   g.beginPath();
   g.arc(cx, cy, 36, 0, Math.PI * 2);
   g.fillStyle = `rgb(${r},${gr},${b})`;
   g.fill();
-  // White border
   g.strokeStyle = 'rgba(255,255,255,0.9)';
   g.lineWidth = 3.5;
   g.stroke();
 
-  // Emoji
   g.font = `${type === 'whale' ? 30 : 26}px serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText(emoji, cx, cy + 1);
+}
 
+function buildMarkerAtlas() {
+  const c = document.createElement('canvas');
+  c.width = ATLAS_COLS * ATLAS_TILE;
+  c.height = ATLAS_ROWS * ATLAS_TILE;
+  const g = c.getContext('2d');
+  for (let i = 0; i < TYPE_LIST.length; i++) {
+    const col = i % ATLAS_COLS;
+    const row = Math.floor(i / ATLAS_COLS);
+    drawMarkerHead(g, col * ATLAS_TILE, row * ATLAS_TILE, TYPE_LIST[i]);
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  _spriteCache.set(type, tex);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
   return tex;
 }
 
-function makeMarker(loc) {
-  const t = TYPE_COLOR[loc.type] || DEFAULT_COLOR;
-  const grp = new THREE.Group();
-  grp.userData.loc = loc;
+function buildMarkerInstances() {
+  markerAtlasTex = buildMarkerAtlas();
+  markerBaseScale = new Float32Array(MAX_MARKERS);
+  markerWorldX = new Float32Array(MAX_MARKERS);
+  markerScaleAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_MARKERS), 1);
+  markerScaleAttr.setUsage(THREE.DynamicDrawUsage);
+  markerTypeAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_MARKERS), 1);
 
-  const stalkH = (loc.type === 'whale') ? 220 : 120;
+  // Stalks: unit cylinder, scaled per-instance via the instance matrix.
+  const stalkGeo = new THREE.CylinderGeometry(1.5, 1.5, 1, 5);
+  const stalkMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5 });
+  stalkInstances = new THREE.InstancedMesh(stalkGeo, stalkMat, MAX_MARKERS);
+  stalkInstances.count = 0;
+  stalkInstances.frustumCulled = false;
+  stalkInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  markersGroup.add(stalkInstances);
 
-  // Thin emissive stalk — cheaper than MeshStandardMaterial
-  const stalkGeo = new THREE.CylinderGeometry(1.5, 1.5, stalkH, 5);
-  const stalkMat = new THREE.MeshBasicMaterial({ color: t.hex, transparent: true, opacity: 0.5 });
-  const stalk = new THREE.Mesh(stalkGeo, stalkMat);
-  stalk.position.y = stalkH / 2;
-  stalk.frustumCulled = true;
-  grp.add(stalk);
+  // Heads: billboarded quads, atlas-sampled. The vertex shader places the
+  // instance origin in view space and offsets the quad's local xy in
+  // screen-aligned axes, so heads always face the camera regardless of
+  // dolly orientation.
+  const headGeo = new THREE.PlaneGeometry(1, 1);
+  headGeo.setAttribute('aTypeIdx', markerTypeAttr);
+  headGeo.setAttribute('aScale', markerScaleAttr);
 
-  // Canvas sprite head — single draw call, always faces camera
-  const spriteMat = new THREE.SpriteMaterial({
-    map: makeMarkerTexture(loc.type || 'prospect'),
+  const headMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uAtlas: { value: markerAtlasTex },
+      uAtlasGrid: { value: new THREE.Vector2(ATLAS_COLS, ATLAS_ROWS) }
+    },
+    vertexShader: `
+      attribute float aTypeIdx;
+      attribute float aScale;
+      uniform vec2 uAtlasGrid;
+      varying vec2 vAtlasUv;
+      void main() {
+        vec4 origin = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        origin.xy += position.xy * aScale;
+        gl_Position = projectionMatrix * origin;
+
+        float col = mod(aTypeIdx, uAtlasGrid.x);
+        // CanvasTexture has flipY=true, so canvas-row 0 (drawn at the top)
+        // ends up at UV-row (rows-1). Flip the index here to compensate.
+        float row = (uAtlasGrid.y - 1.0) - floor(aTypeIdx / uAtlasGrid.x);
+        vAtlasUv = vec2((uv.x + col) / uAtlasGrid.x, (uv.y + row) / uAtlasGrid.y);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D uAtlas;
+      varying vec2 vAtlasUv;
+      void main() {
+        vec4 c = texture2D(uAtlas, vAtlasUv);
+        if (c.a < 0.01) discard;
+        gl_FragColor = c;
+      }
+    `,
     transparent: true,
-    depthWrite: false,
-    sizeAttenuation: true
+    depthWrite: false
   });
-  const sprite = new THREE.Sprite(spriteMat);
-  const sz = (loc.type === 'whale') ? 130 : 80;
-  sprite.scale.set(sz, sz, 1);
-  sprite.userData._baseScale = sz;
-  sprite.position.y = stalkH;
-  sprite.userData.pickable = true;
-  sprite.userData.loc = loc;
-  sprite.userData.parentGroup = grp;
-  grp.add(sprite);
-  pickables.push(sprite);
 
-  const ecef = latLngToECEF(loc.lat, loc.lng, 0);
-  const local = ecefToLocal(ecef);
-  grp.position.copy(local);
-  return grp;
+  headInstances = new THREE.InstancedMesh(headGeo, headMat, MAX_MARKERS);
+  headInstances.count = 0;
+  headInstances.frustumCulled = false;
+  headInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Render heads after stalks so the alpha glow doesn't punch a hole
+  // through the cylinder behind it.
+  headInstances.renderOrder = 1;
+  installHeadRaycast(headInstances);
+  markersGroup.add(headInstances);
 }
 
-// Max 100 markers, prioritised by type value
-function rebuildMarkers() {
-  // Dispose old marker geometry/materials before clearing
-  for (const grp of markersGroup.children) {
-    grp.traverse(o => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) {
-        if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
-        else o.material.dispose();
+// Heads are billboarded in the vertex shader, so the geometry's world
+// AABB doesn't reflect what the user sees. Override raycast to test a
+// per-instance bounding sphere centered at each instance's origin.
+function installHeadRaycast(mesh) {
+  const _ray = new THREE.Ray();
+  const _inv = new THREE.Matrix4();
+  const _mat = new THREE.Matrix4();
+  const _pos = new THREE.Vector3();
+  const _hit = new THREE.Vector3();
+  const _sph = new THREE.Sphere();
+  mesh.raycast = function (raycaster, intersects) {
+    if (this.count === 0) return;
+    _inv.copy(this.matrixWorld).invert();
+    _ray.copy(raycaster.ray).applyMatrix4(_inv);
+    for (let i = 0; i < this.count; i++) {
+      this.getMatrixAt(i, _mat);
+      _pos.setFromMatrixPosition(_mat);
+      const r = (markerBaseScale[i] || 80) * 0.5;
+      _sph.set(_pos, r);
+      if (_ray.intersectSphere(_sph, _hit)) {
+        const world = _hit.clone().applyMatrix4(this.matrixWorld);
+        intersects.push({
+          distance: raycaster.ray.origin.distanceTo(world),
+          point: world,
+          object: this,
+          instanceId: i
+        });
       }
-    });
+    }
+    intersects.sort((a, b) => a.distance - b.distance);
+  };
+}
+
+function pickMarker(rc) {
+  if (!headInstances || markerCount === 0) return null;
+  const hit = rc.intersectObject(headInstances, false)[0];
+  if (!hit || hit.instanceId == null) return null;
+  const loc = markerLocs[hit.instanceId];
+  if (!loc) return null;
+  return { instanceId: hit.instanceId, loc };
+}
+
+function setHoverInstance(id) {
+  if (id === hoverInstanceId) return;
+  if (hoverInstanceId >= 0 && hoverInstanceId < markerCount) {
+    markerScaleAttr.array[hoverInstanceId] = markerBaseScale[hoverInstanceId];
   }
-  markersGroup.clear();
-  pickables = [];
+  hoverInstanceId = id;
+  if (id >= 0 && id < markerCount) {
+    markerScaleAttr.array[id] = markerBaseScale[id] * 1.4;
+  }
+  markerScaleAttr.needsUpdate = true;
+}
+
+const _stalkM = new THREE.Matrix4();
+const _headM  = new THREE.Matrix4();
+const _quatI  = new THREE.Quaternion();
+const _stalkS = new THREE.Vector3();
+const _stalkP = new THREE.Vector3();
+const _headP  = new THREE.Vector3();
+const _headS  = new THREE.Vector3(1, 1, 1);
+const _color  = new THREE.Color();
+
+function rebuildMarkers() {
+  if (!stalkInstances) return;
 
   const PRI = { whale: 0, customer: 1, saved: 2, prospect: 3, wantgo: 3, home: 4, cold: 5 };
   const visible = allCustomers
     .filter(c => typeof c.lat === 'number' && typeof c.lng === 'number')
     .filter(c => Math.abs(c.lat - CENTER_LAT) <= 4 && Math.abs(c.lng - CENTER_LNG) <= 4)
     .sort((a, b) => (PRI[a.type] ?? 6) - (PRI[b.type] ?? 6))
-    .slice(0, 100);
+    .slice(0, MAX_MARKERS);
 
-  for (const c of visible) markersGroup.add(makeMarker(c));
-  setStatus(`${visible.length} pins · ${xrSupported ? 'XR ready' : 'desktop'}`);
+  markerLocs = visible;
+  markerCount = visible.length;
+
+  for (let i = 0; i < markerCount; i++) {
+    const loc = visible[i];
+    const t = TYPE_COLOR[loc.type] || DEFAULT_COLOR;
+    const stalkH = (loc.type === 'whale') ? 220 : 120;
+    const headSz = (loc.type === 'whale') ? 130 : 80;
+
+    const ecef = latLngToECEF(loc.lat, loc.lng, 0);
+    const local = ecefToLocal(ecef);
+
+    _stalkP.set(local.x, local.y + stalkH / 2, local.z);
+    _stalkS.set(1, stalkH, 1);
+    _stalkM.compose(_stalkP, _quatI, _stalkS);
+    stalkInstances.setMatrixAt(i, _stalkM);
+    _color.setHex(t.hex);
+    stalkInstances.setColorAt(i, _color);
+
+    _headP.set(local.x, local.y + stalkH, local.z);
+    _headM.compose(_headP, _quatI, _headS);
+    headInstances.setMatrixAt(i, _headM);
+
+    markerBaseScale[i] = headSz;
+    markerWorldX[i] = local.x;
+    markerScaleAttr.array[i] = headSz;
+    markerTypeAttr.array[i] = TYPE_INDEX[loc.type] ?? TYPE_INDEX.prospect;
+  }
+
+  stalkInstances.count = markerCount;
+  stalkInstances.instanceMatrix.needsUpdate = true;
+  if (stalkInstances.instanceColor) stalkInstances.instanceColor.needsUpdate = true;
+
+  headInstances.count = markerCount;
+  headInstances.instanceMatrix.needsUpdate = true;
+  markerScaleAttr.needsUpdate = true;
+  markerTypeAttr.needsUpdate = true;
+
+  // Drop hover so a stale instanceId from a previous build doesn't
+  // point at a different customer in the new one.
+  hoverInstanceId = -1;
+
+  setStatus(`${markerCount} pins · ${xrSupported ? 'XR ready' : 'desktop'}`);
 }
 
 // ─── Picking + detail panel ────────────────────────────────────────────
@@ -793,9 +945,9 @@ function onScreenTap(e) {
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObjects(pickables, false)[0];
-  if (hit && hit.object.userData.loc) {
-    showPanel(hit.object.userData.loc);
+  const pick = pickMarker(raycaster);
+  if (pick) {
+    showPanel(pick.loc);
     lastTapTime = 0;
     return;
   }
@@ -1125,9 +1277,9 @@ function selectCenterMarker() {
   const cam = (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera);
   raycaster.ray.origin.setFromMatrixPosition(cam.matrixWorld);
   raycaster.ray.direction.set(0, 0, -1).transformDirection(cam.matrixWorld);
-  const hit = raycaster.intersectObjects(pickables, false)[0];
-  if (hit && hit.object.userData.loc) {
-    showPanel(hit.object.userData.loc);
+  const pick = pickMarker(raycaster);
+  if (pick) {
+    showPanel(pick.loc);
     return true;
   }
   toast('No pin centered — aim crosshair at a marker');
@@ -1392,8 +1544,8 @@ function onXRSelect(event) {
   m.copy(c.matrixWorld);
   raycaster.ray.origin.setFromMatrixPosition(m);
   raycaster.ray.direction.set(0, 0, -1).transformDirection(m);
-  const hit = raycaster.intersectObjects(pickables, false)[0];
-  if (hit && hit.object.userData.loc) showPanel(hit.object.userData.loc);
+  const pick = pickMarker(raycaster);
+  if (pick) showPanel(pick.loc);
 }
 
 // ─── XRHand tracking ───────────────────────────────────────────────────
@@ -1581,9 +1733,9 @@ function onPinchEnd(state, hand, info) {
     }
   }
   // 2) Pin pick — name/phone/address/trucks panel + Street View link.
-  const hit = raycaster.intersectObjects(pickables, false)[0];
-  if (hit && hit.object.userData.loc) {
-    showPanel(hit.object.userData.loc);
+  const pick = pickMarker(raycaster);
+  if (pick) {
+    showPanel(pick.loc);
     lastSinglePinchEndTime = 0;
     return;
   }
@@ -1613,22 +1765,10 @@ function updateXRGazePick(dt) {
 
   // Marker hover (skipped while gazing at EXIT so the highlight doesn't flicker).
   if (!exitHit) {
-    const hit = raycaster.intersectObjects(pickables, false)[0];
-    if (hit) {
-      if (hoverMarker !== hit.object) {
-        if (hoverMarker) { const bs = hoverMarker.userData._baseScale || 1; hoverMarker.scale.set(bs, bs, 1); }
-        hoverMarker = hit.object;
-        const hs = (hoverMarker.userData._baseScale || 1) * 1.4;
-        hoverMarker.scale.set(hs, hs, 1);
-      }
-    } else if (hoverMarker) {
-      const bs = hoverMarker.userData._baseScale || 1;
-      hoverMarker.scale.set(bs, bs, 1);
-      hoverMarker = null;
-    }
-  } else if (hoverMarker) {
-    hoverMarker.scale.set(1, 1, 1);
-    hoverMarker = null;
+    const pick = pickMarker(raycaster);
+    setHoverInstance(pick ? pick.instanceId : -1);
+  } else {
+    setHoverInstance(-1);
   }
 
   // Dwell accumulator — fills while gaze is on EXIT, decays 2× as fast
@@ -1758,15 +1898,18 @@ function tick() {
     tiles.update();
   }
 
-  // Sprite heartbeat pulse — every other frame to save CPU.
-  if (_frameCount % 2 === 0) {
+  // Heartbeat pulse — every other frame to save CPU. Writes per-instance
+  // head scale into the InstancedBufferAttribute; the GPU upload at end
+  // of frame is a single buffer copy regardless of pin count.
+  if (_frameCount % 2 === 0 && headInstances && markerCount > 0) {
     const t = now * 0.001;
-    for (const m of pickables) {
-      if (m === hoverMarker) continue;
-      const s = 1 + Math.sin(t * 1.8 + m.position.x * 0.0001) * 0.05;
-      m.scale.set(m.scale.x > 0 ? m.userData._baseScale * s || s : s,
-                  m.scale.y > 0 ? m.userData._baseScale * s || s : s, 1);
+    const arr = markerScaleAttr.array;
+    for (let i = 0; i < markerCount; i++) {
+      if (i === hoverInstanceId) continue;
+      const s = 1 + Math.sin(t * 1.8 + markerWorldX[i] * 0.0001) * 0.05;
+      arr[i] = markerBaseScale[i] * s;
     }
+    markerScaleAttr.needsUpdate = true;
   }
 
   updateFly(dt);

@@ -663,6 +663,13 @@ function initTiles() {
 
   tiles.errorTarget = 40;  // higher = fewer tiles = faster; adaptive in tick()
   tiles.maxDepth = Infinity;
+  // Cap the tile cache. Without this, panning across the bbox can OOM
+  // the headset — symptom is the AR session "flipping out" and
+  // dropping the user back to the panel. 384 MB is plenty for a city
+  // and well below the headset's per-app budget.
+  if (tiles.lruCache) {
+    tiles.lruCache.maxBytesSize = 384 * 1024 * 1024;
+  }
   tiles.addEventListener('load-tile-set', () => setStatus('Tiles loaded'));
   tiles.addEventListener('tiles-load-error', e => {
     console.warn('Tile error', e);
@@ -1959,10 +1966,10 @@ function tick() {
     // immersive — pull more detail at the cost of bandwidth.
     if (tiles) {
       const inXR = renderer.xr.isPresenting;
-      // 12 was too aggressive — Galaxy XR's mobile downlink couldn't
-      // catch up so tiles stayed coarse forever. 22 strikes a balance:
-      // visibly sharper than the 40 desktop target, but loadable.
-      tiles.errorTarget = inXR ? 22 : (slow ? 60 : 40);
+      // Tried 12 (overloaded the headset) then 22 (still made it flip
+      // out). 32 is right at the edge of "visibly better than desktop
+      // but the device can keep up". Tune later if frametime allows.
+      tiles.errorTarget = inXR ? 32 : (slow ? 60 : 40);
     }
   }
 

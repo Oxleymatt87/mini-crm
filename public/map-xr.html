@@ -1757,6 +1757,12 @@ function updatePinchState(state, info, hand) {
       const scale = Math.max(20, dolly.position.y * 0.2);
       dolly.position.addScaledVector(right, dRight * scale);
       dolly.position.addScaledVector(fwd,   dFwd   * scale);
+      // Hard clamp so the user can't pan themselves off the loaded
+      // tile region. 80km radius covers the ±4° bbox around Beaumont
+      // that rebuildMarkers respects, with margin.
+      const PAN_LIMIT = 80000;
+      dolly.position.x = Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, dolly.position.x));
+      dolly.position.z = Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, dolly.position.z));
     }
     state.lastWorldPos = info.tipWorld.clone();
     state.lastDollyPos = dolly.position.clone();
@@ -1953,7 +1959,10 @@ function tick() {
     // immersive — pull more detail at the cost of bandwidth.
     if (tiles) {
       const inXR = renderer.xr.isPresenting;
-      tiles.errorTarget = inXR ? 12 : (slow ? 60 : 40);
+      // 12 was too aggressive — Galaxy XR's mobile downlink couldn't
+      // catch up so tiles stayed coarse forever. 22 strikes a balance:
+      // visibly sharper than the 40 desktop target, but loadable.
+      tiles.errorTarget = inXR ? 22 : (slow ? 60 : 40);
     }
   }
 
@@ -1963,7 +1972,7 @@ function tick() {
     // setResolutionFromRenderer reads the canvas size, which doesn't
     // include the XR framebuffer scale. Pass the actual render size so
     // the screen-space-error calc matches what the user sees.
-    if (renderer.xr.isPresenting) {
+    if (renderer.xr.isPresenting && typeof tiles.setResolution === 'function') {
       const sz = renderer.getSize(_tileSize);
       tiles.setResolution(camera, sz.x * 2, sz.y * 2);
     } else {

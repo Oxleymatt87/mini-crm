@@ -1750,11 +1750,11 @@ function updatePinchState(state, info, hand) {
       // regardless of which way they're physically facing.
       const dRight = handWorldDelta.dot(right);
       const dFwd   = handWorldDelta.dot(fwd);
-      // Drag-the-map convention: hand right → world slides right under
-      // the user → dolly moves left. Hence the negative scale.
-      // Multiplier dropped from 0.5 → 0.2 (60% reduction) and floor from
-      // 50 → 20 — the XR pan was overshooting most targets.
-      const scale = -Math.max(20, dolly.position.y * 0.2);
+      // Drag-the-camera convention: hand right → dolly moves right →
+      // world appears to slide left under the user. Positive scale.
+      // Multiplier 0.5 → 0.2 (60% reduction) with floor 20 — XR pan
+      // was overshooting most targets at the previous setting.
+      const scale = Math.max(20, dolly.position.y * 0.2);
       dolly.position.addScaledVector(right, dRight * scale);
       dolly.position.addScaledVector(fwd,   dFwd   * scale);
     }

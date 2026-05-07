@@ -900,6 +900,7 @@ function setHoverInstance(id) {
 }
 
 const _stalkM = new THREE.Matrix4();
+const _tileSize = new THREE.Vector2();
 const _headM  = new THREE.Matrix4();
 const _quatI  = new THREE.Quaternion();
 const _stalkS = new THREE.Vector3();
@@ -1946,13 +1947,28 @@ function tick() {
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
     // Relax tile error target when struggling (fewer tiles = cheaper).
-    if (tiles) tiles.errorTarget = slow ? 60 : 40;
+    // In XR the headset's wider FOV + 2× framebuffer means the screen-
+    // space-error calc misjudges resolution by ~2×, so tiles came back
+    // looking like NES bitmaps. Force a much tighter target while
+    // immersive — pull more detail at the cost of bandwidth.
+    if (tiles) {
+      const inXR = renderer.xr.isPresenting;
+      tiles.errorTarget = inXR ? 12 : (slow ? 60 : 40);
+    }
   }
 
   if (controls.enabled) controls.update();
   if (tiles) {
     tiles.setCamera(camera);
-    tiles.setResolutionFromRenderer(camera, renderer);
+    // setResolutionFromRenderer reads the canvas size, which doesn't
+    // include the XR framebuffer scale. Pass the actual render size so
+    // the screen-space-error calc matches what the user sees.
+    if (renderer.xr.isPresenting) {
+      const sz = renderer.getSize(_tileSize);
+      tiles.setResolution(camera, sz.x * 2, sz.y * 2);
+    } else {
+      tiles.setResolutionFromRenderer(camera, renderer);
+    }
     camera.updateMatrixWorld();
     tiles.update();
   }

@@ -689,8 +689,10 @@ function initTiles() {
 let territoryMesh = null;
 function loadTerritoryMesh() {
   const loader = new GLTFLoader();
+  // Cache-bust: bump when re-baking territory.glb so the WebView/CDN
+  // doesn't keep serving the previous version.
   loader.load(
-    '/territory.glb',
+    '/territory.glb?v=3',
     (gltf) => {
       territoryMesh = gltf.scene;
       territoryMesh.visible = false;

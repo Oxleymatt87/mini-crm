@@ -9,12 +9,12 @@ QBO_REALM_ID = "9130357532009796"
 QBO_BASE = "https://quickbooks.api.intuit.com"
 QBO_OAUTH_BASE = "https://oauth.platform.intuit.com"
 
-# KV holds the rotating access_token and refresh_token. Bind with:
-#   wrangler kv:namespace create QBO_TOKENS
-# then put the id below.
+# KV holds the rotating access_token and refresh_token (and the Plaid access
+# token under `plaid_access_token`). This MUST stay bound to the live namespace
+# below or QBO token refresh and Chase/Plaid access break.
 [[kv_namespaces]]
 binding = "QBO_TOKENS"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "9e61d4d0d02a476692cfa71c1002908b"
 
 # Required secrets:
 #   wrangler secret put QBO_CLIENT_ID

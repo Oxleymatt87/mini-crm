@@ -1355,7 +1355,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   // MEALS
   { match: /doordash|good chop|uber eats|casa ole|taco bell|jw.?s patio|brookshire|henry'?s seafood|taco loco/i, category: 'Meals' },
   // SUPPLIES / OFFICE
-  { match: /home depot|m&d supply|sutherland|ebay/i, category: 'Supplies & Materials' },
+  { match: /home depot|m&d supply|sutherland|ebay|\baffirm\b/i, category: 'Supplies & Materials' },
   { match: /amazon|amzn|walmart|dollar general/i, category: 'Office/General Administrative Expenses:Office Supplies' },
   { match: /arlo/i, category: 'Office/General Administrative Expenses:Security' },
   // RENT / STORAGE / SHIPPING
@@ -1363,7 +1363,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   { match: /lone star storage/i, category: 'Storage Rental' },
   { match: /usps|freeshipping|chelsea lafleur/i, category: 'Shipping, Freight & Delivery' },
   // OWNER DRAW / PERSONAL
-  { match: /atm withdrawal|non-chase atm|^withdrawal \d|cash app\*.*oxley|^oxley matt$|lesliespool|leslie'?s pool|spec'?s|longhorn liquor|vape n more|\bcvs\b|boomtown|samsung|aliexpress|temu|dbrand/i, category: "Owner's Equity:Owner's Draw" },
+  { match: /atm withdrawal|non-chase atm|^withdrawal \d|cash app.*\boxley\b|cash app.*matthew ox|^oxley matt$|lesliespool|leslie'?s pool|spec'?s|longhorn liquor|vape n more|\bcvs\b|boomtown|samsung|aliexpress|temu|dbrand/i, category: "Owner's Equity:Owner's Draw" },
   // PAYROLL
   { match: /intuit.*payroll|payroll.*intuit/i, category: 'Payroll' },
 ];

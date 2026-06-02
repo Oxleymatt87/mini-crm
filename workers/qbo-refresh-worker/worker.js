@@ -89,6 +89,11 @@ export default {
         return await fetchDashboardSummary(env, corsHeaders);
       }
 
+      // Human-readable Chase spending dashboard (renders /chase-transactions)
+      if (url.pathname === '/chase-report' || url.pathname === '/chase-dashboard') {
+        return new Response(CHASE_REPORT_HTML, { headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' } });
+      }
+
 
 
       if (url.pathname === '/expenses-detail') {
@@ -1481,3 +1486,168 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
     transactions: categorized
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
+
+// ─── Human-readable Chase dashboard (served at /chase-report) ────────────────
+const CHASE_REPORT_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oxley Tire — Chase Spending</title>
+<style>
+  :root { --bg:#0a0a0a; --panel:#121212; --line:#242424; --gold:#e8a020; --green:#27ae60; --red:#d6493b; --muted:#8a8a8a; --text:#ececec; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; font-size:14px; }
+  header { position:sticky; top:0; background:#0c0c0c; border-bottom:2px solid var(--gold); padding:14px 18px; z-index:5; }
+  h1 { margin:0 0 4px; font-size:18px; color:var(--gold); letter-spacing:1px; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
+  select, button, input { background:#1b1b1b; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:14px; }
+  button { cursor:pointer; }
+  button.gold { background:var(--gold); color:#000; font-weight:700; border:none; }
+  .wrap { padding:18px; max-width:1100px; margin:0 auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:22px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  .card .val { font-size:22px; font-weight:700; margin-top:6px; }
+  .green { color:var(--green); } .red { color:var(--red); } .muted { color:var(--muted); }
+  h2 { font-size:15px; color:var(--gold); border-bottom:1px solid var(--line); padding-bottom:6px; margin:26px 0 12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .acct { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:6px 14px 14px; margin-bottom:14px; }
+  .acct h3 { font-size:14px; margin:12px 0 4px; }
+  .pill { display:inline-block; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:2px 8px; margin-left:6px; }
+  .bar { height:6px; background:#222; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .bar > span { display:block; height:100%; background:var(--gold); }
+  tr.cr td { color:var(--green); }
+  #txwrap { max-height:600px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+  #txwrap thead th { position:sticky; top:0; background:#161616; }
+  .loading { color:var(--muted); padding:40px; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OXLEY TIRE — CHASE SPENDING</h1>
+  <div id="period" class="muted">Loading…</div>
+  <div class="controls">
+    <label>Window:
+      <select id="days" onchange="load()">
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="153" selected>Year to date</option>
+        <option value="365">Last 12 months</option>
+      </select>
+    </label>
+    <button onclick="load()">Refresh</button>
+    <button class="gold" onclick="downloadCSV()">Download CSV</button>
+  </div>
+</header>
+<div class="wrap"><div id="content"><div class="loading">Loading…</div></div></div>
+<script>
+var WORKER = location.origin;
+var DATA = null;
+function fmt(n){ n = Number(n)||0; return (n<0?'-$':'$') + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ s = (s==null?'':String(s)); return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;'); }
+function card(label, val, cls){ return '<div class="card"><div class="label">'+label+'</div><div class="val '+(cls||'')+'">'+val+'</div></div>'; }
+
+function load(){
+  var days = document.getElementById('days').value;
+  document.getElementById('content').innerHTML = '<div class="loading">Loading '+days+' days…</div>';
+  fetch(WORKER + '/chase-transactions?days=' + days + '&cb=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(d){ DATA = d; render(d); })
+    .catch(function(e){ document.getElementById('content').innerHTML = '<div class="loading">Error: '+esc(e.message)+'</div>'; });
+}
+
+function render(d){
+  document.getElementById('period').textContent = 'Period: ' + d.period.start + ' to ' + d.period.end + '  (' + d.totalTransactions + ' transactions)';
+  var net = (d.realIncomeTotal||0) - (d.realExpenseTotal||0);
+  var h = [];
+  h.push('<div class="cards">');
+  h.push(card('Real Income', fmt(d.realIncomeTotal), 'green'));
+  h.push(card('Real Expense', fmt(d.realExpenseTotal), 'red'));
+  h.push(card('Net', fmt(net), net>=0?'green':'red'));
+  h.push(card('Transfers (excluded)', fmt(d.transfersTotal), 'muted'));
+  h.push('</div>');
+
+  // Balances
+  h.push('<h2>Account Balances</h2><table><thead><tr><th>Account</th><th>Type</th><th class="num">Balance</th><th class="num">Available</th></tr></thead><tbody>');
+  (d.accounts||[]).forEach(function(a){
+    h.push('<tr><td>'+esc(a.name)+' <span class="pill">'+esc(a.mask)+'</span></td><td class="muted">'+esc(a.type)+'</td><td class="num">'+fmt(a.balance)+'</td><td class="num">'+fmt(a.available)+'</td></tr>');
+  });
+  h.push('</tbody></table>');
+
+  // Spend by category
+  var exp = d.realExpenseTotal || 1;
+  h.push('<h2>Spending by Category</h2><table><thead><tr><th>Category</th><th class="num">Total</th><th class="num">% of spend</th></tr></thead><tbody>');
+  (d.byCategory||[]).forEach(function(c){
+    var p = (c.total/exp*100);
+    h.push('<tr><td>'+esc(c.category)+'<div class="bar"><span style="width:'+p.toFixed(1)+'%"></span></div></td><td class="num">'+fmt(c.total)+'</td><td class="num muted">'+p.toFixed(1)+'%</td></tr>');
+  });
+  h.push('</tbody></table>');
+
+  // By account
+  h.push('<h2>By Account / Card</h2>');
+  (d.byAccount||[]).forEach(function(a){
+    h.push('<div class="acct"><h3>'+esc(a.name)+' <span class="pill">'+esc(a.mask)+'</span> <span class="pill">'+esc(a.type)+'</span></h3>');
+    h.push('<table><tbody>');
+    h.push('<tr><td class="muted">Real spend</td><td class="num">'+fmt(a.realExpenseTotal)+'</td></tr>');
+    h.push('<tr><td class="muted">Transfers / card payoffs</td><td class="num">'+fmt(a.transfersTotal)+'</td></tr>');
+    h.push('<tr><td class="muted">Money in</td><td class="num">'+fmt(a.totalCredits)+'</td></tr>');
+    h.push('</tbody></table>');
+    if (a.byCategory && a.byCategory.length){
+      h.push('<table><thead><tr><th>Category</th><th class="num">Total</th></tr></thead><tbody>');
+      a.byCategory.forEach(function(c){ h.push('<tr><td>'+esc(c.category)+'</td><td class="num">'+fmt(c.total)+'</td></tr>'); });
+      h.push('</tbody></table>');
+    }
+    h.push('</div>');
+  });
+
+  // Transactions
+  h.push('<h2>Transactions</h2>');
+  h.push('<div class="controls"><input id="q" placeholder="Search name/category…" oninput="filterTx()" style="flex:1;min-width:160px">');
+  h.push('<select id="acct" onchange="filterTx()"><option value="">All accounts</option>');
+  (d.accounts||[]).forEach(function(a){ h.push('<option value="'+esc(a.name)+'">'+esc(a.name)+' ('+esc(a.mask)+')</option>'); });
+  h.push('</select></div>');
+  h.push('<div id="txwrap"><table><thead><tr><th>Date</th><th>Account</th><th>Name</th><th>Category</th><th class="num">Amount</th></tr></thead><tbody id="txbody"></tbody></table></div>');
+
+  document.getElementById('content').innerHTML = h.join('');
+  filterTx();
+}
+
+function filterTx(){
+  if(!DATA) return;
+  var q = (document.getElementById('q').value||'').toLowerCase();
+  var acct = document.getElementById('acct').value||'';
+  var rows = [];
+  (DATA.transactions||[]).forEach(function(t){
+    if (acct && t.accountName !== acct) return;
+    var hay = ((t.name||'')+' '+(t.category||'')).toLowerCase();
+    if (q && hay.indexOf(q) < 0) return;
+    var isCr = t.amount < 0;
+    rows.push('<tr class="'+(isCr?'cr':'')+'"><td class="muted">'+esc(t.date)+'</td><td class="muted">'+esc(t.accountName)+'</td><td>'+esc(t.name)+'</td><td>'+esc(t.category)+'</td><td class="num">'+(isCr?'+':'')+fmt(Math.abs(t.amount))+'</td></tr>');
+  });
+  document.getElementById('txbody').innerHTML = rows.join('') || '<tr><td colspan="5" class="muted">No matching transactions.</td></tr>';
+}
+
+function downloadCSV(){
+  if(!DATA){ return; }
+  function cell(v){ v=(v==null?'':String(v)); if(v.indexOf('"')>-1||v.indexOf(',')>-1||v.indexOf('\\n')>-1){ v='"'+v.split('"').join('""')+'"'; } return v; }
+  var lines = ['Date,Account,Mask,Name,Category,Type,Amount'];
+  var maskFor = {};
+  (DATA.accounts||[]).forEach(function(a){ maskFor[a.name]=a.mask; });
+  (DATA.transactions||[]).forEach(function(t){
+    lines.push([cell(t.date),cell(t.accountName),cell(maskFor[t.accountName]||''),cell(t.name),cell(t.category),cell(t.type),cell(t.amount)].join(','));
+  });
+  var blob = new Blob([lines.join('\\n')], {type:'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chase-' + DATA.period.start + '_to_' + DATA.period.end + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+load();
+</script>
+</body>
+</html>`;

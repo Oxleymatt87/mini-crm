@@ -1601,6 +1601,31 @@ function render(d){
   h.push(card('Transfers (excluded)', fmt(d.transfersTotal), 'muted'));
   h.push('</div>');
 
+  // Monthly timeline (money in vs out, transfers excluded)
+  var months = {};
+  (d.transactions||[]).forEach(function(t){
+    if (!t.date || (t.category||'').indexOf('Transfer')===0) return;
+    var m = t.date.slice(0,7);
+    if (!months[m]) months[m] = { inc:0, exp:0 };
+    if (t.amount < 0) months[m].inc += -t.amount; else months[m].exp += t.amount;
+  });
+  var mk = Object.keys(months).sort();
+  if (mk.length){
+    var maxv = 0;
+    mk.forEach(function(m){ maxv = Math.max(maxv, months[m].inc, months[m].exp); });
+    h.push('<h2>Monthly Timeline — Money In vs Out</h2>');
+    h.push('<table><thead><tr><th>Month</th><th class="num">Money In</th><th class="num">Money Out</th><th class="num">Net</th></tr></thead><tbody>');
+    mk.forEach(function(m){
+      var o = months[m], net = o.inc - o.exp;
+      var inb = maxv ? (o.inc/maxv*100) : 0, exb = maxv ? (o.exp/maxv*100) : 0;
+      h.push('<tr><td>'+esc(m)+'</td>'
+        +'<td class="num green">'+fmt(o.inc)+'<div class="bar"><span style="width:'+inb.toFixed(1)+'%;background:var(--green)"></span></div></td>'
+        +'<td class="num red">'+fmt(o.exp)+'<div class="bar"><span style="width:'+exb.toFixed(1)+'%;background:var(--red)"></span></div></td>'
+        +'<td class="num '+(net>=0?'green':'red')+'">'+fmt(net)+'</td></tr>');
+    });
+    h.push('</tbody></table>');
+  }
+
   // Balances
   h.push('<h2>Account Balances</h2><table><thead><tr><th>Account</th><th>Type</th><th class="num">Balance</th><th class="num">Available</th></tr></thead><tbody>');
   (d.accounts||[]).forEach(function(a){

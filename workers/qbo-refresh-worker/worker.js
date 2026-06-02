@@ -1388,16 +1388,28 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   { match: /intuit.*payroll|payroll.*intuit/i, category: 'Payroll' },
 ];
 
+  // Money-IN rules (applied to credits only) -- for the owner's own revenue
+  // visibility; never written to QuickBooks. Order matters.
+  const incomeRules = [
+    { match: /zelle payment from|cash app|instant transfer fro/i, category: 'Customer Payment:Zelle & Cash App' },
+    { match: /\bintuit\b/i, category: 'Customer Payment:Card (QuickBooks)' },
+    { match: /remote online deposit|atm check deposit|mobile deposit|deposit id number/i, category: 'Customer Payment:Check Deposit' },
+    { match: /atm cash deposit/i, category: 'Customer Payment:Cash Deposit' },
+    { match: /fedwire|wire transfer/i, category: 'Customer Payment:Wire' },
+    { match: /internal revenue service/i, category: 'Tax Refund' },
+  ];
+
   const INTUIT_PAYROLL_MIN = 1500; // Intuit debits >= this are payroll funding; smaller ones are QuickBooks Payments fees
   const categorized = (data.transactions || []).map(t => {
     const name = t.merchant_name || t.name || '';
     let autoCategory = t.category ? t.category.join(' > ') : 'Uncategorized';
     let matched = false;
-    // Incoming Zelle / Cash App = customer payments (money in). Owner-visibility
-    // only -- this worker never writes to QuickBooks.
-    if (t.amount < 0 && (/zelle payment from/i.test(name) || /cash app/i.test(name))) {
-      autoCategory = 'Customer Payment';
-      matched = true;
+    // Money IN (credits): customer payments / deposits / refunds. Owner
+    // visibility only -- this worker never writes to QuickBooks.
+    if (t.amount < 0) {
+      for (const rule of incomeRules) {
+        if (rule.match.test(name)) { autoCategory = rule.category; matched = true; break; }
+      }
     }
     // Intuit lumps payroll + QuickBooks Payments fees under one "Intuit" label.
     // Split debits by amount (credits are customer-payment deposits, leave them).
@@ -1485,7 +1497,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
     byIncomeMap[t.category] = (byIncomeMap[t.category] || 0) + Math.abs(t.amount);
   });
   const byIncome = Object.entries(byIncomeMap).sort((a, b) => b[1] - a[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 }));
-  const customerPaymentsTotal = Math.round((byIncomeMap['Customer Payment'] || 0) * 100) / 100;
+  const customerPaymentsTotal = Math.round(Object.entries(byIncomeMap).filter(([k]) => k.startsWith('Customer Payment')).reduce((s, [, v]) => s + v, 0) * 100) / 100;
 
   return new Response(JSON.stringify({
     period: { start: startDate, end: endDate, days },

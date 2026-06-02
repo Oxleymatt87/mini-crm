@@ -1332,7 +1332,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   const rules = [
   // TRANSFERS & CARD PAYMENTS -- not expenses
   { match: /payment to chase card|chase card ending/i, category: 'Transfer:Card Payment' },
-  { match: /online transfer to (chk|mma|sav)\b|online transfer to \.{3}\d+ transaction/i, category: 'Transfer:Internal' },
+  { match: /online transfer (?:to|from) (chk|mma|sav)\b|online transfer (?:to|from) \.{3}\d+ transaction/i, category: 'Transfer:Internal' },
   { match: /american express orig id|amex epayment|orig co name:american express/i, category: 'Transfer:Card Payment' },
   { match: /\bafterpay\b|\bklarna\b/i, category: 'Transfer:Card Payment' },
   // COGS
@@ -1449,13 +1449,21 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
     byCategory: Object.entries(a.byCategory).sort((x, y) => y[1] - x[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 }))
   }));
 
+  // Net out internal transfers on the credit side too, so money moved in from
+  // another account (e.g. checking 3718) isn't counted as real income.
+  const totalCredits = Math.abs(categorized.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0));
+  const transfersInTotal = Math.abs(categorized.filter(t => t.amount < 0 && t.category.startsWith('Transfer')).reduce((s, t) => s + t.amount, 0));
+  const realIncomeTotal = totalCredits - transfersInTotal;
+
   return new Response(JSON.stringify({
     period: { start: startDate, end: endDate, days },
     accounts,
     totalTransactions: categorized.length,
     totalDebits: Math.round(categorized.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0) * 100) / 100,
-    totalCredits: Math.round(Math.abs(categorized.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0)) * 100) / 100,
+    totalCredits: Math.round(totalCredits * 100) / 100,
     transfersTotal: Math.round(transfersTotal * 100) / 100,
+    transfersInTotal: Math.round(transfersInTotal * 100) / 100,
+    realIncomeTotal: Math.round(realIncomeTotal * 100) / 100,
     realExpenseTotal: Math.round(realExpenseTotal * 100) / 100,
     byCategory: Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 })),
     byAccount,

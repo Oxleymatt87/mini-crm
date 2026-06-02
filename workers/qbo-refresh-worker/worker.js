@@ -1352,7 +1352,6 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   { match: /tom koehl|tkoehl|michelle charles|jose bena|james clark|kirk mccarver|andrew price/i, category: 'Contracters' },
   // SOFTWARE
   { match: /claude|anthropic|github|microsoft|google(?! vr)|cloudflare|bizze|openai|grammarly|render\b|myemailext|workspace oxle|ondemandti|cheaterscanner|cloud fb/i, category: 'Office/General Administrative Expenses:Software' },
-  { match: /\bintuit\b/i, category: 'Office/General Administrative Expenses:Software' },
   // VEHICLE / FUEL
   { match: /chevron|exxon|shell|texaco|valero|conoco|bp |mobil|murphy|raceway|truck stop|hwy 90 truck|speedy stop|stuckey|love'?s|pilot|flying j/i, category: 'Vehicle:Gas And Fuel' },
   { match: /enterprise rent|uber(?! eats)/i, category: 'Vehicle:Vehicle Rental' },
@@ -1379,11 +1378,19 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   { match: /intuit.*payroll|payroll.*intuit/i, category: 'Payroll' },
 ];
 
+  const INTUIT_PAYROLL_MIN = 1500; // Intuit debits >= this are payroll funding; smaller ones are QuickBooks Payments fees
   const categorized = (data.transactions || []).map(t => {
     const name = t.merchant_name || t.name || '';
     let autoCategory = t.category ? t.category.join(' > ') : 'Uncategorized';
     let matched = false;
+    // Intuit lumps payroll + QuickBooks Payments fees under one "Intuit" label.
+    // Split debits by amount (credits are customer-payment deposits, leave them).
+    if (t.amount > 0 && /\bintuit\b/i.test(name)) {
+      autoCategory = t.amount >= INTUIT_PAYROLL_MIN ? 'Payroll' : 'Bank Fees';
+      matched = true;
+    }
     for (const rule of rules) {
+      if (matched) break;
       if (rule.match.test(name)) {
         autoCategory = rule.category;
         matched = true;

@@ -1301,21 +1301,32 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   const endDate = new Date().toISOString().split('T')[0];
   const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
 
-  const response = await fetch('https://production.plaid.com/transactions/get', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: env.PLAID_CLIENT_ID,
-      secret: env.PLAID_SECRET,
-      access_token: accessToken,
-      start_date: startDate,
-      end_date: endDate,
-      options: { count: 500 }
-    })
-  });
-
-  const data = await response.json();
-  if (!response.ok) return new Response(JSON.stringify({ error: data.error_message || 'Plaid error', code: data.error_code }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  // Page through Plaid until every transaction in the window is fetched.
+  // Plaid caps each response at 500; without paging, older transactions are
+  // silently dropped and totals (e.g. Cost of Goods Sold) are understated.
+  const data = { transactions: [], accounts: [] };
+  let total = null;
+  while (total === null || data.transactions.length < total) {
+    const response = await fetch('https://production.plaid.com/transactions/get', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: env.PLAID_CLIENT_ID,
+        secret: env.PLAID_SECRET,
+        access_token: accessToken,
+        start_date: startDate,
+        end_date: endDate,
+        options: { count: 500, offset: data.transactions.length }
+      })
+    });
+    const page = await response.json();
+    if (!response.ok) return new Response(JSON.stringify({ error: page.error_message || 'Plaid error', code: page.error_code }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (!data.accounts.length) data.accounts = page.accounts || [];
+    const batch = page.transactions || [];
+    data.transactions.push(...batch);
+    total = page.total_transactions || 0;
+    if (batch.length === 0 || data.transactions.length >= 100000) break; // no more / safety stop
+  }
 
   // Apply auto-categorization rules
   const rules = [
@@ -1409,6 +1420,35 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   });
   const realExpenseTotal = Object.values(byCategory).reduce((s, v) => s + v, 0);
 
+  // Per-account breakdown (e.g. checking 2236 vs credit card 8784) so spend on
+  // each account/card can be seen on its own.
+  const acctMeta = {};
+  (data.accounts || []).forEach(a => { acctMeta[a.account_id] = { name: a.name, mask: a.mask, type: a.type }; });
+  const byAccountMap = {};
+  categorized.forEach(t => {
+    const meta = acctMeta[t.account] || { name: t.accountName || 'Unknown', mask: '', type: '' };
+    const key = meta.name + (meta.mask ? ' ' + meta.mask : '');
+    let acc = byAccountMap[key];
+    if (!acc) acc = byAccountMap[key] = { name: meta.name, mask: meta.mask, type: meta.type, totalDebits: 0, totalCredits: 0, transfersTotal: 0, realExpenseTotal: 0, byCategory: {} };
+    if (t.amount > 0) {
+      acc.totalDebits += t.amount;
+      if (t.category.startsWith('Transfer')) { acc.transfersTotal += t.amount; }
+      else { acc.byCategory[t.category] = (acc.byCategory[t.category] || 0) + t.amount; acc.realExpenseTotal += t.amount; }
+    } else {
+      acc.totalCredits += Math.abs(t.amount);
+    }
+  });
+  const byAccount = Object.values(byAccountMap).map(a => ({
+    name: a.name,
+    mask: a.mask,
+    type: a.type,
+    totalDebits: Math.round(a.totalDebits * 100) / 100,
+    totalCredits: Math.round(a.totalCredits * 100) / 100,
+    transfersTotal: Math.round(a.transfersTotal * 100) / 100,
+    realExpenseTotal: Math.round(a.realExpenseTotal * 100) / 100,
+    byCategory: Object.entries(a.byCategory).sort((x, y) => y[1] - x[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 }))
+  }));
+
   return new Response(JSON.stringify({
     period: { start: startDate, end: endDate, days },
     accounts,
@@ -1418,6 +1458,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
     transfersTotal: Math.round(transfersTotal * 100) / 100,
     realExpenseTotal: Math.round(realExpenseTotal * 100) / 100,
     byCategory: Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 })),
+    byAccount,
     transactions: categorized
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }

@@ -1334,6 +1334,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   { match: /payment to chase card|chase card ending/i, category: 'Transfer:Card Payment' },
   { match: /online transfer (?:to|from) (chk|mma|sav)\b|online transfer (?:to|from) \.{3}\d+ transaction/i, category: 'Transfer:Internal' },
   { match: /american express orig id|amex epayment|orig co name:american express/i, category: 'Transfer:Card Payment' },
+  { match: /\bvisa payment\b/i, category: 'Transfer:Card Payment' },
   { match: /\bafterpay\b|\bklarna\b/i, category: 'Transfer:Card Payment' },
   // COGS
   { match: /to jin\b|jinyu|ach payment.*\bjin\b/i, category: 'Cost of Goods Sold' },
@@ -1351,7 +1352,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   // CONTRACTORS
   { match: /tom koehl|tkoehl|michelle charles|jose bena|james clark|kirk mccarver|andrew price/i, category: 'Contracters' },
   // SOFTWARE
-  { match: /claude|anthropic|github|microsoft|google(?! vr)|cloudflare|bizze|openai|grammarly|render\b|myemailext|workspace oxle|ondemandti|cheaterscanner|cloud fb/i, category: 'Office/General Administrative Expenses:Software' },
+  { match: /claude|anthropic|github|microsoft|google(?! vr)|cloudflare|bizze|openai|grammarly|render\b|myemailext|workspace oxle|ondemandti|cheaterscanner|cloud fb|\baws\b|amazon web services/i, category: 'Office/General Administrative Expenses:Software' },
   // VEHICLE / FUEL
   { match: /chevron|exxon|shell|texaco|valero|conoco|bp |mobil|murphy|raceway|truck stop|hwy 90 truck|speedy stop|stuckey|love'?s|pilot|flying j/i, category: 'Vehicle:Gas And Fuel' },
   { match: /enterprise rent|uber(?! eats)/i, category: 'Vehicle:Vehicle Rental' },
@@ -1362,8 +1363,9 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   // INSURANCE / UTILITIES
   { match: /clearcover/i, category: 'Insurance:Auto Insurance' },
   { match: /t-?mobile|tmobile|zagg/i, category: 'Utilities:Communication' },
+  { match: /entergy|centerpoint|center point/i, category: 'Utilities:Gas and Electric' },
   // MEALS
-  { match: /doordash|good chop|uber eats|casa ole|taco bell|jw.?s patio|brookshire|henry'?s seafood|taco loco/i, category: 'Meals' },
+  { match: /doordash|good chop|uber eats|casa ole|taco bell|jw.?s patio|brookshire|henry'?s seafood|taco loco|chabas/i, category: 'Meals' },
   // SUPPLIES / OFFICE
   { match: /home depot|m&d supply|sutherland|ebay|\baffirm\b/i, category: 'Supplies & Materials' },
   { match: /amazon|amzn|walmart|dollar general/i, category: 'Office/General Administrative Expenses:Office Supplies' },
@@ -1372,8 +1374,10 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   { match: /idaho housing/i, category: 'Rent or Lease of Building' },
   { match: /lone star storage/i, category: 'Storage Rental' },
   { match: /usps|freeshipping|chelsea lafleur/i, category: 'Shipping, Freight & Delivery' },
+  // LOAN PAYMENTS (debt service -- not an operating expense)
+  { match: /best egg/i, category: 'Loan Payment' },
   // OWNER DRAW / PERSONAL
-  { match: /atm withdrawal|non-chase atm|^withdrawal \d|cash app.*\boxley\b|cash app.*matthew ox|^oxley matt$|lesliespool|leslie'?s pool|spec'?s|longhorn liquor|vape n more|\bcvs\b|boomtown|samsung|aliexpress|temu|dbrand/i, category: "Owner's Equity:Owner's Draw" },
+  { match: /atm withdrawal|non-chase atm|^withdrawal \d|cash app.*\boxley\b|cash app.*matthew ox|^oxley matt$|lesliespool|leslie'?s pool|spec'?s|longhorn liquor|vape n more|\bcvs\b|boomtown|samsung|aliexpress|temu|dbrand|\broku\b|planet fitness|allday wellness|peptira|schoolcafe|school cafe/i, category: "Owner's Equity:Owner's Draw" },
   // PAYROLL
   { match: /intuit.*payroll|payroll.*intuit/i, category: 'Payroll' },
 ];

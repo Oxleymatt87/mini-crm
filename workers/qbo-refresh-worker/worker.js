@@ -1337,6 +1337,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   const rules = [
   // TRANSFERS & CARD PAYMENTS -- not expenses
   { match: /payment to chase card|chase card ending/i, category: 'Transfer:Card Payment' },
+  { match: /payment.?thank you/i, category: 'Transfer:Card Payment' },
   { match: /online transfer (?:to|from) (chk|mma|sav)\b|online transfer (?:to|from) \.{3}\d+ transaction/i, category: 'Transfer:Internal' },
   { match: /american express orig id|amex epayment|orig co name:american express/i, category: 'Transfer:Card Payment' },
   { match: /\bvisa payment\b/i, category: 'Transfer:Card Payment' },
@@ -1359,7 +1360,7 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   // SOFTWARE
   { match: /claude|anthropic|github|microsoft|google(?! vr)|cloudflare|bizze|openai|grammarly|render\b|myemailext|workspace oxle|ondemandti|cheaterscanner|cloud fb|\baws\b|amazon web services/i, category: 'Office/General Administrative Expenses:Software' },
   // VEHICLE / FUEL
-  { match: /chevron|exxon|shell|texaco|valero|conoco|bp |mobil|murphy|raceway|truck stop|hwy 90 truck|speedy stop|stuckey|love'?s|pilot|flying j/i, category: 'Vehicle:Gas And Fuel' },
+  { match: /chevron|exxon|shell|texaco|valero|conoco|bp |\bmobil\b|murphy|raceway|truck stop|hwy 90 truck|speedy stop|stuckey|love'?s|pilot|flying j/i, category: 'Vehicle:Gas And Fuel' },
   { match: /enterprise rent|uber(?! eats)/i, category: 'Vehicle:Vehicle Rental' },
   { match: /o'reilly|oreilly/i, category: 'Vehicle:Vehicle Repairs' },
   { match: /bluewave/i, category: 'Vehicle:Wash and Roadside' },
@@ -1392,9 +1393,15 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
     const name = t.merchant_name || t.name || '';
     let autoCategory = t.category ? t.category.join(' > ') : 'Uncategorized';
     let matched = false;
+    // Incoming Zelle / Cash App = customer payments (money in). Owner-visibility
+    // only -- this worker never writes to QuickBooks.
+    if (t.amount < 0 && (/zelle payment from/i.test(name) || /cash app/i.test(name))) {
+      autoCategory = 'Customer Payment';
+      matched = true;
+    }
     // Intuit lumps payroll + QuickBooks Payments fees under one "Intuit" label.
     // Split debits by amount (credits are customer-payment deposits, leave them).
-    if (t.amount > 0 && /\bintuit\b/i.test(name)) {
+    if (!matched && t.amount > 0 && /\bintuit\b/i.test(name)) {
       autoCategory = t.amount >= INTUIT_PAYROLL_MIN ? 'Payroll' : 'Bank Fees';
       matched = true;
     }
@@ -1471,6 +1478,15 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
   const transfersInTotal = Math.abs(categorized.filter(t => t.amount < 0 && t.category.startsWith('Transfer')).reduce((s, t) => s + t.amount, 0));
   const realIncomeTotal = totalCredits - transfersInTotal;
 
+  // Income (money in) grouped by source, excluding internal transfers -- for the
+  // owner's own visibility (customer payments etc.), not pushed to QuickBooks.
+  const byIncomeMap = {};
+  categorized.filter(t => t.amount < 0 && !t.category.startsWith('Transfer')).forEach(t => {
+    byIncomeMap[t.category] = (byIncomeMap[t.category] || 0) + Math.abs(t.amount);
+  });
+  const byIncome = Object.entries(byIncomeMap).sort((a, b) => b[1] - a[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 }));
+  const customerPaymentsTotal = Math.round((byIncomeMap['Customer Payment'] || 0) * 100) / 100;
+
   return new Response(JSON.stringify({
     period: { start: startDate, end: endDate, days },
     accounts,
@@ -1481,7 +1497,9 @@ async function getChaseTransactions(env, corsHeaders, days = 90) {
     transfersInTotal: Math.round(transfersInTotal * 100) / 100,
     realIncomeTotal: Math.round(realIncomeTotal * 100) / 100,
     realExpenseTotal: Math.round(realExpenseTotal * 100) / 100,
+    customerPaymentsTotal,
     byCategory: Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, total]) => ({ category: cat, total: Math.round(total * 100) / 100 })),
+    byIncome,
     byAccount,
     transactions: categorized
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -1586,6 +1604,17 @@ function render(d){
     h.push('<tr><td>'+esc(c.category)+'<div class="bar"><span style="width:'+p.toFixed(1)+'%"></span></div></td><td class="num">'+fmt(c.total)+'</td><td class="num muted">'+p.toFixed(1)+'%</td></tr>');
   });
   h.push('</tbody></table>');
+
+  // Payments in (income) -- owner visibility only
+  if (d.byIncome && d.byIncome.length){
+    h.push('<h2>Payments In &mdash; your records only (not sent to QuickBooks)</h2>');
+    h.push('<table><thead><tr><th>Source</th><th class="num">Total</th></tr></thead><tbody>');
+    d.byIncome.forEach(function(c){
+      var label = c.category === 'Uncategorized' ? 'Other deposits (uncategorized)' : c.category;
+      h.push('<tr><td>'+esc(label)+'</td><td class="num green">'+fmt(c.total)+'</td></tr>');
+    });
+    h.push('</tbody></table>');
+  }
 
   // By account
   h.push('<h2>By Account / Card</h2>');

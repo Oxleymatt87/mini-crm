@@ -1,3 +1,8 @@
+const REALM_ID = "9130357532009796";
+const SHEET_ID = "1EghclLR5lUwHRsEVvmmNrHZQcyKvLGP0JCQHyJKOoEY";
+const QBO_API_BASE = "https://quickbooks.api.intuit.com/v3/company";
+const GOOGLE_SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

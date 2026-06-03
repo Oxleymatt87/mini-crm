@@ -5040,6 +5040,121 @@ def _fetch_tireguru_balance(portal_url: str, username: str, password: str) -> di
     return _parse_tireguru_statement_pdf(pdf_resp.content)
 
 
+def _dktire_login(username: str, password: str) -> tuple:
+    """Playwright sign-in to b2b.dktire.com. Returns (access_token, token_type)."""
+    from playwright.sync_api import sync_playwright
+    import time as _t
+    access_token = None
+    token_type = "Bearer"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        try:
+            ctx = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            page = ctx.new_page()
+            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            _t.sleep(3)
+            for sel in ['input[type="text"]', 'input[name="username"]', 'input[name="account"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(username)
+                        break
+                except Exception:
+                    continue
+            for sel in ['input[type="password"]', 'input[name="password"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(password)
+                        break
+                except Exception:
+                    continue
+            for sel in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")', '.btn-primary']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.click()
+                        break
+                except Exception:
+                    continue
+            _t.sleep(5)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            auth_json = page.evaluate("() => localStorage.getItem('authUser')")
+            if auth_json:
+                ad = _json.loads(auth_json)
+                access_token = ad.get("access_token")
+                token_type = ad.get("token_type", "Bearer")
+        finally:
+            browser.close()
+    return access_token, token_type
+
+
+def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict:
+    """Read accounts-payable balance from the DK Tire B2B API (Hesselbein, South Gateway).
+    Sums open/unpaid invoice balances (balance_amt). API param shape is tuned on first
+    live run — the error string carries the raw response shape for quick fixing."""
+    try:
+        access_token, token_type = _dktire_login(username, password)
+    except Exception as e:
+        return {"ok": False, "error": f"DK Tire login error: {e}"}
+    if not access_token:
+        return {"ok": False, "error": "DK Tire login failed (no auth token)"}
+
+    api = "https://api-b2b.dktire.com"
+    headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
+
+    ship_to = ""
+    try:
+        ud = requests.get(f"{api}/master/user-details", headers=headers, timeout=30)
+        if ud.status_code == 200:
+            st = ud.json().get("ship_to", [])
+            if isinstance(st, list) and st:
+                ship_to = st[0].get("value", "") if isinstance(st[0], dict) else str(st[0])
+    except Exception:
+        pass
+
+    today = dt.date.today()
+    debug = {}
+    candidates = [
+        ("/order/get-open-invoice-list", {"ship_to": ship_to}),
+        ("/order/get-open-invoice-list", {"ship_from": ship_to}),
+        ("/order/get-invoice-list", {"ship_from": ship_to, "from_date": f"{today.year - 1}-01-01", "to_date": f"{today.year}-12-31"}),
+    ]
+    for path, params in candidates:
+        try:
+            r = requests.get(f"{api}{path}", headers=headers, params=params, timeout=45)
+        except Exception as e:
+            debug[path] = f"req error: {e}"
+            continue
+        if r.status_code != 200:
+            debug[path] = f"HTTP {r.status_code}"
+            continue
+        try:
+            data = r.json()
+        except Exception:
+            debug[path] = "non-json"
+            continue
+        rows = data if isinstance(data, list) else (data.get("data") or data.get("rows") or [])
+        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+            if any("balance_amt" in x for x in rows):
+                total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
+                past = 0.0
+                for x in rows:
+                    dd = x.get("due_date") or x.get("net_due_date")
+                    if dd:
+                        try:
+                            if dt.date.fromisoformat(str(dd)[:10]) < today:
+                                past += x.get("balance_amt") or 0
+                        except Exception:
+                            pass
+                return {"ok": True, "total_due": total, "past_due": round(past, 2) if past else None}
+            debug[path] = {"keys": list(rows[0].keys())[:14]}
+        else:
+            debug[path] = {"type": type(data).__name__}
+    return {"ok": False, "error": "DK Tire balance not parsed (needs live tuning): " + _json.dumps(debug)[:380]}
+
+
 def fetch_supplier_balance(supplier: "Supplier", password: str) -> dict:
     """Dispatch to the right portal connector and return a balance snapshot dict."""
     name = (supplier.name or "").lower()
@@ -5047,6 +5162,11 @@ def fetch_supplier_balance(supplier: "Supplier", password: str) -> dict:
     if "bzo" in name or "tireguru" in purl or "bzowheel" in purl:
         return _fetch_tireguru_balance(
             supplier.portal_url or "https://bzowheelandtire.com",
+            supplier.portal_username, password,
+        )
+    if "hesselbein" in name or "south gateway" in name or "dktire" in purl or "dk tire" in name:
+        return _fetch_dktire_balance(
+            supplier.portal_url or "https://b2b.dktire.com/auth-signin",
             supplier.portal_username, password,
         )
     return {"ok": False, "error": f"Statement balance not yet supported for {supplier.name}"}

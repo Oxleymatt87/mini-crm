@@ -10,8 +10,10 @@ cd "$(dirname "$0")"
 
 echo ""
 echo "==> Getting the latest changes..."
-git checkout main >/dev/null 2>&1 || true
-git pull origin main
+# This phone is deploy-only (you never edit code here), so we just make the
+# folder match GitHub exactly. Avoids "divergent branches" errors completely.
+git fetch origin main
+git reset --hard origin/main
 
 echo ""
 echo "==> Publishing your app to the web..."

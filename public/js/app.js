@@ -76,9 +76,11 @@ async function loadAllData() {
       loadCustomers(),
       loadOrders(),
       loadSupplierCatalog(),
-      loadInvoices()
+      loadInvoices(),
+      loadSupplierBalances()
     ]);
     renderDashboard();
+    renderSupplierBalances();
     renderInventory();
     renderContacts();
     renderOrders();
@@ -123,6 +125,80 @@ async function loadOrders() {
 async function loadSupplierCatalog() {
   const snap = await db.collection('supplier_catalog').get();
   supplierCatalog = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+// ─── Accounts Payable (supplier balances) ───
+let supplierBalances = [];
+let supplierBalanceSummary = null;
+
+async function loadSupplierBalances() {
+  try {
+    const snap = await db.collection('supplier_balances').get();
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    supplierBalanceSummary = docs.find(d => d.id === '_summary') || null;
+    supplierBalances = docs.filter(d => !d.id.startsWith('_'));
+  } catch (err) {
+    console.error('Balance load error:', err);
+    supplierBalances = [];
+    supplierBalanceSummary = null;
+  }
+}
+
+function fmtMoney(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderSupplierBalances() {
+  const totalEl = document.getElementById('ap-total');
+  const pastEl = document.getElementById('ap-pastdue');
+  const listEl = document.getElementById('ap-list');
+  const updEl = document.getElementById('ap-updated');
+  if (!totalEl) return;
+  if (supplierBalanceSummary) {
+    totalEl.textContent = fmtMoney(supplierBalanceSummary.totalDue);
+    pastEl.textContent = fmtMoney(supplierBalanceSummary.totalPastDue);
+  }
+  if (!supplierBalances.length) {
+    listEl.innerHTML = '<div style="font-size:.8rem;color:var(--text2)">No balances yet — tap Refresh to pull from your supplier portals.</div>';
+  } else {
+    listEl.innerHTML = supplierBalances
+      .slice()
+      .sort((a, b) => (b.totalDue || 0) - (a.totalDue || 0))
+      .map(s => {
+        const hasErr = s.ok === false || s.error;
+        const past = (s.pastDue || 0) > 0
+          ? `<span style="color:var(--red)">${fmtMoney(s.pastDue)} past due</span>`
+          : '<span style="color:var(--text2)">current</span>';
+        const sub = hasErr
+          ? `<span style="color:var(--red)">${s.error || 'login error'}</span>`
+          : past;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border)">
+          <div><div style="font-weight:600">${s.supplier || s.id}</div>
+          <div style="font-size:.72rem">${sub}</div></div>
+          <div style="font-weight:700">${hasErr ? '' : fmtMoney(s.totalDue)}</div>
+        </div>`;
+      }).join('');
+  }
+  if (updEl) {
+    updEl.textContent = (supplierBalanceSummary && supplierBalanceSummary.updatedAt)
+      ? 'Updated ' + new Date(supplierBalanceSummary.updatedAt).toLocaleString() + ' · refreshes daily'
+      : '';
+  }
+}
+
+async function refreshSupplierBalances() {
+  const btn = document.getElementById('ap-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+  try {
+    await db.collection('supplier_balances').doc('_control')
+      .set({ requestedAt: new Date().toISOString() }, { merge: true });
+    toast('Refresh requested — balances update in a minute or two', 'success');
+  } catch (e) {
+    console.error('Balance refresh request failed:', e);
+    toast('Could not request refresh', 'error');
+  }
+  setTimeout(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }, 5000);
 }
 
 async function loadInvoices() {

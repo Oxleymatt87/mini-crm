@@ -69,6 +69,26 @@
         </div>
       </div>
 
+      <!-- ACCOUNTS PAYABLE -->
+      <div class="card" style="margin-top:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div class="card-title">Accounts Payable &mdash; what you owe suppliers</div>
+          <button class="btn btn-outline" id="ap-refresh-btn" onclick="refreshSupplierBalances()" style="padding:4px 10px;font-size:.8rem">&#8635; Refresh</button>
+        </div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;margin:10px 0 4px">
+          <div>
+            <div style="font-size:.7rem;color:var(--text2)">TOTAL DUE</div>
+            <div id="ap-total" class="card-value" style="color:var(--gold)">&mdash;</div>
+          </div>
+          <div>
+            <div style="font-size:.7rem;color:var(--text2)">PAST DUE</div>
+            <div id="ap-pastdue" class="card-value" style="color:var(--red)">&mdash;</div>
+          </div>
+        </div>
+        <div id="ap-list"></div>
+        <div id="ap-updated" style="font-size:.7rem;color:var(--text2);margin-top:6px"></div>
+      </div>
+
       <!-- SUPPLIERS -->
       <div class="card" style="margin-top:12px">
         <div class="card-title">Suppliers</div>

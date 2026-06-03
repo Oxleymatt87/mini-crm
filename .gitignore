@@ -20,3 +20,6 @@ firebase-debug.log
 
 # Node
 node_modules/
+
+# generated financial reports (contain private data)
+*.xlsx

@@ -326,6 +326,22 @@ class SupplierCatalog(Base):
 Index('ix_catalog_supplier_sku', SupplierCatalog.supplier_id, SupplierCatalog.sku)
 
 
+class SupplierBalance(Base):
+    """Latest accounts-payable snapshot scraped from a supplier's statement."""
+    __tablename__ = 'supplier_balances'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey('suppliers.id', ondelete='CASCADE'), index=True, unique=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    total_due: Mapped[Optional[float]] = mapped_column(Float)
+    past_due: Mapped[Optional[float]] = mapped_column(Float)
+    current_not_due: Mapped[Optional[float]] = mapped_column(Float)
+    aging_json: Mapped[Optional[str]] = mapped_column(Text)
+    statement_date: Mapped[Optional[str]] = mapped_column(String(20))
+    ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    checked_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
 OrderStatus = Enum('draft', 'submitted', 'confirmed', 'shipped', 'received', 'cancelled', name='order_status')
 
 
@@ -4892,6 +4908,379 @@ _refresh_lock = threading.Lock()
 _cron_last_run_date: Optional[dt.date] = None
 
 
+# =============================================================================
+# SUPPLIER ACCOUNTS-PAYABLE BALANCES (statement scraping)
+# =============================================================================
+import json as _json
+
+_balance_refresh_lock = threading.Lock()
+_balance_last_run_date: Optional[dt.date] = None
+_balance_last_control: Optional[str] = None
+_fb_token_cache: dict = {"token": None, "exp": 0.0}
+
+
+def _firebase_token_cached() -> str:
+    """Return a Firebase id token, cached ~50 min to avoid re-auth on every poll."""
+    now = time.time()
+    if _fb_token_cache["token"] and _fb_token_cache["exp"] > now:
+        return _fb_token_cache["token"]
+    token = get_firebase_auth_token()
+    _fb_token_cache["token"] = token
+    _fb_token_cache["exp"] = now + 3000  # 50 minutes
+    return token
+
+
+def _firestore_fields(d: dict) -> dict:
+    out = {}
+    for k, v in d.items():
+        if v is None:
+            out[k] = {"nullValue": None}
+        elif isinstance(v, bool):
+            out[k] = {"booleanValue": v}
+        elif isinstance(v, int):
+            out[k] = {"integerValue": str(v)}
+        elif isinstance(v, float):
+            out[k] = {"doubleValue": v}
+        else:
+            out[k] = {"stringValue": str(v)}
+    return out
+
+
+def _firestore_patch(token: str, path: str, data: dict) -> None:
+    """Upsert a Firestore document by path via REST PATCH."""
+    requests.patch(
+        f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/{path}",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"fields": _firestore_fields(data)},
+        timeout=30,
+    )
+
+
+def _money_to_float(s: str) -> Optional[float]:
+    try:
+        return float(s.replace("$", "").replace(",", "").replace(" ", ""))
+    except Exception:
+        return None
+
+
+def _parse_tireguru_statement_pdf(pdf_bytes: bytes) -> dict:
+    """Extract Total Due + aging buckets from a TireGuru statement PDF."""
+    from pypdf import PdfReader
+    text = ""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    for page in reader.pages:
+        text += (page.extract_text() or "") + "\n"
+
+    out: dict = {"ok": False}
+    m = re.search(r"Total Due[:\s]*\$?\s*(-?[\d,]+\.\d{2})", text, re.I)
+    total = _money_to_float(m.group(1)) if m else None
+
+    m2 = re.search(r"Cut\s*Off\s*Date\D{0,5}(\d{1,2}/\d{1,2}/\d{2,4})", text, re.I)
+    out["statement_date"] = m2.group(1) if m2 else None
+
+    # Aging summary: the 7 amounts following the "1-30 ... Total Due" header row.
+    # PDF text extraction can reorder columns, so only trust the buckets if the
+    # row's last value matches the header Total Due (otherwise just report total).
+    idx = text.rfind("1-30")
+    if idx != -1:
+        nums = re.findall(r"-?\$?\s*-?[\d,]+\.\d{2}", text[idx:idx + 400])
+        vals = [_money_to_float(n) for n in nums[:7]]
+        if len([v for v in vals if v is not None]) >= 7:
+            ag = dict(zip(["1-30", "future", "30+", "60+", "90+", "120+", "total"], vals))
+            if total is None:
+                total = ag["total"]
+            if total is not None and abs((ag["total"] or 0) - total) < 0.01:
+                out["aging"] = {k: ag.get(k) for k in ["1-30", "future", "30+", "60+", "90+", "120+"]}
+                out["past_due"] = round(sum(v for v in [ag["30+"], ag["60+"], ag["90+"], ag["120+"]] if v), 2)
+                out["current_not_due"] = round(sum(v for v in [ag["1-30"], ag["future"]] if v), 2)
+
+    out["total_due"] = total
+    out["ok"] = total is not None
+    if not out["ok"]:
+        out["error"] = "Could not read Total Due from statement PDF"
+    return out
+
+
+def _fetch_tireguru_balance(portal_url: str, username: str, password: str) -> dict:
+    """Log into a TireGuru dealer portal and read the current statement balance."""
+    import urllib.parse as _up
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+    home_url = portal_url or "https://bzowheelandtire.com"
+    home = session.get(home_url, timeout=30)
+    soup = BeautifulSoup(home.text, "lxml")
+    server_field = soup.find("input", {"name": "server"})
+    from_field = soup.find("input", {"name": "from"})
+    server_value = server_field.get("value", "") if server_field else ""
+    from_value = from_field.get("value", "") if from_field else ""
+    if not from_value:
+        return {"ok": False, "error": "Could not find TireGuru company id on portal login page"}
+    base = f"https://{from_value}.tireguru.net"
+    session.post(
+        f"{base}/checkLogin.php",
+        data={"server": server_value, "from": from_value, "username": username, "password": password},
+        timeout=30, allow_redirects=True,
+    )
+    stmt = session.get(f"{base}/reports/statement", timeout=60)
+    low = stmt.text.lower()
+    if "logout" not in low and "sign out" not in low:
+        return {"ok": False, "error": "Login failed — check the portal username/password"}
+    pdf_url = None
+    mm = re.search(r'viewer\.html\?file=([^"&\']+)', stmt.text)
+    if mm:
+        pdf_url = _up.unquote(mm.group(1))
+    if not pdf_url:
+        mm2 = re.search(r'(https://[^"\' )]*tireguru\.net/[^"\' )]+\.pdf)', stmt.text)
+        pdf_url = mm2.group(1) if mm2 else None
+    if not pdf_url:
+        return {"ok": False, "error": "Statement PDF link not found on portal"}
+    pdf_resp = session.get(pdf_url, timeout=60)
+    if pdf_resp.status_code != 200 or pdf_resp.content[:4] != b"%PDF":
+        return {"ok": False, "error": f"Could not download statement PDF (HTTP {pdf_resp.status_code})"}
+    return _parse_tireguru_statement_pdf(pdf_resp.content)
+
+
+def _dktire_login(username: str, password: str) -> tuple:
+    """Playwright sign-in to b2b.dktire.com. Returns (access_token, token_type)."""
+    from playwright.sync_api import sync_playwright
+    import time as _t
+    access_token = None
+    token_type = "Bearer"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        try:
+            ctx = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            page = ctx.new_page()
+            page.goto("https://b2b.dktire.com/auth-signin", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            _t.sleep(3)
+            for sel in ['input[type="text"]', 'input[name="username"]', 'input[name="account"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(username)
+                        break
+                except Exception:
+                    continue
+            for sel in ['input[type="password"]', 'input[name="password"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.fill(password)
+                        break
+                except Exception:
+                    continue
+            for sel in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Login")', '.btn-primary']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=2000):
+                        loc.click()
+                        break
+                except Exception:
+                    continue
+            _t.sleep(5)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            auth_json = page.evaluate("() => localStorage.getItem('authUser')")
+            if auth_json:
+                ad = _json.loads(auth_json)
+                access_token = ad.get("access_token")
+                token_type = ad.get("token_type", "Bearer")
+        finally:
+            browser.close()
+    return access_token, token_type
+
+
+def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict:
+    """Read accounts-payable balance from the DK Tire B2B API (Hesselbein, South Gateway).
+    Sums open/unpaid invoice balances (balance_amt). API param shape is tuned on first
+    live run — the error string carries the raw response shape for quick fixing."""
+    try:
+        access_token, token_type = _dktire_login(username, password)
+    except Exception as e:
+        return {"ok": False, "error": f"DK Tire login error: {e}"}
+    if not access_token:
+        return {"ok": False, "error": "DK Tire login failed (no auth token)"}
+
+    api = "https://api-b2b.dktire.com"
+    headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
+
+    ship_to = ""
+    try:
+        ud = requests.get(f"{api}/master/user-details", headers=headers, timeout=30)
+        if ud.status_code == 200:
+            st = ud.json().get("ship_to", [])
+            if isinstance(st, list) and st:
+                ship_to = st[0].get("value", "") if isinstance(st[0], dict) else str(st[0])
+    except Exception:
+        pass
+
+    today = dt.date.today()
+    debug = {}
+    candidates = [
+        ("/order/get-open-invoice-list", {"ship_to": ship_to}),
+        ("/order/get-open-invoice-list", {"ship_from": ship_to}),
+        ("/order/get-invoice-list", {"ship_from": ship_to, "from_date": f"{today.year - 1}-01-01", "to_date": f"{today.year}-12-31"}),
+    ]
+    for path, params in candidates:
+        try:
+            r = requests.get(f"{api}{path}", headers=headers, params=params, timeout=45)
+        except Exception as e:
+            debug[path] = f"req error: {e}"
+            continue
+        if r.status_code != 200:
+            debug[path] = f"HTTP {r.status_code}"
+            continue
+        try:
+            data = r.json()
+        except Exception:
+            debug[path] = "non-json"
+            continue
+        rows = data if isinstance(data, list) else (data.get("data") or data.get("rows") or [])
+        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+            if any("balance_amt" in x for x in rows):
+                total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
+                past = 0.0
+                for x in rows:
+                    dd = x.get("due_date") or x.get("net_due_date")
+                    if dd:
+                        try:
+                            if dt.date.fromisoformat(str(dd)[:10]) < today:
+                                past += x.get("balance_amt") or 0
+                        except Exception:
+                            pass
+                return {"ok": True, "total_due": total, "past_due": round(past, 2) if past else None}
+            debug[path] = {"keys": list(rows[0].keys())[:14]}
+        else:
+            debug[path] = {"type": type(data).__name__}
+    return {"ok": False, "error": "DK Tire balance not parsed (needs live tuning): " + _json.dumps(debug)[:380]}
+
+
+def fetch_supplier_balance(supplier: "Supplier", password: str) -> dict:
+    """Dispatch to the right portal connector and return a balance snapshot dict."""
+    name = (supplier.name or "").lower()
+    purl = (supplier.portal_url or "").lower()
+    if "bzo" in name or "tireguru" in purl or "bzowheel" in purl:
+        return _fetch_tireguru_balance(
+            supplier.portal_url or "https://bzowheelandtire.com",
+            supplier.portal_username, password,
+        )
+    if "hesselbein" in name or "south gateway" in name or "dktire" in purl or "dk tire" in name:
+        return _fetch_dktire_balance(
+            supplier.portal_url or "https://b2b.dktire.com/auth-signin",
+            supplier.portal_username, password,
+        )
+    return {"ok": False, "error": f"Statement balance not yet supported for {supplier.name}"}
+
+
+def _upsert_supplier_balance(db, supplier, bal: dict) -> None:
+    row = db.query(SupplierBalance).filter(SupplierBalance.supplier_id == supplier.id).first()
+    if not row:
+        row = SupplierBalance(supplier_id=supplier.id, owner_id=supplier.owner_id)
+        db.add(row)
+    row.total_due = bal.get("total_due")
+    row.past_due = bal.get("past_due")
+    row.current_not_due = bal.get("current_not_due")
+    row.aging_json = _json.dumps(bal.get("aging") or {})
+    row.statement_date = bal.get("statement_date")
+    row.ok = bool(bal.get("ok"))
+    row.error = bal.get("error")
+    row.checked_at = dt.datetime.utcnow()
+    db.commit()
+
+
+def _push_balances_to_firestore(db, owner_id: Optional[int] = None) -> None:
+    """Write per-supplier balance docs + a _summary doc so the dashboard can read them."""
+    try:
+        token = _firebase_token_cached()
+    except Exception as e:
+        print(f"[balances] firebase auth failed: {e}")
+        return
+    q = db.query(SupplierBalance, Supplier).join(Supplier, SupplierBalance.supplier_id == Supplier.id)
+    if owner_id is not None:
+        q = q.filter(SupplierBalance.owner_id == owner_id)
+    total = 0.0
+    total_past = 0.0
+    count = 0
+    for bal, sup in q.all():
+        count += 1
+        td = bal.total_due or 0.0
+        pd = bal.past_due or 0.0
+        if bal.ok:
+            total += td
+            total_past += pd
+        doc_id = (sup.code or sup.name or str(sup.id)).replace("/", "_").replace(" ", "_")
+        _firestore_patch(token, f"supplier_balances/{doc_id}", {
+            "supplier": sup.name or "",
+            "code": sup.code or "",
+            "portalUrl": sup.portal_url or "",
+            "totalDue": float(td),
+            "pastDue": float(pd),
+            "ok": bool(bal.ok),
+            "error": bal.error or "",
+            "statementDate": bal.statement_date or "",
+            "checkedAt": (bal.checked_at or dt.datetime.utcnow()).isoformat(),
+        })
+    _firestore_patch(token, "supplier_balances/_summary", {
+        "totalDue": float(round(total, 2)),
+        "totalPastDue": float(round(total_past, 2)),
+        "supplierCount": count,
+        "updatedAt": dt.datetime.utcnow().isoformat(),
+    })
+
+
+def _do_balance_refresh(owner_id: Optional[int] = None) -> dict:
+    """Scrape statement balances for all active suppliers with credentials."""
+    if not _balance_refresh_lock.acquire(blocking=False):
+        return {"status": "already_running"}
+    results: dict = {}
+    try:
+        db = SessionLocal()
+        try:
+            q = db.query(Supplier).filter(
+                Supplier.portal_username.isnot(None),
+                Supplier.portal_password_encrypted.isnot(None),
+                Supplier.is_active == True,
+            )
+            if owner_id is not None:
+                q = q.filter(Supplier.owner_id == owner_id)
+            for supplier in q.all():
+                try:
+                    password = _simple_decrypt(supplier.portal_password_encrypted)
+                    bal = fetch_supplier_balance(supplier, password)
+                except Exception as exc:
+                    bal = {"ok": False, "error": str(exc)}
+                _upsert_supplier_balance(db, supplier, bal)
+                results[supplier.code or supplier.name] = {
+                    "ok": bal.get("ok"), "total_due": bal.get("total_due"), "error": bal.get("error"),
+                }
+            _push_balances_to_firestore(db, owner_id)
+        finally:
+            db.close()
+    finally:
+        _balance_refresh_lock.release()
+    return results
+
+
+def _check_balance_control_doc() -> None:
+    """If the dashboard requested a refresh (Firestore control doc), run one."""
+    global _balance_last_control
+    try:
+        token = _firebase_token_cached()
+        resp = requests.get(
+            f"https://firestore.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/databases/(default)/documents/supplier_balances/_control",
+            headers={"Authorization": f"Bearer {token}"}, timeout=20,
+        )
+        if resp.status_code != 200:
+            return
+        requested = resp.json().get("fields", {}).get("requestedAt", {}).get("stringValue")
+        if requested and requested != _balance_last_control:
+            _balance_last_control = requested
+            print("[balances] manual refresh requested from dashboard")
+            _do_balance_refresh()
+    except Exception as e:
+        print(f"[balances] control check error: {e}")
+
+
 def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
     """Scrape BZO, Hesselbein, ATD, K&M, South Gateway, and Mekaniq and upsert into supplier_catalog.
     Pass owner_id to scope to one user; None refreshes all users.
@@ -4937,11 +5326,13 @@ def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
 
 
 def _stock_cron_thread() -> None:
-    """Daemon thread: refresh supplier catalogs every Monday at 05:00 Central (UTC-6)."""
-    global _cron_last_run_date
+    """Daemon thread: weekly catalog refresh (Mon 05:00 Central), daily supplier
+    balance refresh (05:00 Central), and ~2-min polling for dashboard-requested
+    balance refreshes."""
+    global _cron_last_run_date, _balance_last_run_date
     while True:
         try:
-            # Approximate Central time as UTC-6 (ignores DST — fine for a weekly job)
+            # Approximate Central time as UTC-6 (ignores DST — fine for these jobs)
             now_central = dt.datetime.utcnow() - dt.timedelta(hours=6)
             if (
                 now_central.weekday() == 0  # Monday
@@ -4952,9 +5343,15 @@ def _stock_cron_thread() -> None:
                 print("Stock cron: starting weekly catalog refresh...")
                 result = _do_full_catalog_refresh()
                 print(f"Stock cron: done — {result}")
+            if now_central.hour == 5 and _balance_last_run_date != now_central.date():
+                _balance_last_run_date = now_central.date()
+                print("Balance cron: starting daily supplier balance refresh...")
+                print(f"Balance cron: done — {_do_balance_refresh()}")
+            # Poll for a manual refresh requested from the dashboard
+            _check_balance_control_doc()
         except Exception as e:
             print(f"Stock cron error: {e}")
-        time.sleep(1800)  # check every 30 minutes
+        time.sleep(120)  # check every 2 minutes
 
 
 @app.post("/stock/refresh-all")
@@ -5033,6 +5430,56 @@ def get_hesselbein_stock(
         for r in rows
     ]
     return {"supplier": "Hesselbein", "tires": tires, "total": len(tires), "last_updated": last_updated}
+
+
+# =============================================================================
+# SUPPLIER BALANCES — accounts payable (what you owe each supplier)
+# =============================================================================
+
+@app.get("/suppliers/balances")
+def get_supplier_balances(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the latest scraped statement balance per supplier, plus totals."""
+    rows = (
+        db.query(SupplierBalance, Supplier)
+        .join(Supplier, SupplierBalance.supplier_id == Supplier.id)
+        .filter(SupplierBalance.owner_id == current_user.id)
+        .all()
+    )
+    suppliers = []
+    total = 0.0
+    total_past = 0.0
+    for bal, sup in rows:
+        if bal.ok:
+            total += bal.total_due or 0.0
+            total_past += bal.past_due or 0.0
+        suppliers.append({
+            "supplier": sup.name,
+            "code": sup.code,
+            "portal_url": sup.portal_url,
+            "total_due": bal.total_due,
+            "past_due": bal.past_due,
+            "current_not_due": bal.current_not_due,
+            "aging": _json.loads(bal.aging_json or "{}"),
+            "statement_date": bal.statement_date,
+            "ok": bal.ok,
+            "error": bal.error,
+            "checked_at": bal.checked_at.isoformat() if bal.checked_at else None,
+        })
+    return {
+        "suppliers": suppliers,
+        "total_due": round(total, 2),
+        "total_past_due": round(total_past, 2),
+        "count": len(suppliers),
+    }
+
+
+@app.post("/suppliers/refresh-balances")
+def refresh_supplier_balances(current_user: User = Depends(get_current_user)):
+    """Scrape every active supplier's statement balance now (takes ~1-2 minutes)."""
+    return _do_balance_refresh(owner_id=current_user.id)
 
 
 # =============================================================================

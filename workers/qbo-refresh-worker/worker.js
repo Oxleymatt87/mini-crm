@@ -1269,6 +1269,7 @@ async function createPlaidLinkToken(env, corsHeaders) {
       language: 'en',
       user: { client_user_id: 'oxley-matt' },
       products: ['transactions'],
+      transactions: { days_requested: 730 },
       redirect_uri: 'https://inventory-setup-b3f20.web.app/connect-chase.html'
     })
   });

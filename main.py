@@ -5622,35 +5622,50 @@ def _scrape_dktire_costs(supplier_name, portal_url, username, password):
         except Exception:
             pass
     debug["invoices"] = len(invoices)
-    if invoices:
-        debug["invoice_keys"] = list(invoices[0][1].keys())[:18]
+    # newest first; cap to bound runtime (cost/tire is stable, recent invoices suffice)
+    invoices.sort(key=lambda t: str(t[1].get("invoice_date") or ""), reverse=True)
+    invoices = invoices[:40]
+    from pypdf import PdfReader
+    # ORD  SHIP  B/O  ITEM-NO  SIZE  PLY/desc...  PRICE  FET  EXT
+    line_re = re.compile(r'^\s*-?\d+\s+(-?\d+)\s+-?\d+\s+(\d{3,})\s+(\S+/\S+)\s+(.+?)\s+(\d+\.\d{2})\s+\d+\.\d{2}\s+-?[\d,]+\.\d{2}\s*$')
+    costs = {}
+    parsed = 0
+    sample = None
+    for sf, iv in invoices:
+        pdf_ref = iv.get("invoice_pdf")
+        inv_date = str(iv.get("invoice_date") or "")[:10]
+        if not pdf_ref:
+            continue
         try:
-            sf, iv = invoices[0]
-            pdf_ref = iv.get("invoice_pdf") or ""
-            debug["invoice_pdf_sample"] = str(pdf_ref)[:140]
-            pr = None
-            if pdf_ref:
-                url = pdf_ref if str(pdf_ref).startswith("http") else (api + pdf_ref if str(pdf_ref).startswith("/") else f"{api}/{pdf_ref}")
-                # presigned S3 URLs carry their own auth; the API bearer header makes S3 400
-                pr = requests.get(url, timeout=45) if "amazonaws.com" in str(url) else requests.get(url, headers=headers, timeout=45)
-                debug["pdf_url_status"] = pr.status_code
-            if pr is None or pr.status_code != 200 or pr.content[:4] != b"%PDF":
-                pr = requests.get(f"{api}/order/download-invoice-pdf", headers=headers,
-                                  params={"invoice_id": iv.get("invoice_id"), "ship_from": sf}, timeout=45)
-                debug["pdf_get_status"] = pr.status_code
-            if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                from pypdf import PdfReader
-                txt = ""
-                for p in PdfReader(io.BytesIO(pr.content)).pages:
-                    try:
-                        txt += p.extract_text(extraction_mode="layout") + "\n"
-                    except Exception:
-                        txt += (p.extract_text() or "") + "\n"
-                debug["pdf_text"] = txt[:4000]
-            else:
-                debug["pdf_body"] = pr.text[:160]
-        except Exception as e:
-            debug["pdf_error"] = str(e)[:160]
+            pr = requests.get(pdf_ref, timeout=40) if "amazonaws" in str(pdf_ref) else requests.get(pdf_ref, headers=headers, timeout=40)
+            if pr.status_code != 200 or pr.content[:4] != b"%PDF":
+                continue
+            txt = ""
+            for p in PdfReader(io.BytesIO(pr.content)).pages:
+                try:
+                    txt += p.extract_text(extraction_mode="layout") + "\n"
+                except Exception:
+                    txt += (p.extract_text() or "") + "\n"
+        except Exception:
+            continue
+        parsed += 1
+        for line in txt.splitlines():
+            m = line_re.match(line)
+            if not m:
+                continue
+            if sample is None:
+                sample = line.strip()[:90]
+            ship = int(m.group(1)); sku = m.group(2); size = m.group(3); desc = m.group(4).strip(); price = float(m.group(5))
+            c = costs.setdefault(sku, {"size": size, "desc": desc, "qty": 0, "cost": None, "last": ""})
+            c["qty"] += ship
+            if inv_date >= c["last"]:
+                c["last"] = inv_date; c["cost"] = price; c["size"] = size; c["desc"] = desc
+    for sku, v in costs.items():
+        rows.append({"supplier": supplier_name, "sku": sku, "size": v["size"], "desc": v["desc"][:60],
+                     "qty": v["qty"], "cost": v["cost"], "spend": round((v["cost"] or 0) * v["qty"], 2), "lastDate": v["last"]})
+    debug["invoices_parsed"] = parsed
+    debug["skus"] = len(rows)
+    debug["sample"] = sample
     return rows, debug
 
 

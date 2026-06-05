@@ -17,7 +17,7 @@ git reset --hard origin/main
 
 echo ""
 echo "==> Publishing your app to the web..."
-firebase deploy --only hosting --project inventory-setup-b3f20
+firebase deploy --only hosting,firestore:rules --project inventory-setup-b3f20
 
 echo ""
 echo "====================================================================="

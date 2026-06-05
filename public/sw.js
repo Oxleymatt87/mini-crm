@@ -9,7 +9,7 @@
 //   3. Stay out of the way of dynamic data: Firestore, auth, and the
 //      session-token Google 3D tile fetches must always go to network.
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `territory-xr-${VERSION}`;
 
 // Same-origin shell. Listed individually so install() fails loudly if
@@ -75,11 +75,39 @@ function isDynamic(url) {
   );
 }
 
+// App code (HTML pages + our JS/CSS) must always reflect the latest deploy,
+// so use network-first with cache only as an offline fallback.
+function isAppCode(url) {
+  return url.origin === self.location.origin && (
+    url.pathname === '/' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.startsWith('/js/') ||
+    url.pathname.startsWith('/css/')
+  );
+}
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (isDynamic(url)) return; // let the network handle it
+
+  if (req.mode === 'navigate' || isAppCode(url)) {
+    event.respondWith((async () => {
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) {
+          const cache = await caches.open(CACHE);
+          cache.put(req, res.clone()).catch(() => {});
+        }
+        return res;
+      } catch (_) {
+        const cache = await caches.open(CACHE);
+        return (await cache.match(req)) || (await cache.match('/index.html'));
+      }
+    })());
+    return;
+  }
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);

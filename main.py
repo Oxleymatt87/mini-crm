@@ -5646,7 +5646,7 @@ def _scrape_dktire_costs(supplier_name, portal_url, username, password):
                         txt += p.extract_text(extraction_mode="layout") + "\n"
                     except Exception:
                         txt += (p.extract_text() or "") + "\n"
-                debug["pdf_text"] = txt[:1400]
+                debug["pdf_text"] = txt[:4000]
             else:
                 debug["pdf_body"] = pr.text[:160]
         except Exception as e:

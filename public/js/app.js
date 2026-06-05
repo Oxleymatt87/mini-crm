@@ -170,9 +170,12 @@ function renderSupplierBalances() {
         const past = (s.pastDue || 0) > 0
           ? `<span style="color:var(--red)">${fmtMoney(s.pastDue)} past due</span>`
           : '<span style="color:var(--text2)">current</span>';
+        const avail = (s.creditLimit || 0) > 0
+          ? ` &middot; <span style="color:var(--text2)">${fmtMoney(s.creditLimit - (s.totalDue || 0))} credit left</span>`
+          : '';
         const sub = hasErr
           ? `<span style="color:var(--red)">${s.error || 'login error'}</span>`
-          : past;
+          : past + avail;
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border)">
           <div><div style="font-weight:600">${s.supplier || s.id}</div>
           <div style="font-size:.72rem">${sub}</div></div>

@@ -46,6 +46,11 @@ _load_env_file()
 JWT_SECRET = os.getenv('JWT_SECRET', 'change-this-in-production')
 JWT_ALG = 'HS256'
 JWT_EXPIRE_MIN = int(os.getenv('JWT_EXPIRE_MIN', '1440'))
+# Firebase account password — set FIREBASE_PASSWORD in the environment to rotate
+# without code changes (falls back to the legacy value so nothing breaks).
+FIREBASE_PASSWORD = os.getenv('FIREBASE_PASSWORD', 'Silver28!!')
+
+
 def _load_database_url() -> str:
     """Resolve the DB URL. The env var wins, except the known-dead Render free
     database is ignored in favour of a connection string kept in Firestore
@@ -59,7 +64,7 @@ def _load_database_url() -> str:
             key = "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E"
             tok = requests.post(
                 f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={key}",
-                json={"email": "moxley@oxleytireinc.com", "password": "Silver28!!", "returnSecureToken": True},
+                json={"email": "moxley@oxleytireinc.com", "password": FIREBASE_PASSWORD, "returnSecureToken": True},
                 timeout=15,
             ).json().get("idToken")
             r = requests.get(
@@ -2702,7 +2707,7 @@ def sync_firebase_inventory(
         f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}",
         json={
             "email": "moxley@oxleytireinc.com",
-            "password": "Silver28!!",
+            "password": FIREBASE_PASSWORD,
             "returnSecureToken": True
         },
         timeout=30
@@ -3360,7 +3365,7 @@ def get_firebase_auth_token() -> str:
         f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}",
         json={
             "email": "moxley@oxleytireinc.com",
-            "password": "Silver28!!",
+            "password": FIREBASE_PASSWORD,
             "returnSecureToken": True
         },
         timeout=30

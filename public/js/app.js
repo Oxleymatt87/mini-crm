@@ -254,12 +254,16 @@ function renderCosts() {
 
 async function refreshTireCosts() {
   const btn = document.getElementById('cost-refresh-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing… (few min)'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Reading orders… ~5 min'; }
+  toast('Reading your supplier order history — this takes about 5 minutes. Keep the app open.', 'success');
   try {
-    await fetch(`${AP_BACKEND}/cost-refresh?secret=${AP_SECRET}`).catch(() => {});
-    toast('Pulling your order history — takes a few minutes. Reload the tab shortly.', 'success');
-  } catch (e) {}
-  setTimeout(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh costs'; } }, 5000);
+    // synchronous so the scrape completes even on a sleepy free-tier backend
+    await fetch(`${AP_BACKEND}/cost-refresh?secret=${AP_SECRET}&background=0`).catch(() => {});
+  } finally {
+    await loadTireCosts();
+    renderCosts();
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh costs'; }
+  }
 }
 
 async function loadInvoices() {

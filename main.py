@@ -5007,14 +5007,22 @@ def _fetch_tireguru_balance(portal_url: str, username: str, password: str) -> di
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
     home_url = portal_url or "https://bzowheelandtire.com"
-    home = session.get(home_url, timeout=30)
-    soup = BeautifulSoup(home.text, "lxml")
-    server_field = soup.find("input", {"name": "server"})
-    from_field = soup.find("input", {"name": "from"})
-    server_value = server_field.get("value", "") if server_field else ""
-    from_value = from_field.get("value", "") if from_field else ""
+    server_value, from_value = "", ""
+    try:
+        home = session.get(home_url, timeout=30)
+        soup = BeautifulSoup(home.text, "lxml")
+        server_field = soup.find("input", {"name": "server"})
+        from_field = soup.find("input", {"name": "from"})
+        server_value = server_field.get("value", "") if server_field else ""
+        from_value = from_field.get("value", "") if from_field else ""
+    except Exception:
+        pass
+    # Fallbacks: BZO's TireGuru company is known, so this works even if the
+    # marketing homepage blocks the server (e.g. bot protection on the datacenter IP).
     if not from_value:
-        return {"ok": False, "error": "Could not find TireGuru company id on portal login page"}
+        from_value = "davestire"
+    if not server_value:
+        server_value = "TG3"
     base = f"https://{from_value}.tireguru.net"
     session.post(
         f"{base}/checkLogin.php",
@@ -5103,56 +5111,76 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
 
     api = "https://api-b2b.dktire.com"
     headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
+    debug = {}
 
-    ship_to = ""
+    # ship_to options from user-details
+    ship_tos = []
     try:
         ud = requests.get(f"{api}/master/user-details", headers=headers, timeout=30)
+        debug["user-details"] = f"{ud.status_code}:{ud.text[:160]}"
         if ud.status_code == 200:
             st = ud.json().get("ship_to", [])
-            if isinstance(st, list) and st:
-                ship_to = st[0].get("value", "") if isinstance(st[0], dict) else str(st[0])
-    except Exception:
-        pass
+            if isinstance(st, list):
+                for x in st:
+                    v = x.get("value") if isinstance(x, dict) else x
+                    if v:
+                        ship_tos.append(v)
+    except Exception as e:
+        debug["user-details"] = f"err {e}"
+    ship_to = ship_tos[0] if ship_tos else ""
+    year = dt.date.today().year
 
-    today = dt.date.today()
-    debug = {}
-    candidates = [
-        ("/order/get-open-invoice-list", {"ship_to": ship_to}),
-        ("/order/get-open-invoice-list", {"ship_from": ship_to}),
-        ("/order/get-invoice-list", {"ship_from": ship_to, "from_date": f"{today.year - 1}-01-01", "to_date": f"{today.year}-12-31"}),
-    ]
-    for path, params in candidates:
+    def _try(path, params):
         try:
             r = requests.get(f"{api}{path}", headers=headers, params=params, timeout=45)
         except Exception as e:
-            debug[path] = f"req error: {e}"
-            continue
+            debug[f"{path} {list(params)}"] = f"err {e}"
+            return None
+        debug[f"{path} {list(params)}"] = f"{r.status_code}:{r.text[:220]}"
         if r.status_code != 200:
-            debug[path] = f"HTTP {r.status_code}"
-            continue
+            return None
         try:
-            data = r.json()
+            return r.json()
         except Exception:
-            debug[path] = "non-json"
-            continue
-        rows = data if isinstance(data, list) else (data.get("data") or data.get("rows") or [])
-        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
-            if any("balance_amt" in x for x in rows):
-                total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
-                past = 0.0
-                for x in rows:
-                    dd = x.get("due_date") or x.get("net_due_date")
-                    if dd:
-                        try:
-                            if dt.date.fromisoformat(str(dd)[:10]) < today:
-                                past += x.get("balance_amt") or 0
-                        except Exception:
-                            pass
-                return {"ok": True, "total_due": total, "past_due": round(past, 2) if past else None}
-            debug[path] = {"keys": list(rows[0].keys())[:14]}
-        else:
-            debug[path] = {"type": type(data).__name__}
-    return {"ok": False, "error": "DK Tire balance not parsed (needs live tuning): " + _json.dumps(debug)[:380]}
+            return None
+
+    def _rows(data):
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("data") or data.get("rows") or data.get("result") or []
+        return []
+
+    # 1) Statement: closing_balance of the latest period = current balance owed
+    for params in ({"ship_to": ship_to, "year": year}, {"ship_to": ship_to}, {"shipTo": ship_to, "year": year}):
+        rows = _rows(_try("/statement/get-statement-by-year", params))
+        cb = [r.get("closing_balance") for r in rows if isinstance(r, dict) and r.get("closing_balance") is not None]
+        if cb:
+            return {"ok": True, "total_due": round(float(cb[-1]), 2),
+                    "statement_date": str(rows[-1].get("statement_date") or rows[-1].get("date") or "")}
+
+    # 2) Open invoices: sum balance_amt
+    today = dt.date.today()
+    for path, params in (
+        ("/order/get-open-invoice-list", {"ship_to": ship_to}),
+        ("/order/get-open-invoice-list", {"ship_from": ship_to}),
+        ("/order/get-open-invoice-list", {"ship_to": ship_to, "ship_from": ship_to}),
+    ):
+        rows = _rows(_try(path, params))
+        if rows and isinstance(rows[0], dict) and any("balance_amt" in x for x in rows):
+            total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
+            past = 0.0
+            for x in rows:
+                dd = x.get("due_date") or x.get("net_due_date")
+                if dd:
+                    try:
+                        if dt.date.fromisoformat(str(dd)[:10]) < today:
+                            past += x.get("balance_amt") or 0
+                    except Exception:
+                        pass
+            return {"ok": True, "total_due": total, "past_due": round(past, 2) if past else None}
+
+    return {"ok": False, "error": "DK Tire not parsed: " + _json.dumps(debug)[:1400]}
 
 
 def fetch_supplier_balance(supplier: "Supplier", password: str) -> dict:
@@ -5337,7 +5365,7 @@ def _do_balance_refresh_direct() -> dict:
                     bal = {"ok": False, "error": "unknown portal type"}
             except Exception as e:
                 bal = {"ok": False, "error": str(e)}
-            results[s["code"]] = {"ok": bal.get("ok"), "total_due": bal.get("total_due"), "error": (bal.get("error") or "")[:200]}
+            results[s["code"]] = {"ok": bal.get("ok"), "total_due": bal.get("total_due"), "error": bal.get("error")}
             items.append((s, bal))
         try:
             _push_balances_firestore_direct(items)

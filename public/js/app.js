@@ -187,18 +187,21 @@ function renderSupplierBalances() {
   }
 }
 
+const AP_BACKEND = 'https://mini-crm-api-kab0.onrender.com';
+const AP_SECRET = 'oxley-ap-7Zxz';
+
 async function refreshSupplierBalances() {
   const btn = document.getElementById('ap-refresh-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing… (up to a minute)'; }
+  toast('Pulling balances from your supplier portals…', 'success');
   try {
-    await db.collection('supplier_balances').doc('_control')
-      .set({ requestedAt: new Date().toISOString() }, { merge: true });
-    toast('Refresh requested — balances update in a minute or two', 'success');
-  } catch (e) {
-    console.error('Balance refresh request failed:', e);
-    toast('Could not request refresh', 'error');
+    // Direct synchronous trigger: wakes the backend and scrapes on the spot.
+    await fetch(`${AP_BACKEND}/suppliers/refresh-balances-now?secret=${AP_SECRET}`).catch(() => {});
+  } finally {
+    await loadSupplierBalances();
+    renderSupplierBalances();
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
   }
-  setTimeout(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; } }, 5000);
 }
 
 async function loadInvoices() {

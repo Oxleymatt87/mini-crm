@@ -5482,6 +5482,19 @@ def refresh_supplier_balances(current_user: User = Depends(get_current_user)):
     return _do_balance_refresh(owner_id=current_user.id)
 
 
+BALANCE_REFRESH_SECRET = "oxley-ap-7Zxz"
+
+
+@app.get("/suppliers/refresh-balances-now")
+def refresh_balances_now(secret: str = Query("")):
+    """Synchronous balance refresh the dashboard can call directly (no JWT).
+    Wakes the backend and scrapes on the spot. Protected by a shared secret;
+    only ever touches the owner's own configured suppliers."""
+    if secret != BALANCE_REFRESH_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return _do_balance_refresh()
+
+
 # =============================================================================
 # QUICKBOOKS INVOICES
 # =============================================================================

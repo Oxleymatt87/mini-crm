@@ -4972,27 +4972,32 @@ def _parse_tireguru_statement_pdf(pdf_bytes: bytes) -> dict:
         text += (page.extract_text() or "") + "\n"
 
     out: dict = {"ok": False}
-    m = re.search(r"Total Due[:\s]*\$?\s*(-?[\d,]+\.\d{2})", text, re.I)
-    total = _money_to_float(m.group(1)) if m else None
-
     m2 = re.search(r"Cut\s*Off\s*Date\D{0,5}(\d{1,2}/\d{1,2}/\d{2,4})", text, re.I)
     out["statement_date"] = m2.group(1) if m2 else None
 
-    # Aging summary: the 7 amounts following the "1-30 ... Total Due" header row.
-    # PDF text extraction can reorder columns, so only trust the buckets if the
-    # row's last value matches the header Total Due (otherwise just report total).
+    # The aging summary row holds 6 buckets + a Total Due column:
+    #   1-30  Future  30+  60+  90+  120+   Total Due
+    # Total Due == the sum of the 6 buckets, which is order-independent — so we
+    # sum the buckets rather than trusting column position (PDF text extraction
+    # frequently reorders the header "Total Due:" away from its value).
+    total = None
     idx = text.rfind("1-30")
     if idx != -1:
         nums = re.findall(r"-?\$?\s*-?[\d,]+\.\d{2}", text[idx:idx + 400])
-        vals = [_money_to_float(n) for n in nums[:7]]
-        if len([v for v in vals if v is not None]) >= 7:
-            ag = dict(zip(["1-30", "future", "30+", "60+", "90+", "120+", "total"], vals))
-            if total is None:
-                total = ag["total"]
-            if total is not None and abs((ag["total"] or 0) - total) < 0.01:
-                out["aging"] = {k: ag.get(k) for k in ["1-30", "future", "30+", "60+", "90+", "120+"]}
-                out["past_due"] = round(sum(v for v in [ag["30+"], ag["60+"], ag["90+"], ag["120+"]] if v), 2)
-                out["current_not_due"] = round(sum(v for v in [ag["1-30"], ag["future"]] if v), 2)
+        vals = [v for v in (_money_to_float(n) for n in nums[:7]) if v is not None]
+        if len(vals) >= 6:
+            buckets = vals[:6]
+            total = round(sum(buckets), 2)
+            # if the 7th (Total Due column) is present and agrees, prefer it exactly
+            if len(vals) >= 7 and abs(vals[6] - total) < 0.02:
+                total = vals[6]
+            out["aging"] = {k: buckets[i] for i, k in enumerate(["1-30", "future", "30+", "60+", "90+", "120+"])}
+            out["current_not_due"] = round(sum(buckets[0:2]), 2)
+            out["past_due"] = round(sum(buckets[2:6]), 2)
+
+    if total is None:  # fallback: header "Total Due: $X"
+        m = re.search(r"New Balance.*?(-?[\d,]+\.\d{2})", text, re.S | re.I)
+        total = _money_to_float(m.group(1)) if m else None
 
     out["total_due"] = total
     out["ok"] = total is not None
@@ -5151,22 +5156,22 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
             return data.get("data") or data.get("rows") or data.get("result") or []
         return []
 
-    # 1) Statement: closing_balance of the latest period = current balance owed
-    for params in ({"ship_to": ship_to, "year": year}, {"ship_to": ship_to}, {"shipTo": ship_to, "year": year}):
-        rows = _rows(_try("/statement/get-statement-by-year", params))
-        cb = [r.get("closing_balance") for r in rows if isinstance(r, dict) and r.get("closing_balance") is not None]
-        if cb:
-            return {"ok": True, "total_due": round(float(cb[-1]), 2),
-                    "statement_date": str(rows[-1].get("statement_date") or rows[-1].get("date") or "")}
-
-    # 2) Open invoices: sum balance_amt
     today = dt.date.today()
-    for path, params in (
-        ("/order/get-open-invoice-list", {"ship_to": ship_to}),
-        ("/order/get-open-invoice-list", {"ship_from": ship_to}),
-        ("/order/get-open-invoice-list", {"ship_to": ship_to, "ship_from": ship_to}),
-    ):
-        rows = _rows(_try(path, params))
+
+    # discover company_id / site_id / customer_id (site "value" is "company_site_customer")
+    company_id = customer_id = ""
+    for stv in ship_tos[:1]:
+        srows = _rows(_try("/order/get-site-list-by-shipto", {"ship_to": stv}))
+        if srows and isinstance(srows[0], dict):
+            debug["site0"] = str(srows[0])[:240]
+            sval = str(srows[0].get("value") or srows[0].get("id") or "")
+            if "_" in sval and len(sval.split("_")) >= 3:
+                parts = sval.split("_")
+                company_id, customer_id = parts[0], parts[2]
+
+    # A) open-invoice list — needs ship_from + due_date
+    for stv in ship_tos:
+        rows = _rows(_try("/order/get-open-invoice-list", {"ship_from": stv, "due_date": "2099-12-31"}))
         if rows and isinstance(rows[0], dict) and any("balance_amt" in x for x in rows):
             total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
             past = 0.0
@@ -5179,6 +5184,14 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
                     except Exception:
                         pass
             return {"ok": True, "total_due": total, "past_due": round(past, 2) if past else None}
+
+    # B) statement-by-year — needs company_id + customer_id + year (closing_balance)
+    if company_id and customer_id:
+        rows = _rows(_try("/statement/get-statement-by-year",
+                          {"company_id": company_id, "customer_id": customer_id, "year": year}))
+        cb = [r.get("closing_balance") for r in rows if isinstance(r, dict) and r.get("closing_balance") is not None]
+        if cb:
+            return {"ok": True, "total_due": round(float(cb[-1]), 2)}
 
     return {"ok": False, "error": "DK Tire not parsed: " + _json.dumps(debug)[:1400]}
 

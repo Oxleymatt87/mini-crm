@@ -5631,7 +5631,8 @@ def _scrape_dktire_costs(supplier_name, portal_url, username, password):
             pr = None
             if pdf_ref:
                 url = pdf_ref if str(pdf_ref).startswith("http") else (api + pdf_ref if str(pdf_ref).startswith("/") else f"{api}/{pdf_ref}")
-                pr = requests.get(url, headers=headers, timeout=45)
+                # presigned S3 URLs carry their own auth; the API bearer header makes S3 400
+                pr = requests.get(url, timeout=45) if "amazonaws.com" in str(url) else requests.get(url, headers=headers, timeout=45)
                 debug["pdf_url_status"] = pr.status_code
             if pr is None or pr.status_code != 200 or pr.content[:4] != b"%PDF":
                 pr = requests.get(f"{api}/order/download-invoice-pdf", headers=headers,

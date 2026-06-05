@@ -5626,9 +5626,17 @@ def _scrape_dktire_costs(supplier_name, portal_url, username, password):
         debug["invoice_keys"] = list(invoices[0][1].keys())[:18]
         try:
             sf, iv = invoices[0]
-            inv_id = iv.get("invoice_id") or iv.get("sales_id")
-            pr = requests.post(f"{api}/order/download-invoice-pdf", headers=headers, json={"invoice_id": inv_id, "ship_from": sf}, timeout=45)
-            debug["pdf_status"] = pr.status_code
+            pdf_ref = iv.get("invoice_pdf") or ""
+            debug["invoice_pdf_sample"] = str(pdf_ref)[:140]
+            pr = None
+            if pdf_ref:
+                url = pdf_ref if str(pdf_ref).startswith("http") else (api + pdf_ref if str(pdf_ref).startswith("/") else f"{api}/{pdf_ref}")
+                pr = requests.get(url, headers=headers, timeout=45)
+                debug["pdf_url_status"] = pr.status_code
+            if pr is None or pr.status_code != 200 or pr.content[:4] != b"%PDF":
+                pr = requests.get(f"{api}/order/download-invoice-pdf", headers=headers,
+                                  params={"invoice_id": iv.get("invoice_id"), "ship_from": sf}, timeout=45)
+                debug["pdf_get_status"] = pr.status_code
             if pr.status_code == 200 and pr.content[:4] == b"%PDF":
                 from pypdf import PdfReader
                 txt = ""
@@ -5637,7 +5645,7 @@ def _scrape_dktire_costs(supplier_name, portal_url, username, password):
                         txt += p.extract_text(extraction_mode="layout") + "\n"
                     except Exception:
                         txt += (p.extract_text() or "") + "\n"
-                debug["pdf_text"] = txt[:1300]
+                debug["pdf_text"] = txt[:1400]
             else:
                 debug["pdf_body"] = pr.text[:160]
         except Exception as e:

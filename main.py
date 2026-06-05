@@ -5276,9 +5276,76 @@ def _check_balance_control_doc() -> None:
         if requested and requested != _balance_last_control:
             _balance_last_control = requested
             print("[balances] manual refresh requested from dashboard")
-            _do_balance_refresh()
+            _do_balance_refresh_direct()
     except Exception as e:
         print(f"[balances] control check error: {e}")
+
+
+# Suppliers configured directly in code, so balances work even when the
+# Postgres DB is unreachable. Scraped results go straight to Firestore.
+AP_SUPPLIERS = [
+    {"name": "BZO Wheel & Tire", "code": "BZO", "type": "tireguru",
+     "portal_url": "https://bzowheelandtire.com", "username": "111655", "password": "a4223942"},
+    {"name": "Hesselbein", "code": "HESSELBEIN", "type": "dktire",
+     "portal_url": "https://b2b.dktire.com/auth-signin", "username": "90-001923", "password": "Silver28!!"},
+    {"name": "South Gateway", "code": "SOUTHGATEWAY", "type": "dktire",
+     "portal_url": "https://b2b.dktire.com/auth-signin", "username": "50-001186", "password": "Silver28!!"},
+]
+
+
+def _push_balances_firestore_direct(items) -> None:
+    """Write per-supplier balance docs + _summary to Firestore (no DB)."""
+    token = _firebase_token_cached()
+    total = 0.0
+    past = 0.0
+    count = 0
+    for s, bal in items:
+        count += 1
+        td = bal.get("total_due") or 0.0
+        pd = bal.get("past_due") or 0.0
+        if bal.get("ok"):
+            total += td
+            past += pd
+        _firestore_patch(token, f"supplier_balances/{s['code']}", {
+            "supplier": s["name"], "code": s["code"], "portalUrl": s.get("portal_url", ""),
+            "totalDue": float(td), "pastDue": float(pd),
+            "ok": bool(bal.get("ok")), "error": (bal.get("error") or "")[:300],
+            "statementDate": bal.get("statement_date") or "",
+            "checkedAt": dt.datetime.utcnow().isoformat(),
+        })
+    _firestore_patch(token, "supplier_balances/_summary", {
+        "totalDue": float(round(total, 2)), "totalPastDue": float(round(past, 2)),
+        "supplierCount": count, "updatedAt": dt.datetime.utcnow().isoformat(),
+    })
+
+
+def _do_balance_refresh_direct() -> dict:
+    """Scrape the configured suppliers and write balances straight to Firestore.
+    Independent of Postgres, so it works even while the database is down."""
+    if not _balance_refresh_lock.acquire(blocking=False):
+        return {"status": "already_running"}
+    results: dict = {}
+    items = []
+    try:
+        for s in AP_SUPPLIERS:
+            try:
+                if s["type"] == "tireguru":
+                    bal = _fetch_tireguru_balance(s["portal_url"], s["username"], s["password"])
+                elif s["type"] == "dktire":
+                    bal = _fetch_dktire_balance(s["portal_url"], s["username"], s["password"])
+                else:
+                    bal = {"ok": False, "error": "unknown portal type"}
+            except Exception as e:
+                bal = {"ok": False, "error": str(e)}
+            results[s["code"]] = {"ok": bal.get("ok"), "total_due": bal.get("total_due"), "error": (bal.get("error") or "")[:200]}
+            items.append((s, bal))
+        try:
+            _push_balances_firestore_direct(items)
+        except Exception as e:
+            results["_firestore_error"] = str(e)
+    finally:
+        _balance_refresh_lock.release()
+    return results
 
 
 def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
@@ -5346,7 +5413,7 @@ def _stock_cron_thread() -> None:
             if now_central.hour == 5 and _balance_last_run_date != now_central.date():
                 _balance_last_run_date = now_central.date()
                 print("Balance cron: starting daily supplier balance refresh...")
-                print(f"Balance cron: done — {_do_balance_refresh()}")
+                print(f"Balance cron: done — {_do_balance_refresh_direct()}")
             # Poll for a manual refresh requested from the dashboard
             _check_balance_control_doc()
         except Exception as e:
@@ -5495,8 +5562,7 @@ def ap_refresh_now(secret: str = Query("")):
         raise HTTPException(status_code=403, detail="forbidden")
     import traceback
     try:
-        Base.metadata.create_all(bind=engine)  # ensure supplier_balances table exists
-        return _do_balance_refresh()
+        return _do_balance_refresh_direct()
     except Exception as e:
         return {"error": repr(e), "trace": traceback.format_exc()[-2000:]}
 

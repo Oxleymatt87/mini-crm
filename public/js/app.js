@@ -176,10 +176,13 @@ function renderSupplierBalances() {
         const sub = hasErr
           ? `<span style="color:var(--red)">${s.error || 'login error'}</span>`
           : past + avail;
+        const spent = (s.spent12mo || 0) > 0
+          ? `<div style="font-size:.68rem;color:var(--text2)">${fmtMoney(s.spent12mo)} bought / 12mo</div>`
+          : '';
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border)">
           <div><div style="font-weight:600">${s.supplier || s.id}</div>
           <div style="font-size:.72rem">${sub}</div></div>
-          <div style="font-weight:700">${hasErr ? '' : fmtMoney(s.totalDue)}</div>
+          <div style="text-align:right"><div style="font-weight:700">${hasErr ? '' : fmtMoney(s.totalDue)}</div>${spent}</div>
         </div>`;
       }).join('');
   }

@@ -5130,7 +5130,40 @@ def _fetch_tireguru_balance(portal_url: str, username: str, password: str) -> di
     pdf_resp = session.get(pdf_url, timeout=60)
     if pdf_resp.status_code != 200 or pdf_resp.content[:4] != b"%PDF":
         return {"ok": False, "error": f"Could not download statement PDF (HTTP {pdf_resp.status_code})"}
-    return _parse_tireguru_statement_pdf(pdf_resp.content)
+    result = _parse_tireguru_statement_pdf(pdf_resp.content)
+
+    # Total purchases over the last 12 months from completed orders
+    try:
+        cutoff = dt.date.today() - dt.timedelta(days=365)
+        comp = session.get(f"{base}/reports/complete", timeout=60)
+        csoup = BeautifulSoup(comp.text, "lxml")
+        rows = csoup.find_all("tr", attrs={"data-index": True})
+        spend = 0.0
+        spend_all = 0.0
+        sample = None
+        for row in rows:
+            cells = [c.get_text(strip=True) for c in row.find_all("td")]
+            if sample is None:
+                sample = cells
+            if len(cells) >= 6:
+                total = _money_to_float(cells[5])
+                d = None
+                for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+                    try:
+                        d = dt.datetime.strptime(cells[2], fmt).date()
+                        break
+                    except Exception:
+                        pass
+                if total is not None:
+                    spend_all += total
+                    if d is None or d >= cutoff:
+                        spend += total
+        result["spend_12mo"] = round(spend, 2)
+        result["spend_all"] = round(spend_all, 2)
+        result["spend_debug"] = {"rows": len(rows), "sample": sample}
+    except Exception as e:
+        result["spend_error"] = str(e)[:140]
+    return result
 
 
 def _dktire_login(username: str, password: str) -> tuple:
@@ -5253,24 +5286,44 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
                         company_id, customer_id = parts[0], parts[2]
 
     # PRIMARY: statement-by-year -> data.credit_summary.outstanding_balance
+    result = None
     if company_id and customer_id:
         data = _try("/statement/get-statement-by-year",
                     {"company_id": company_id, "customer_id": customer_id, "year": year})
         cs = data.get("data", {}).get("credit_summary") if isinstance(data, dict) else None
         if cs and cs.get("outstanding_balance") is not None:
-            return {"ok": True,
-                    "total_due": round(float(cs["outstanding_balance"]), 2),
-                    "past_due": round(float(cs.get("past_due_balance") or 0), 2),
-                    "credit_limit": round(float(cs.get("credit_limit") or 0), 2)}
+            result = {"ok": True,
+                      "total_due": round(float(cs["outstanding_balance"]), 2),
+                      "past_due": round(float(cs.get("past_due_balance") or 0), 2),
+                      "credit_limit": round(float(cs.get("credit_limit") or 0), 2)}
 
     # FALLBACK: open-invoice list (ship_from must be COMPANY_SITE_CUSTID)
-    for sf in ship_from_vals:
-        rows = _rows(_try("/order/get-open-invoice-list", {"ship_from": sf, "due_date": "2099-12-31"}))
-        if rows and isinstance(rows[0], dict) and any("balance_amt" in x for x in rows):
-            total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
-            return {"ok": True, "total_due": total}
+    if result is None:
+        for sf in ship_from_vals:
+            rows = _rows(_try("/order/get-open-invoice-list", {"ship_from": sf, "due_date": "2099-12-31"}))
+            if rows and isinstance(rows[0], dict) and any("balance_amt" in x for x in rows):
+                result = {"ok": True, "total_due": round(sum((x.get("balance_amt") or 0) for x in rows), 2)}
+                break
 
-    return {"ok": False, "error": "DK Tire not parsed: " + _json.dumps(debug)[:1400]}
+    if result is None:
+        return {"ok": False, "error": "DK Tire not parsed: " + _json.dumps(debug)[:1400]}
+
+    # 12-month purchases from the invoice list (ship_from + from_date + to_date)
+    try:
+        today = dt.date.today()
+        frm = (today - dt.timedelta(days=365)).isoformat()
+        for sf in ship_from_vals:
+            rows = _rows(_try("/order/get-invoice-list", {"ship_from": sf, "from_date": frm, "to_date": today.isoformat()}))
+            if rows and isinstance(rows[0], dict):
+                debug["invoice_keys"] = list(rows[0].keys())[:18]
+                amt_key = next((k for k in ("total_amt", "invoice_amt", "invoice_total", "grand_total", "total", "amount", "net_amount", "amt") if k in rows[0]), None)
+                if amt_key:
+                    result["spend_12mo"] = round(sum((r.get(amt_key) or 0) for r in rows), 2)
+                    break
+        result["spend_debug"] = debug.get("invoice_keys")
+    except Exception as e:
+        result["spend_error"] = str(e)[:140]
+    return result
 
 
 def fetch_supplier_balance(supplier: "Supplier", password: str) -> dict:
@@ -5416,24 +5469,29 @@ def _push_balances_firestore_direct(items) -> None:
     token = _firebase_token_cached()
     total = 0.0
     past = 0.0
+    spent = 0.0
     count = 0
     for s, bal in items:
         count += 1
         td = bal.get("total_due") or 0.0
         pd = bal.get("past_due") or 0.0
+        sp = bal.get("spend_12mo") or 0.0
         if bal.get("ok"):
             total += td
             past += pd
+            spent += sp
         _firestore_patch(token, f"supplier_balances/{s['code']}", {
             "supplier": s["name"], "code": s["code"], "portalUrl": s.get("portal_url", ""),
             "totalDue": float(td), "pastDue": float(pd),
             "creditLimit": float(bal.get("credit_limit") or 0),
+            "spent12mo": float(sp),
             "ok": bool(bal.get("ok")), "error": (bal.get("error") or "")[:300],
             "statementDate": bal.get("statement_date") or "",
             "checkedAt": dt.datetime.utcnow().isoformat(),
         })
     _firestore_patch(token, "supplier_balances/_summary", {
         "totalDue": float(round(total, 2)), "totalPastDue": float(round(past, 2)),
+        "totalSpent12mo": float(round(spent, 2)),
         "supplierCount": count, "updatedAt": dt.datetime.utcnow().isoformat(),
     })
 
@@ -5456,7 +5514,10 @@ def _do_balance_refresh_direct() -> dict:
                     bal = {"ok": False, "error": "unknown portal type"}
             except Exception as e:
                 bal = {"ok": False, "error": str(e)}
-            results[s["code"]] = {"ok": bal.get("ok"), "total_due": bal.get("total_due"), "error": bal.get("error")}
+            results[s["code"]] = {"ok": bal.get("ok"), "total_due": bal.get("total_due"),
+                                  "spend_12mo": bal.get("spend_12mo"), "spend_all": bal.get("spend_all"),
+                                  "spend_debug": bal.get("spend_debug"), "spend_error": bal.get("spend_error"),
+                                  "error": bal.get("error")}
             items.append((s, bal))
         try:
             _push_balances_firestore_direct(items)

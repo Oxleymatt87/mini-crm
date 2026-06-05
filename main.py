@@ -5493,7 +5493,12 @@ def ap_refresh_now(secret: str = Query("")):
     own configured suppliers."""
     if secret != BALANCE_REFRESH_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
-    return _do_balance_refresh()
+    import traceback
+    try:
+        Base.metadata.create_all(bind=engine)  # ensure supplier_balances table exists
+        return _do_balance_refresh()
+    except Exception as e:
+        return {"error": repr(e), "trace": traceback.format_exc()[-2000:]}
 
 
 @app.get("/ap-balances")
@@ -5501,18 +5506,22 @@ def ap_balances(secret: str = Query("")):
     """Read the latest stored balances (debug/verify). Top-level, shared-secret."""
     if secret != BALANCE_REFRESH_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
-    db = SessionLocal()
+    import traceback
     try:
-        rows = db.query(SupplierBalance, Supplier).join(Supplier, SupplierBalance.supplier_id == Supplier.id).all()
-        out = [{"supplier": s.name, "code": s.code, "total_due": b.total_due, "past_due": b.past_due,
-                "ok": b.ok, "error": b.error} for b, s in rows]
-        # also list configured suppliers (to confirm creds exist)
-        sups = db.query(Supplier).all()
-        cfg = [{"name": s.name, "has_creds": bool(s.portal_password_encrypted), "active": s.is_active,
-                "portal": s.portal_url} for s in sups]
-        return {"balances": out, "suppliers_configured": cfg}
-    finally:
-        db.close()
+        Base.metadata.create_all(bind=engine)  # ensure supplier_balances table exists
+        db = SessionLocal()
+        try:
+            rows = db.query(SupplierBalance, Supplier).join(Supplier, SupplierBalance.supplier_id == Supplier.id).all()
+            out = [{"supplier": s.name, "code": s.code, "total_due": b.total_due, "past_due": b.past_due,
+                    "ok": b.ok, "error": b.error} for b, s in rows]
+            sups = db.query(Supplier).all()
+            cfg = [{"name": s.name, "has_creds": bool(s.portal_password_encrypted), "active": s.is_active,
+                    "portal": s.portal_url} for s in sups]
+            return {"balances": out, "suppliers_configured": cfg}
+        finally:
+            db.close()
+    except Exception as e:
+        return {"error": repr(e), "trace": traceback.format_exc()[-2000:]}
 
 
 # =============================================================================

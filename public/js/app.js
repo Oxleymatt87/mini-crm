@@ -343,10 +343,8 @@ function renderInventory() {
   const tbody = document.getElementById('inv-tbody');
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No items found</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = filtered.map(i => `
+  } else {
+    tbody.innerHTML = filtered.map(i => `
     <tr>
       <td>${esc(i.brand || '')}</td>
       <td>${esc(i.model || '')}</td>
@@ -359,6 +357,18 @@ function renderInventory() {
       </td>
     </tr>
   `).join('');
+  }
+
+  // Totals (matches the spreadsheet: 28% gross margin -> sell = cost / 0.72)
+  const tires = filtered.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+  const costVal = filtered.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.cost) || 0), 0);
+  const sellVal = filtered.reduce((s, i) => s + (Number(i.quantity) || 0) * ((Number(i.cost) || 0) / 0.72), 0);
+  const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setT('inv-t-skus', filtered.length);
+  setT('inv-t-tires', tires.toLocaleString());
+  setT('inv-t-cost', fmtMoney(costVal));
+  setT('inv-t-sell', fmtMoney(sellVal));
+  setT('inv-t-profit', fmtMoney(sellVal - costVal));
 }
 
 document.getElementById('inv-search').addEventListener('input', renderInventory);

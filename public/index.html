@@ -129,6 +129,13 @@
         </select>
         <button class="btn btn-gold" onclick="openEditItem()">+ Add Item</button>
       </div>
+      <div id="inv-totals" style="display:flex;gap:18px;flex-wrap:wrap;padding:10px;margin-bottom:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)">
+        <div><div style="font-size:.65rem;color:var(--text2)">SKUS</div><div id="inv-t-skus" style="font-weight:700">--</div></div>
+        <div><div style="font-size:.65rem;color:var(--text2)">TIRES</div><div id="inv-t-tires" style="font-weight:700">--</div></div>
+        <div><div style="font-size:.65rem;color:var(--text2)">COST VALUE</div><div id="inv-t-cost" style="font-weight:700">--</div></div>
+        <div><div style="font-size:.65rem;color:var(--text2)">SELL @28%</div><div id="inv-t-sell" style="font-weight:700;color:var(--gold)">--</div></div>
+        <div><div style="font-size:.65rem;color:var(--text2)">PROFIT</div><div id="inv-t-profit" style="font-weight:700;color:var(--green,#3fb950)">--</div></div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>

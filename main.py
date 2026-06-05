@@ -5530,6 +5530,158 @@ def _do_balance_refresh_direct() -> dict:
     return results
 
 
+_cost_refresh_lock = threading.Lock()
+
+
+def _scrape_tireguru_costs(portal_url, username, password):
+    """Per-tire cost from completed BZO orders over the last ~12 months."""
+    import calendar
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36"})
+    from_value, server_value = "davestire", "TG3"
+    try:
+        soup = BeautifulSoup(session.get(portal_url or "https://bzowheelandtire.com", timeout=30).text, "lxml")
+        ff = soup.find("input", {"name": "from"}); sf = soup.find("input", {"name": "server"})
+        if ff and ff.get("value"): from_value = ff.get("value")
+        if sf and sf.get("value"): server_value = sf.get("value")
+    except Exception:
+        pass
+    base = f"https://{from_value}.tireguru.net"
+    session.post(f"{base}/checkLogin.php", data={"server": server_value, "from": from_value, "username": username, "password": password}, timeout=30)
+    today = dt.date.today()
+    order_ids = set()
+    for k in range(13):
+        y = today.year; mo = today.month - k
+        while mo <= 0:
+            mo += 12; y -= 1
+        last = calendar.monthrange(y, mo)[1]
+        try:
+            r = session.get(f"{base}/reports/complete", params={"from": f"{mo:02d}/01/{y}", "to": f"{mo:02d}/{last:02d}/{y}"}, timeout=40)
+            order_ids.update(re.findall(r'data-index="(\d+)"', r.text))
+        except Exception:
+            pass
+    costs = {}
+    for oid in order_ids:
+        try:
+            ds = BeautifulSoup(session.get(f"{base}/reports/complete/{oid}/details", timeout=30).text, "lxml")
+        except Exception:
+            continue
+        inv_date = ""
+        for tr in ds.find_all("tr"):
+            cs = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+            if len(cs) == 2 and cs[0].startswith("Date"):
+                inv_date = cs[1]
+            if len(cs) == 8 and cs[0].lower() != "item #" and cs[3].isdigit():
+                unit = _money_to_float(cs[4])
+                if unit is None:
+                    continue
+                ext = _money_to_float(cs[7]) or 0
+                c = costs.setdefault(cs[0], {"size": cs[1], "desc": cs[2], "qty": 0, "spend": 0.0, "cost": None, "last": ""})
+                c["qty"] += int(cs[3]); c["spend"] += ext
+                if inv_date >= c["last"]:
+                    c["last"] = inv_date; c["cost"] = unit
+    return [{"supplier": "BZO", "sku": k, "size": v["size"], "desc": v["desc"], "qty": v["qty"],
+             "cost": v["cost"], "spend": round(v["spend"], 2), "lastDate": v["last"]} for k, v in costs.items()]
+
+
+def _scrape_dktire_costs(supplier_name, portal_url, username, password):
+    """DK Tire invoice line items live only in the invoice PDF. First pass:
+    download one invoice PDF and capture its text so the parser can be built."""
+    rows = []
+    debug = {}
+    try:
+        access_token, token_type = _dktire_login(username, password)
+    except Exception as e:
+        return rows, {"login_error": str(e)[:120]}
+    if not access_token:
+        return rows, {"login_error": "no token"}
+    api = "https://api-b2b.dktire.com"
+    headers = {"Authorization": f"{token_type} {access_token}", "Content-Type": "application/json", "Timezone": "America/Chicago"}
+    ship_froms = []
+    try:
+        ud = requests.get(f"{api}/master/user-details", headers=headers, timeout=30).json()
+        for st in ud.get("ship_to", []):
+            v = st.get("value") if isinstance(st, dict) else st
+            if not v:
+                continue
+            sl = requests.get(f"{api}/order/get-site-list-by-shipto", headers=headers, params={"ship_to": v}, timeout=30).json()
+            for s in (sl if isinstance(sl, list) else sl.get("data", []) or []):
+                sv = s.get("value") if isinstance(s, dict) else s
+                if sv and "_" in str(sv):
+                    ship_froms.append(sv)
+    except Exception as e:
+        debug["shipfrom_error"] = str(e)[:120]
+    today = dt.date.today()
+    frm = (today - dt.timedelta(days=365)).isoformat()
+    invoices = []
+    for sf in ship_froms:
+        try:
+            data = requests.get(f"{api}/order/get-invoice-list", headers=headers, params={"ship_from": sf, "from_date": frm, "to_date": today.isoformat()}, timeout=45).json()
+            for iv in (data if isinstance(data, list) else data.get("data") or []):
+                invoices.append((sf, iv))
+        except Exception:
+            pass
+    debug["invoices"] = len(invoices)
+    if invoices:
+        debug["invoice_keys"] = list(invoices[0][1].keys())[:18]
+        try:
+            sf, iv = invoices[0]
+            inv_id = iv.get("invoice_id") or iv.get("sales_id")
+            pr = requests.post(f"{api}/order/download-invoice-pdf", headers=headers, json={"invoice_id": inv_id, "ship_from": sf}, timeout=45)
+            debug["pdf_status"] = pr.status_code
+            if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                from pypdf import PdfReader
+                txt = ""
+                for p in PdfReader(io.BytesIO(pr.content)).pages:
+                    try:
+                        txt += p.extract_text(extraction_mode="layout") + "\n"
+                    except Exception:
+                        txt += (p.extract_text() or "") + "\n"
+                debug["pdf_text"] = txt[:1300]
+            else:
+                debug["pdf_body"] = pr.text[:160]
+        except Exception as e:
+            debug["pdf_error"] = str(e)[:160]
+    return rows, debug
+
+
+def _do_cost_refresh() -> dict:
+    """Scrape per-tire costs from the supplier portals into Firestore tire_costs/sheet."""
+    if not _cost_refresh_lock.acquire(blocking=False):
+        return {"status": "already_running"}
+    out = {}
+    try:
+        rows = []
+        dk_debug = {}
+        for s in AP_SUPPLIERS:
+            try:
+                if s["type"] == "tireguru":
+                    rows.extend(_scrape_tireguru_costs(s["portal_url"], s["username"], s["password"]))
+                elif s["type"] == "dktire":
+                    dkr, dbg = _scrape_dktire_costs(s["name"], s["portal_url"], s["username"], s["password"])
+                    rows.extend(dkr)
+                    dk_debug[s["code"]] = dbg
+            except Exception as e:
+                dk_debug[s.get("code", "?")] = {"error": str(e)[:160]}
+        try:
+            token = _firebase_token_cached()
+            total_tires = sum(r["qty"] for r in rows)
+            total_spend = round(sum(r["spend"] for r in rows), 2)
+            _firestore_patch(token, "tire_costs/sheet", {
+                "data": _json.dumps(rows),
+                "rowCount": len(rows), "totalTires": total_tires, "totalSpend": float(total_spend),
+                "updatedAt": dt.datetime.utcnow().isoformat(),
+            })
+            _firestore_patch(token, "tire_costs/_dk_debug", {"debug": _json.dumps(dk_debug)[:1500], "updatedAt": dt.datetime.utcnow().isoformat()})
+        except Exception as e:
+            out["firestore_error"] = str(e)[:160]
+        out["rows"] = len(rows)
+        out["dk_debug"] = dk_debug
+    finally:
+        _cost_refresh_lock.release()
+    return out
+
+
 def _do_full_catalog_refresh(owner_id: Optional[int] = None) -> dict:
     """Scrape BZO, Hesselbein, ATD, K&M, South Gateway, and Mekaniq and upsert into supplier_catalog.
     Pass owner_id to scope to one user; None refreshes all users.
@@ -5745,6 +5897,22 @@ def ap_refresh_now(secret: str = Query("")):
     import traceback
     try:
         return _do_balance_refresh_direct()
+    except Exception as e:
+        return {"error": repr(e), "trace": traceback.format_exc()[-2000:]}
+
+
+@app.get("/cost-refresh")
+def cost_refresh_now(secret: str = Query(""), background: int = Query(1)):
+    """Scrape per-tire costs from the supplier portals -> Firestore tire_costs.
+    Slow (~2-3 min), so runs in a background thread by default and returns at once."""
+    if secret != BALANCE_REFRESH_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    if background:
+        threading.Thread(target=_do_cost_refresh, daemon=True, name="cost-refresh").start()
+        return {"status": "started"}
+    import traceback
+    try:
+        return _do_cost_refresh()
     except Exception as e:
         return {"error": repr(e), "trace": traceback.format_exc()[-2000:]}
 

@@ -44,6 +44,7 @@
       <button class="tab-btn" data-tab="contacts">Contacts</button>
       <button class="tab-btn" data-tab="orders">Orders</button>
       <button class="tab-btn" data-tab="stock">Stock</button>
+      <button class="tab-btn" data-tab="costs">Costs</button>
       <button class="tab-btn" data-tab="invoices">Invoices</button>
       <button class="tab-btn" onclick="window.location.href='/map.html'">Map</button>
     </div>
@@ -216,6 +217,28 @@
             </tr>
           </thead>
           <tbody id="stock-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- COSTS TAB (Cost per tire from your orders) -->
+    <div class="tab-content" id="tab-costs">
+      <div class="search-bar">
+        <input class="search-input" id="cost-search" placeholder="Search SKU, size, brand...">
+        <button class="btn btn-gold" id="cost-refresh-btn" onclick="refreshTireCosts()">&#8635; Refresh costs</button>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px">
+        <div><div style="font-size:.7rem;color:var(--text2)">TIRES (12mo)</div><div class="card-value" id="cost-tires">&mdash;</div></div>
+        <div><div style="font-size:.7rem;color:var(--text2)">TOTAL SPENT</div><div class="card-value" id="cost-spend">&mdash;</div></div>
+        <div><div style="font-size:.7rem;color:var(--text2)">AVG / TIRE</div><div class="card-value" style="color:var(--gold)" id="cost-avg">&mdash;</div></div>
+      </div>
+      <p style="font-size:.7rem;color:var(--text2);margin-bottom:10px" id="cost-updated"></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Supplier</th><th>Size</th><th>Description</th><th>Qty</th><th>Cost/tire</th><th>Spent</th></tr>
+          </thead>
+          <tbody id="cost-tbody"></tbody>
         </table>
       </div>
     </div>

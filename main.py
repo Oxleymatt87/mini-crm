@@ -5158,8 +5158,10 @@ def _fetch_tireguru_balance(portal_url: str, username: str, password: str) -> di
                     spend_all += total
                     if d is None or d >= cutoff:
                         spend += total
-        result["spend_12mo"] = round(spend, 2)
-        result["spend_all"] = round(spend_all, 2)
+        # /reports/complete only returns the most recent orders (no usable date
+        # filter), so this isn't a true 12-month total — don't surface it.
+        result["spend_12mo"] = None
+        result["spend_recent"] = round(spend_all, 2)
         result["spend_debug"] = {"rows": len(rows), "sample": sample}
     except Exception as e:
         result["spend_error"] = str(e)[:140]
@@ -5316,7 +5318,7 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
             rows = _rows(_try("/order/get-invoice-list", {"ship_from": sf, "from_date": frm, "to_date": today.isoformat()}))
             if rows and isinstance(rows[0], dict):
                 debug["invoice_keys"] = list(rows[0].keys())[:18]
-                amt_key = next((k for k in ("total_amt", "invoice_amt", "invoice_total", "grand_total", "total", "amount", "net_amount", "amt") if k in rows[0]), None)
+                amt_key = next((k for k in ("order_total", "total_amt", "invoice_amt", "invoice_total", "grand_total", "total", "amount", "net_amount", "amt") if k in rows[0]), None)
                 if amt_key:
                     result["spend_12mo"] = round(sum((r.get(amt_key) or 0) for r in rows), 2)
                     break

@@ -5695,7 +5695,8 @@ def ap_balances(secret: str = Query("")):
             sups = db.query(Supplier).all()
             cfg = [{"name": s.name, "has_creds": bool(s.portal_password_encrypted), "active": s.is_active,
                     "portal": s.portal_url} for s in sups]
-            return {"balances": out, "suppliers_configured": cfg}
+            db_info = {"dialect": engine.url.get_backend_name(), "host": engine.url.host}
+            return {"db": db_info, "balances": out, "suppliers_configured": cfg}
         finally:
             db.close()
     except Exception as e:

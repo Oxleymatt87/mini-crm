@@ -4969,36 +4969,40 @@ def _parse_tireguru_statement_pdf(pdf_bytes: bytes) -> dict:
     text = ""
     reader = PdfReader(io.BytesIO(pdf_bytes))
     for page in reader.pages:
-        text += (page.extract_text() or "") + "\n"
+        try:
+            text += page.extract_text(extraction_mode="layout") + "\n"  # preserves column layout
+        except Exception:
+            text += (page.extract_text() or "") + "\n"
 
     out: dict = {"ok": False}
     m2 = re.search(r"Cut\s*Off\s*Date\D{0,5}(\d{1,2}/\d{1,2}/\d{2,4})", text, re.I)
     out["statement_date"] = m2.group(1) if m2 else None
+
+    # Primary: the header "Total Due:  $ 42777.24" (reliable in layout mode)
+    mh = re.search(r"Total Due\s*:\s*\$?\s*(-?[\d,]+\.\d{2})", text, re.I)
+    header_total = _money_to_float(mh.group(1)) if mh else None
 
     # The aging summary row holds 6 buckets + a Total Due column:
     #   1-30  Future  30+  60+  90+  120+   Total Due
     # Total Due == the sum of the 6 buckets, which is order-independent — so we
     # sum the buckets rather than trusting column position (PDF text extraction
     # frequently reorders the header "Total Due:" away from its value).
-    total = None
+    aging_total = None
     idx = text.rfind("1-30")
     if idx != -1:
         nums = re.findall(r"-?\$?\s*-?[\d,]+\.\d{2}", text[idx:idx + 400])
         vals = [v for v in (_money_to_float(n) for n in nums[:7]) if v is not None]
-        if len(vals) >= 6:
+        if len(vals) >= 7:
             buckets = vals[:6]
-            total = round(sum(buckets), 2)
-            # if the 7th (Total Due column) is present and agrees, prefer it exactly
-            if len(vals) >= 7 and abs(vals[6] - total) < 0.02:
-                total = vals[6]
+            aging_total = round(vals[6], 2)  # the Total Due column
             out["aging"] = {k: buckets[i] for i, k in enumerate(["1-30", "future", "30+", "60+", "90+", "120+"])}
             out["current_not_due"] = round(sum(buckets[0:2]), 2)
             out["past_due"] = round(sum(buckets[2:6]), 2)
 
-    if total is None:  # fallback: header "Total Due: $X"
-        m = re.search(r"New Balance.*?(-?[\d,]+\.\d{2})", text, re.S | re.I)
-        total = _money_to_float(m.group(1)) if m else None
-
+    # Prefer the labeled header total; cross-check against the aging Total Due column.
+    total = header_total if header_total is not None else aging_total
+    if header_total is not None and aging_total is not None and abs(header_total - aging_total) > 0.02:
+        total = aging_total  # header value drifted from its label; trust the aging row
     out["total_due"] = total
     out["ok"] = total is not None
     if not out["ok"]:
@@ -5158,40 +5162,36 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
 
     today = dt.date.today()
 
-    # discover company_id / site_id / customer_id (site "value" is "company_site_customer")
+    # site value is "COMPANY_SITE_CUSTID" — gives company_id/customer_id and the ship_from value
     company_id = customer_id = ""
-    for stv in ship_tos[:1]:
+    ship_from_vals = []
+    for stv in ship_tos[:3]:
         srows = _rows(_try("/order/get-site-list-by-shipto", {"ship_to": stv}))
-        if srows and isinstance(srows[0], dict):
-            debug["site0"] = str(srows[0])[:240]
-            sval = str(srows[0].get("value") or srows[0].get("id") or "")
-            if "_" in sval and len(sval.split("_")) >= 3:
-                parts = sval.split("_")
-                company_id, customer_id = parts[0], parts[2]
+        for sr in (srows if isinstance(srows, list) else []):
+            if isinstance(sr, dict):
+                sval = str(sr.get("value") or sr.get("id") or "")
+                if "_" in sval and len(sval.split("_")) >= 3:
+                    ship_from_vals.append(sval)
+                    if not company_id:
+                        parts = sval.split("_")
+                        company_id, customer_id = parts[0], parts[2]
 
-    # A) open-invoice list — needs ship_from + due_date
-    for stv in ship_tos:
-        rows = _rows(_try("/order/get-open-invoice-list", {"ship_from": stv, "due_date": "2099-12-31"}))
+    # PRIMARY: statement-by-year -> data.credit_summary.outstanding_balance
+    if company_id and customer_id:
+        data = _try("/statement/get-statement-by-year",
+                    {"company_id": company_id, "customer_id": customer_id, "year": year})
+        cs = data.get("data", {}).get("credit_summary") if isinstance(data, dict) else None
+        if cs and cs.get("outstanding_balance") is not None:
+            return {"ok": True,
+                    "total_due": round(float(cs["outstanding_balance"]), 2),
+                    "past_due": round(float(cs.get("past_due_balance") or 0), 2)}
+
+    # FALLBACK: open-invoice list (ship_from must be COMPANY_SITE_CUSTID)
+    for sf in ship_from_vals:
+        rows = _rows(_try("/order/get-open-invoice-list", {"ship_from": sf, "due_date": "2099-12-31"}))
         if rows and isinstance(rows[0], dict) and any("balance_amt" in x for x in rows):
             total = round(sum((x.get("balance_amt") or 0) for x in rows), 2)
-            past = 0.0
-            for x in rows:
-                dd = x.get("due_date") or x.get("net_due_date")
-                if dd:
-                    try:
-                        if dt.date.fromisoformat(str(dd)[:10]) < today:
-                            past += x.get("balance_amt") or 0
-                    except Exception:
-                        pass
-            return {"ok": True, "total_due": total, "past_due": round(past, 2) if past else None}
-
-    # B) statement-by-year — needs company_id + customer_id + year (closing_balance)
-    if company_id and customer_id:
-        rows = _rows(_try("/statement/get-statement-by-year",
-                          {"company_id": company_id, "customer_id": customer_id, "year": year}))
-        cb = [r.get("closing_balance") for r in rows if isinstance(r, dict) and r.get("closing_balance") is not None]
-        if cb:
-            return {"ok": True, "total_due": round(float(cb[-1]), 2)}
+            return {"ok": True, "total_due": total}
 
     return {"ok": False, "error": "DK Tire not parsed: " + _json.dumps(debug)[:1400]}
 

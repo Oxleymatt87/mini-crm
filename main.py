@@ -5260,7 +5260,8 @@ def _fetch_dktire_balance(portal_url: str, username: str, password: str) -> dict
         if cs and cs.get("outstanding_balance") is not None:
             return {"ok": True,
                     "total_due": round(float(cs["outstanding_balance"]), 2),
-                    "past_due": round(float(cs.get("past_due_balance") or 0), 2)}
+                    "past_due": round(float(cs.get("past_due_balance") or 0), 2),
+                    "credit_limit": round(float(cs.get("credit_limit") or 0), 2)}
 
     # FALLBACK: open-invoice list (ship_from must be COMPANY_SITE_CUSTID)
     for sf in ship_from_vals:
@@ -5426,6 +5427,7 @@ def _push_balances_firestore_direct(items) -> None:
         _firestore_patch(token, f"supplier_balances/{s['code']}", {
             "supplier": s["name"], "code": s["code"], "portalUrl": s.get("portal_url", ""),
             "totalDue": float(td), "pastDue": float(pd),
+            "creditLimit": float(bal.get("credit_limit") or 0),
             "ok": bool(bal.get("ok")), "error": (bal.get("error") or "")[:300],
             "statementDate": bal.get("statement_date") or "",
             "checkedAt": dt.datetime.utcnow().isoformat(),

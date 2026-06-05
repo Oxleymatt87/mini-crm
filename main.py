@@ -46,10 +46,40 @@ _load_env_file()
 JWT_SECRET = os.getenv('JWT_SECRET', 'change-this-in-production')
 JWT_ALG = 'HS256'
 JWT_EXPIRE_MIN = int(os.getenv('JWT_EXPIRE_MIN', '1440'))
-DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./crm.db')
-# Fix Render's postgres:// URL for SQLAlchemy 2.x compatibility
-if DATABASE_URL.startswith('postgres://'):
-    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+def _load_database_url() -> str:
+    """Resolve the DB URL. The env var wins, except the known-dead Render free
+    database is ignored in favour of a connection string kept in Firestore
+    (config/backend.databaseUrl) — so this public repo never holds DB creds.
+    Falls back to SQLite so the app always boots."""
+    url = os.getenv('DATABASE_URL', '')
+    if 'dpg-d6sv46ogjchc73c47rr0-a' in url:  # expired Render free database
+        url = ''
+    if not url:
+        try:
+            key = "AIzaSyDdxP9prJjiFFeJ1XGZewkzstgxf7Ciy4E"
+            tok = requests.post(
+                f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={key}",
+                json={"email": "moxley@oxleytireinc.com", "password": "Silver28!!", "returnSecureToken": True},
+                timeout=15,
+            ).json().get("idToken")
+            r = requests.get(
+                "https://firestore.googleapis.com/v1/projects/inventory-setup-b3f20/databases/(default)/documents/config/backend",
+                headers={"Authorization": f"Bearer {tok}"}, timeout=15,
+            )
+            if r.status_code == 200:
+                url = (r.json().get("fields", {}).get("databaseUrl", {}) or {}).get("stringValue", "") or ""
+                if url:
+                    print("[db] using database URL from Firestore config")
+        except Exception as e:
+            print(f"[db] Firestore config lookup failed: {e}")
+    if not url:
+        url = 'sqlite:///./crm.db'
+    if url.startswith('postgres://'):  # SQLAlchemy 2.x compatibility
+        url = url.replace('postgres://', 'postgresql://', 1)
+    return url
+
+
+DATABASE_URL = _load_database_url()
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 PORT = int(os.getenv('PORT', '10000'))
 
@@ -714,6 +744,41 @@ def geocode_address(contact: Contact) -> tuple[Optional[float], Optional[float]]
 
 
 # Startup
+def _seed_default_suppliers() -> None:
+    """Ensure the supplier records (with portal logins) exist so catalog
+    scrapers and supplier features work on a fresh database. Idempotent."""
+    seeds = [
+        {"name": "BZO Wheel & Tire", "code": "BZO", "portal_url": "https://bzowheelandtire.com", "username": "111655", "password": "a4223942"},
+        {"name": "Hesselbein", "code": "HESSELBEIN", "portal_url": "https://b2b.dktire.com/auth-signin", "username": "90-001923", "password": "Silver28!!"},
+        {"name": "South Gateway", "code": "SOUTHGATEWAY", "portal_url": "https://b2b.dktire.com/auth-signin", "username": "50-001186", "password": "Silver28!!"},
+    ]
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        if not user:
+            user = User(email="moxley@oxleytireinc.com", full_name="Matt Oxley",
+                        hashed_password=hash_password(secrets.token_urlsafe(24)))
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            print(f"Seeded default user {user.id}")
+        for s in seeds:
+            existing = db.query(Supplier).filter(Supplier.owner_id == user.id, Supplier.name == s["name"]).first()
+            if existing:
+                existing.portal_url = s["portal_url"]
+                existing.portal_username = s["username"]
+                existing.portal_password_encrypted = _simple_encrypt(s["password"])
+                existing.is_active = True
+            else:
+                db.add(Supplier(owner_id=user.id, name=s["name"], code=s["code"],
+                                portal_url=s["portal_url"], portal_username=s["username"],
+                                portal_password_encrypted=_simple_encrypt(s["password"]), is_active=True))
+        db.commit()
+        print("Suppliers seeded/verified")
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 def startup():
     try:
@@ -733,6 +798,12 @@ def startup():
             print("QuickBooks tokens table verified")
     except Exception as e:
         print(f"Database initialization error: {e}")
+
+    # Seed supplier records (with portal logins) so a fresh DB is usable
+    try:
+        _seed_default_suppliers()
+    except Exception as e:
+        print(f"Supplier seed error: {e}")
 
     # Auto-seed QuickBooks tokens from env vars
     qb_refresh = get_qb_refresh_token()

@@ -77,10 +77,12 @@ async function loadAllData() {
       loadOrders(),
       loadSupplierCatalog(),
       loadInvoices(),
-      loadSupplierBalances()
+      loadSupplierBalances(),
+      loadTireCosts()
     ]);
     renderDashboard();
     renderSupplierBalances();
+    renderCosts();
     renderInventory();
     renderContacts();
     renderOrders();
@@ -208,6 +210,56 @@ async function refreshSupplierBalances() {
     renderSupplierBalances();
     if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
   }
+}
+
+// ─── Cost Sheet (cost per tire from your orders) ───
+let tireCosts = [];
+let tireCostMeta = null;
+
+async function loadTireCosts() {
+  try {
+    const doc = await db.collection('tire_costs').doc('sheet').get();
+    if (doc.exists) {
+      tireCostMeta = doc.data();
+      tireCosts = JSON.parse(tireCostMeta.data || '[]');
+    } else { tireCosts = []; tireCostMeta = null; }
+  } catch (e) { console.error('cost load', e); tireCosts = []; tireCostMeta = null; }
+}
+
+function renderCosts() {
+  const tb = document.getElementById('cost-tbody');
+  if (!tb) return;
+  const m = tireCostMeta;
+  if (m) {
+    document.getElementById('cost-tires').textContent = (m.totalTires || 0).toLocaleString();
+    document.getElementById('cost-spend').textContent = fmtMoney(m.totalSpend);
+    document.getElementById('cost-avg').textContent = (m.totalTires > 0) ? fmtMoney(m.totalSpend / m.totalTires) : '—';
+    document.getElementById('cost-updated').textContent = m.updatedAt ? ('Updated ' + new Date(m.updatedAt).toLocaleString() + ' · ' + (m.rowCount || 0) + ' tires') : '';
+  }
+  const q = (document.getElementById('cost-search') ? document.getElementById('cost-search').value : '').toLowerCase();
+  const rows = tireCosts
+    .filter(r => !q || (`${r.sku} ${r.size} ${r.desc}`).toLowerCase().includes(q))
+    .sort((a, b) => (b.qty || 0) - (a.qty || 0));
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="6" style="color:var(--text2)">${tireCosts.length ? 'No matches' : 'No cost data yet — tap "Refresh costs".'}</td></tr>`;
+    return;
+  }
+  tb.innerHTML = rows.map(r => `<tr>
+    <td>${r.supplier || ''}</td><td>${r.size || ''}</td>
+    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.desc || r.sku || ''}</td>
+    <td>${r.qty || 0}</td>
+    <td style="font-weight:700">${r.cost != null ? fmtMoney(r.cost) : '—'}</td>
+    <td>${fmtMoney(r.spend)}</td></tr>`).join('');
+}
+
+async function refreshTireCosts() {
+  const btn = document.getElementById('cost-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing… (few min)'; }
+  try {
+    await fetch(`${AP_BACKEND}/cost-refresh?secret=${AP_SECRET}`).catch(() => {});
+    toast('Pulling your order history — takes a few minutes. Reload the tab shortly.', 'success');
+  } catch (e) {}
+  setTimeout(() => { if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh costs'; } }, 5000);
 }
 
 async function loadInvoices() {
@@ -684,6 +736,7 @@ function renderStock() {
 }
 
 document.getElementById('stock-search').addEventListener('input', renderStock);
+document.getElementById('cost-search').addEventListener('input', renderCosts);
 
 async function refreshCatalog() {
   toast('Triggering scraper service...', 'info');

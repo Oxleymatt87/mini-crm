@@ -5485,14 +5485,34 @@ def refresh_supplier_balances(current_user: User = Depends(get_current_user)):
 BALANCE_REFRESH_SECRET = "oxley-ap-7Zxz"
 
 
-@app.get("/suppliers/refresh-balances-now")
-def refresh_balances_now(secret: str = Query("")):
+@app.get("/ap-refresh")
+def ap_refresh_now(secret: str = Query("")):
     """Synchronous balance refresh the dashboard can call directly (no JWT).
-    Wakes the backend and scrapes on the spot. Protected by a shared secret;
-    only ever touches the owner's own configured suppliers."""
+    Top-level path so it isn't shadowed by /suppliers/{id}. Wakes the backend
+    and scrapes on the spot. Shared-secret protected; only touches the owner's
+    own configured suppliers."""
     if secret != BALANCE_REFRESH_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
     return _do_balance_refresh()
+
+
+@app.get("/ap-balances")
+def ap_balances(secret: str = Query("")):
+    """Read the latest stored balances (debug/verify). Top-level, shared-secret."""
+    if secret != BALANCE_REFRESH_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    db = SessionLocal()
+    try:
+        rows = db.query(SupplierBalance, Supplier).join(Supplier, SupplierBalance.supplier_id == Supplier.id).all()
+        out = [{"supplier": s.name, "code": s.code, "total_due": b.total_due, "past_due": b.past_due,
+                "ok": b.ok, "error": b.error} for b, s in rows]
+        # also list configured suppliers (to confirm creds exist)
+        sups = db.query(Supplier).all()
+        cfg = [{"name": s.name, "has_creds": bool(s.portal_password_encrypted), "active": s.is_active,
+                "portal": s.portal_url} for s in sups]
+        return {"balances": out, "suppliers_configured": cfg}
+    finally:
+        db.close()
 
 
 # =============================================================================

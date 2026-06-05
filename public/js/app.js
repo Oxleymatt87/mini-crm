@@ -196,7 +196,7 @@ async function refreshSupplierBalances() {
   toast('Pulling balances from your supplier portals…', 'success');
   try {
     // Direct synchronous trigger: wakes the backend and scrapes on the spot.
-    await fetch(`${AP_BACKEND}/suppliers/refresh-balances-now?secret=${AP_SECRET}`).catch(() => {});
+    await fetch(`${AP_BACKEND}/ap-refresh?secret=${AP_SECRET}`).catch(() => {});
   } finally {
     await loadSupplierBalances();
     renderSupplierBalances();

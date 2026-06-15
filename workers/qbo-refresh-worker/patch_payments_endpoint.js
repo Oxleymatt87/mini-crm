@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Inserts the /payments-by-customer route + fetchPaymentsByCustomer() into the
-// qbo-refresh-worker source WITHOUT touching any existing code (idempotent).
+// Inserts (or upgrades) the /payments-by-customer route + fetchPaymentsByCustomer()
+// in the qbo-refresh-worker source WITHOUT touching any other code.
 //
 //   node patch_payments_endpoint.js <input-source.js> <output-source.js>
 //
-// <input-source.js> should be the *live deployed* worker source (fetched via the
-// Cloudflare API in deploy_payments_endpoint.sh) so existing endpoints and the
-// inline HTML dashboards stay byte-for-byte identical.
+// <input-source.js> should be the *live deployed* worker source so existing
+// endpoints and the inline HTML dashboards stay byte-for-byte identical.
+// Re-running upgrades a previously-inserted version (removes the old route +
+// function first, then inserts the current ones).
 
 const fs = require('fs');
 const path = require('path');
@@ -37,11 +38,18 @@ if (!src.includes('export default')) {
   throw new Error('Input does not look like a Worker module (no "export default").');
 }
 
-if (src.includes('/payments-by-customer')) {
-  fs.writeFileSync(outPath, src);
-  console.error('Already patched — /payments-by-customer present. Wrote source unchanged.');
-  process.exit(0);
-}
+const had = src.includes('/payments-by-customer');
+
+// 0) Remove any previously-inserted route block (exact shape we always emit).
+src = src.replace(
+  /[ \t]*if \(url\.pathname === '\/payments-by-customer'\)[\s\S]*?return await fetchPaymentsByCustomer\([^\n]*\n[ \t]*\}\n+/,
+  ''
+);
+// Remove any previously-inserted function (with its leading comment block).
+src = src.replace(
+  /(?:[ \t]*\/\/[^\n]*\n)*async function fetchPaymentsByCustomer[\s\S]*?\nconst CONNECT_HTML =/,
+  'const CONNECT_HTML ='
+);
 
 // 1) Route handler — inserted just before the fallback "status: ok" response.
 const ROUTE =
@@ -56,13 +64,19 @@ if (!src.includes(routeAnchor)) throw new Error('Route anchor not found in sourc
 src = src.replace(routeAnchor, ROUTE + routeAnchor);
 
 // 2) Function body — inserted just before the first inline HTML constant.
-let fn = fs.readFileSync(path.join(__dirname, 'payments_by_customer.fn.js'), 'utf8').trim();
+const fn = fs.readFileSync(path.join(__dirname, 'payments_by_customer.fn.js'), 'utf8').trim();
 const funcAnchor = 'const CONNECT_HTML =';
 if (!src.includes(funcAnchor)) throw new Error('Function anchor (CONNECT_HTML) not found in source.');
 src = src.replace(funcAnchor, fn + '\n\n' + funcAnchor);
 
-// 3) Advertise the new endpoint in the default index response (best-effort).
-src = src.replace("'/new-prospect']", "'/new-prospect','/payments-by-customer']");
+// 3) Advertise the endpoint in the default index response (only if missing).
+if (!src.includes("'/payments-by-customer'") || (src.match(/'\/payments-by-customer'/g) || []).length < 2) {
+  if (!/'\/new-prospect','\/payments-by-customer']/.test(src)) {
+    src = src.replace("'/new-prospect']", "'/new-prospect','/payments-by-customer']");
+  }
+}
 
 fs.writeFileSync(outPath, src);
-console.error('Patched: added /payments-by-customer route + fetchPaymentsByCustomer().');
+console.error(had
+  ? 'Upgraded: replaced existing /payments-by-customer route + function.'
+  : 'Patched: added /payments-by-customer route + fetchPaymentsByCustomer().');

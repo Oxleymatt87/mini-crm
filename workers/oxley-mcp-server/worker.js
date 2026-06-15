@@ -114,6 +114,12 @@ const TOOLS = [
     path: '/chase-report',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
+  {
+    name: 'qbo_token_status',
+    description: 'Health of the stored QBO/Plaid OAuth tokens: which keys are present, their value lengths, and the QBO access-token expiry. Never returns the secret token values.',
+    kv: true,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ];
 
 const TOOLS_BY_NAME = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
@@ -201,6 +207,8 @@ async function toolCall(id, params, env) {
   const tool = TOOLS_BY_NAME[params?.name];
   if (!tool) return rpcError(id, -32602, `Unknown tool: ${params?.name}`);
 
+  if (tool.kv) return tokenStatus(id, env);
+
   const args = params?.arguments && typeof params.arguments === 'object' ? params.arguments : {};
   const qs = tool.query ? tool.query(args) : {};
   const target = new URL(tool.path, upstreamBase(env));
@@ -224,6 +232,36 @@ async function toolCall(id, params, env) {
       content: [{ type: 'text', text: `Upstream fetch failed: ${e?.message || e}` }],
       isError: true,
     });
+  }
+}
+
+// Report token health from the QBO_TOKENS KV without ever returning secret
+// values — only presence, length, and the (non-secret) expiry timestamp.
+async function tokenStatus(id, env) {
+  if (!env || !env.QBO_TOKENS || typeof env.QBO_TOKENS.list !== 'function') {
+    return rpcResult(id, { content: [{ type: 'text', text: 'QBO_TOKENS KV binding not configured.' }], isError: true });
+  }
+  try {
+    const { keys } = await env.QBO_TOKENS.list();
+    const report = [];
+    for (const k of keys) {
+      const v = await env.QBO_TOKENS.get(k.name);
+      const entry = { key: k.name, present: v != null, length: v ? v.length : 0 };
+      if (k.name === 'expires_at' && v) {
+        const n = Number(v);
+        const ms = n < 1e12 ? n * 1000 : n; // tolerate seconds or milliseconds
+        const d = new Date(ms);
+        if (!isNaN(d.getTime())) {
+          entry.value = v;
+          entry.expiresAtISO = d.toISOString();
+          entry.expired = d.getTime() < Date.now();
+        }
+      }
+      report.push(entry);
+    }
+    return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify({ namespace: 'QBO_TOKENS', tokens: report }, null, 2) }] });
+  } catch (e) {
+    return rpcResult(id, { content: [{ type: 'text', text: `KV read failed: ${e?.message || e}` }], isError: true });
   }
 }
 

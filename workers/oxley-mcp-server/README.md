@@ -25,7 +25,11 @@ MCP methods handled: `initialize`, `notifications/initialized`, `ping`,
 `dashboard_summary`, `overdue_invoices`, `chase_transactions` (`days`),
 `bank_transactions`, `profit_loss` (`start_date`, `end_date`),
 `expenses_detail` (`start_date`, `end_date`), `top_customers` (`year`),
-`payments_by_customer`.
+`payments_by_customer`, `dad_dashboard` (HTML), `chase_report` (HTML).
+
+Write/side-effecting upstream endpoints (`/new-prospect`, `/plaid-link-token`,
+`/plaid-exchange`) are intentionally **not** exposed, since this endpoint is
+unauthenticated.
 
 ## Config
 

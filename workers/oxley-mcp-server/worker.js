@@ -102,6 +102,18 @@ const TOOLS = [
     path: '/payments-by-customer',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
+  {
+    name: 'dad_dashboard',
+    description: 'Live combined dashboard (HTML): AR, balances, invoices, and recent Chase transactions.',
+    path: '/dad',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'chase_report',
+    description: 'Chase spending report (HTML dashboard with CSV export) built from live Plaid data.',
+    path: '/chase-report',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ];
 
 const TOOLS_BY_NAME = Object.fromEntries(TOOLS.map((t) => [t.name, t]));

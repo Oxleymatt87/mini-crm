@@ -15,6 +15,11 @@ UPSTREAM_BASE = "https://qbo-refresh-worker.moxley.workers.dev"
 binding = "QBO"
 service = "qbo-refresh-worker"
 
+# Read-only access to the QBO/Plaid OAuth tokens for the qbo_token_status tool.
+[[kv_namespaces]]
+binding = "QBO_TOKENS"
+id = "9e61d4d0d02a476692cfa71c1002908b"
+
 [observability]
 enabled = true
 

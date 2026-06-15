@@ -671,7 +671,7 @@ function initMap() {
     .then(places => {
       const added = [];
       places.forEach(p => {
-        const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:null,type:'wantgo',notes:'Prospect from list',spend:null,locType:'Prospect'};
+        const loc = {name:p.n,lat:p.t,lng:p.g,addr:p.a,trucks:null,drivers:null,phone:p.p||null,type:'wantgo',notes:p.c?('Prospect — '+p.c+(p.w?(' · '+p.w):'')):'Prospect from list',spend:null,locType:p.c||'Prospect',website:p.w||null};
         const marker = new google.maps.marker.AdvancedMarkerElement({
           position:{lat:p.t,lng:p.g},
           title:p.n,

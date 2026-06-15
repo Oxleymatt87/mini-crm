@@ -1,0 +1,15 @@
+name = "oxley-mcp-server"
+main = "worker.js"
+compatibility_date = "2025-01-15"
+account_id = "e450a418975ed9b1212f52452bb1b5d5"
+
+# MCP server that proxies qbo-refresh-worker's read-only endpoints as MCP tools.
+# No secrets needed here — the upstream worker owns the QBO/Plaid tokens.
+[vars]
+UPSTREAM_BASE = "https://qbo-refresh-worker.moxley.workers.dev"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true

@@ -195,7 +195,13 @@ async function toolCall(id, params, env) {
   for (const [k, v] of Object.entries(qs)) target.searchParams.set(k, v);
 
   try {
-    const upstream = await fetch(target.toString(), { headers: { accept: 'application/json' } });
+    // Prefer the service binding (QBO) — a Worker cannot subrequest another
+    // *.workers.dev URL on the same account (CF error 1042). Fall back to a
+    // direct fetch (e.g. local dev / Node) when the binding isn't present.
+    const reqInit = { headers: { accept: 'application/json' } };
+    const upstream = env && env.QBO && typeof env.QBO.fetch === 'function'
+      ? await env.QBO.fetch(target.toString(), reqInit)
+      : await fetch(target.toString(), reqInit);
     const bodyText = await upstream.text();
     return rpcResult(id, {
       content: [{ type: 'text', text: bodyText }],

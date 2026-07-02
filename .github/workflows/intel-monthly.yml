@@ -1,0 +1,51 @@
+name: Fleet Intel — monthly SETX renewal
+
+# Monthly SETX-only renewal: re-pull FMCSA, diff against last run, deep-harvest
+# ONLY the new fleets, update the Drive workbook, write a NEW_THIS_MONTH sheet.
+# The paid Apify layer is capped by MAX_COST_USD in the script (and --max-cost).
+
+on:
+  schedule:
+    - cron: "17 8 1 * *"   # 08:17 UTC on the 1st of each month
+  workflow_dispatch:
+    inputs:
+      max_cost:
+        description: "Hard USD cap for the Apify harvest"
+        required: false
+        default: "15"
+
+permissions:
+  contents: write   # to commit the updated state/ snapshot back
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r intel/requirements.txt
+
+      - name: SETX renewal (diff + gated harvest)
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+        run: |
+          python intel/scrape_fleets.py \
+            --diff --harvest --confirm \
+            --max-cost "${{ github.event.inputs.max_cost || '15' }}" \
+            --geocode --drive
+
+      - name: Commit updated snapshot
+        run: |
+          git config user.name  "oxley-intel-bot"
+          git config user.email "moxley@oxleytireinc.com"
+          git add intel/state/ || true
+          git commit -m "chore(intel): monthly SETX renewal snapshot" || echo "no changes"
+          git push || echo "nothing to push"

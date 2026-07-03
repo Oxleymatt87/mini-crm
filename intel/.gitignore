@@ -4,3 +4,5 @@ out/
 *service-account*.json
 *.pem
 .env
+__pycache__/
+*.pyc

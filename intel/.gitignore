@@ -1,0 +1,8 @@
+out/
+*.xlsx
+# never commit service-account json or tokens
+*service-account*.json
+*.pem
+.env
+__pycache__/
+*.pyc

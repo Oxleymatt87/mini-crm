@@ -58,7 +58,7 @@ Cesium.GoogleMaps.defaultApiKey=GKEY;
 var viewer=new Cesium.Viewer("cesiumContainer",{
   globe:false, baseLayer:false, baseLayerPicker:false, geocoder:false, homeButton:false,
   sceneModePicker:false, navigationHelpButton:false, timeline:false, animation:false,
-  fullscreenButton:true, vrButton:true, infoBox:false, selectionIndicator:false, requestRenderMode:false,
+  fullscreenButton:true, vrButton:false, infoBox:false, selectionIndicator:false, requestRenderMode:false,
   sceneMode:Cesium.SceneMode.SCENE3D
 });
 viewer.scene.skyAtmosphere.show=true;
@@ -81,13 +81,13 @@ var INF=Number.POSITIVE_INFINITY, HR=Cesium.HeightReference.CLAMP_TO_GROUND;
 function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat),
-   point:{pixelSize:11,color:Cesium.Color.fromCssColorString(r.col),outlineColor:Cesium.Color.WHITE,outlineWidth:2,heightReference:HR,disableDepthTestDistance:INF},
-   label:{text:r.n,font:"600 12px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:3,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,9),heightReference:HR,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.05,12000,0.45),translucencyByDistance:new Cesium.NearFarScalar(6000,1.0,15000,0.0)}});
+   point:{pixelSize:11,color:Cesium.Color.fromCssColorString(r.col),outlineColor:Cesium.Color.WHITE,outlineWidth:2,disableDepthTestDistance:INF},
+   label:{text:r.n,font:"600 12px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:3,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,9),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1200,1.05,9000,0.4),translucencyByDistance:new Cesium.NearFarScalar(4000,1.0,10000,0.0)}});
   e.rec=r; r._e=e;
  }
  // distance-based clustering so 3,255 pins don't lag
  var cl=src.clustering;
- cl.enabled=true; cl.pixelRange=52; cl.minimumClusterSize=6;
+ cl.enabled=true; cl.pixelRange=55; cl.minimumClusterSize=5;
  cl.clusterEvent.addEventListener(function(list,cluster){
    var n=list.length; var sz=(n<20?15:n<80?21:n<300?27:33);
    if(cluster.billboard){cluster.billboard.show=true;cluster.billboard.image=circleImg(sz,"#d35400");cluster.billboard.disableDepthTestDistance=INF;cluster.billboard.verticalOrigin=Cesium.VerticalOrigin.CENTER;cluster.billboard.horizontalOrigin=Cesium.HorizontalOrigin.CENTER;}
@@ -121,7 +121,7 @@ function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
  hnd.setInputAction(function(m){var picks=viewer.scene.drillPick(m.position,20);
   for(var i=0;i<picks.length;i++){var p=picks[i];if(!Cesium.defined(p))continue;
    if(p.id&&p.id.rec){showPanel(p.id.rec);return;}
-   if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:1.0}).catch(function(){});return;}}
+   if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);}
 function nz(s){return (s==null?"":String(s)).toLowerCase()}
 function runSearch(q){

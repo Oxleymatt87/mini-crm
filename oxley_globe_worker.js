@@ -10,19 +10,20 @@ export default {
 const PAGE = String.raw`<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Oxley Globe — SETX Fleets</title>
-<script src="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Cesium.js"></script>
-<link href="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Oxley 3D Globe — SETX Fleets</title>
+<script>window.CESIUM_BASE_URL="https://cdn.jsdelivr.net/npm/cesium@1.142.0/Build/Cesium/";</script>
+<script src="https://cdn.jsdelivr.net/npm/cesium@1.142.0/Build/Cesium/Cesium.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/cesium@1.142.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet"/>
 <style>
   html,body,#cesiumContainer{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#000;font-family:-apple-system,Segoe UI,Roboto,sans-serif}
+  .cesium-widget-credits,.cesium-viewer-bottom{display:none!important}
   #bar{position:absolute;top:0;left:0;right:0;z-index:10;display:flex;gap:6px;align-items:center;padding:7px 8px;background:linear-gradient(#000d,#0000);color:#e8e8e8}
   #q{flex:1;min-width:120px;background:#12151b;color:#fff;border:1px solid #333;border-radius:8px;padding:9px 11px;font-size:14px}
   #bar button{background:#161616;color:#eee;border:1px solid #333;border-radius:8px;padding:9px 11px;cursor:pointer;font-size:13px;white-space:nowrap}
   #bar button:hover{background:#222}
   #status{position:absolute;top:52px;left:8px;z-index:9;background:rgba(10,12,16,.85);color:#cbd5e1;padding:5px 9px;border-radius:8px;font-size:12px}
-  .cesium-viewer-bottom{display:none}
   #panel{position:absolute;left:8px;bottom:8px;z-index:21;background:rgba(16,18,22,.97);color:#fff;padding:13px 15px;border-radius:14px;max-width:86vw;max-height:60vh;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.6);display:none}
   #panel h3{margin:0 26px 6px 0;font-size:17px}
   #panel .row{font-size:13px;opacity:.92;margin:3px 0}
@@ -38,7 +39,7 @@ const PAGE = String.raw`<!DOCTYPE html>
   <input id="q" placeholder="Search: name, industry, city, ZIP, county… or 'top 10 in Beaumont'"/>
   <button id="go">Search</button>
   <button id="clear">Clear</button>
-  <button id="reset">Reset view</button>
+  <button id="reset">Reset</button>
 </div>
 <div id="status">booting…</div>
 <div id="cesiumContainer"></div>
@@ -51,23 +52,51 @@ function setStatus(t){$("#status").textContent=t}
 var params=new URLSearchParams(location.search);
 var GKEY=params.get("key")||"__TILES_KEY__";
 if(!GKEY||GKEY.indexOf("__TILES")===0)GKEY=prompt("Google Map Tiles API key:")||"";
-Cesium.Ion.defaultAccessToken=undefined;
+Cesium.Ion.defaultAccessToken="";
 Cesium.GoogleMaps.defaultApiKey=GKEY;
-var viewer=new Cesium.Viewer("cesiumContainer",{globe:false,baseLayerPicker:false,geocoder:false,homeButton:false,sceneModePicker:false,navigationHelpButton:false,timeline:false,animation:false,fullscreenButton:true,vrButton:true,infoBox:false,selectionIndicator:false});
+
+var viewer=new Cesium.Viewer("cesiumContainer",{
+  globe:false, baseLayer:false, baseLayerPicker:false, geocoder:false, homeButton:false,
+  sceneModePicker:false, navigationHelpButton:false, timeline:false, animation:false,
+  fullscreenButton:true, vrButton:true, infoBox:false, selectionIndicator:false, requestRenderMode:false,
+  sceneMode:Cesium.SceneMode.SCENE3D
+});
 viewer.scene.skyAtmosphere.show=true;
-viewer.scene.screenSpaceCameraController.minimumZoomDistance=1;
-var HOME=Cesium.Cartesian3.fromDegrees(-94.14,30.10,60000);
-function reset(){viewer.camera.flyTo({destination:HOME,orientation:{heading:0,pitch:Cesium.Math.toRadians(-42),roll:0},duration:1.4});$("#panel").style.display="none";}
-var src=new Cesium.CustomDataSource("fleets");viewer.dataSources.add(src);
+// full orbit / tilt / zoom
+var cc=viewer.scene.screenSpaceCameraController;
+cc.enableRotate=true; cc.enableTilt=true; cc.enableZoom=true; cc.enableLook=true; cc.enableTranslate=true;
+cc.enableCollisionDetection=true;
+cc.minimumZoomDistance=12;          // street level
+cc.maximumZoomDistance=8000000;
+cc.zoomFactor=6;
+
+var HOME={destination:Cesium.Cartesian3.fromDegrees(-94.13,29.78,45000),
+          orientation:{heading:Cesium.Math.toRadians(20),pitch:Cesium.Math.toRadians(-35),roll:0}};
+function reset(){viewer.camera.flyTo({destination:HOME.destination,orientation:HOME.orientation,duration:1.4});$("#panel").style.display="none";}
+
+// ---- pin layer (clustered entity data-source over the 3D tiles) ----
+var src=new Cesium.CustomDataSource("fleets");
+viewer.dataSources.add(src);
 var INF=Number.POSITIVE_INFINITY, HR=Cesium.HeightReference.CLAMP_TO_GROUND;
 function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat),
-   point:{pixelSize:12,color:Cesium.Color.fromCssColorString(r.col),outlineColor:Cesium.Color.WHITE,outlineWidth:2,heightReference:HR,disableDepthTestDistance:INF},
-   label:{text:r.n,font:"600 12px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:3,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,9),heightReference:HR,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.05,12000,0.4),translucencyByDistance:new Cesium.NearFarScalar(6000,1.0,14000,0.0)}});
+   point:{pixelSize:11,color:Cesium.Color.fromCssColorString(r.col),outlineColor:Cesium.Color.WHITE,outlineWidth:2,heightReference:HR,disableDepthTestDistance:INF},
+   label:{text:r.n,font:"600 12px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:3,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,9),heightReference:HR,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.05,12000,0.45),translucencyByDistance:new Cesium.NearFarScalar(6000,1.0,15000,0.0)}});
   e.rec=r; r._e=e;
  }
+ // distance-based clustering so 3,255 pins don't lag
+ var cl=src.clustering;
+ cl.enabled=true; cl.pixelRange=52; cl.minimumClusterSize=6;
+ cl.clusterEvent.addEventListener(function(list,cluster){
+   var n=list.length; var sz=(n<20?15:n<80?21:n<300?27:33);
+   if(cluster.billboard){cluster.billboard.show=true;cluster.billboard.image=circleImg(sz,"#d35400");cluster.billboard.disableDepthTestDistance=INF;cluster.billboard.verticalOrigin=Cesium.VerticalOrigin.CENTER;cluster.billboard.horizontalOrigin=Cesium.HorizontalOrigin.CENTER;}
+   if(cluster.point){cluster.point.show=false;}
+   if(cluster.label){cluster.label.show=true;cluster.label.text=""+n;cluster.label.font="600 13px sans-serif";cluster.label.fillColor=Cesium.Color.WHITE;cluster.label.outlineColor=Cesium.Color.BLACK;cluster.label.outlineWidth=2;cluster.label.style=Cesium.LabelStyle.FILL_AND_OUTLINE;cluster.label.disableDepthTestDistance=INF;cluster.label.pixelOffset=new Cesium.Cartesian2(0,0);cluster.label.horizontalOrigin=Cesium.HorizontalOrigin.CENTER;cluster.label.verticalOrigin=Cesium.VerticalOrigin.CENTER;}
+ });
 }
+var CIMG={};
+function circleImg(size,color){var k=size+color;if(CIMG[k])return CIMG[k];var c=document.createElement("canvas");c.width=c.height=size*2;var g=c.getContext("2d");g.beginPath();g.arc(size,size,size-2,0,Math.PI*2);g.fillStyle=color;g.globalAlpha=0.92;g.fill();g.globalAlpha=1;g.lineWidth=2;g.strokeStyle="#fff";g.stroke();CIMG[k]=c.toDataURL();return CIMG[k];}
 function esc(s){return String(s==null?"":s).replace(/</g,"&lt;")}
 function showPanel(r){
  var tel=r.ph?("+1"+String(r.ph).replace(/\D/g,"")):"";
@@ -88,8 +117,12 @@ function showPanel(r){
  h+='</div>';
  $("#panel").innerHTML=h;$("#panel").style.display="block";
 }
-function wirePick(){var h=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
- h.setInputAction(function(m){var picks=viewer.scene.drillPick(m.position,15);for(var i=0;i<picks.length;i++){var p=picks[i];if(Cesium.defined(p)&&p.id&&p.id.rec){showPanel(p.id.rec);return;}}},Cesium.ScreenSpaceEventType.LEFT_CLICK);}
+function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
+ hnd.setInputAction(function(m){var picks=viewer.scene.drillPick(m.position,20);
+  for(var i=0;i<picks.length;i++){var p=picks[i];if(!Cesium.defined(p))continue;
+   if(p.id&&p.id.rec){showPanel(p.id.rec);return;}
+   if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:1.0}).catch(function(){});return;}}
+ },Cesium.ScreenSpaceEventType.LEFT_CLICK);}
 function nz(s){return (s==null?"":String(s)).toLowerCase()}
 function runSearch(q){
  q=(q||"").trim();
@@ -100,8 +133,7 @@ function runSearch(q){
  ql=ql.replace(/(city|zip|county|industry|vertical|name|min|trucks)\s*[:=]\s*([a-z0-9 .'\-]+)/g,function(_,k,v){fields[k]=v.trim();return " ";});
  var mc=ql.match(/\bin\s+([a-z .'\-]+?)\s*$/);if(mc&&!fields.city)fields.city=mc[1].trim();
  var stop={top:1,fleet:1,fleets:1,size:1,sizes:1,largest:1,biggest:1,show:1,only:1,me:1,"the":1,"in":1,"with":1,"and":1,"by":1,"of":1};
- var rest=ql.replace(/top\s+\d+/," ");
- if(mc)rest=rest.replace(/\bin\s+[a-z .'\-]+?\s*$/," ");
+ var rest=ql.replace(/top\s+\d+/," ");if(mc)rest=rest.replace(/\bin\s+[a-z .'\-]+?\s*$/," ");
  var toks=rest.split(/[^a-z0-9]+/).filter(function(t){return t&&!stop[t]});
  var res=D.filter(function(r){
   if(fields.city&&nz(r.city).indexOf(fields.city)<0)return false;
@@ -111,21 +143,26 @@ function runSearch(q){
   if(fields.name&&nz(r.n).indexOf(fields.name)<0)return false;
   var mn=fields.min||fields.trucks;if(mn&&!(r.t>=+mn))return false;
   if(toks.length){var hay=nz(r.n)+" "+nz(r.city)+" "+nz(r.county)+" "+nz(r.zip)+" "+nz(r.v)+" "+nz(r.tier);for(var j=0;j<toks.length;j++){if(hay.indexOf(toks[j])<0)return false;}}
-  return true;
- });
+  return true;});
  if(topN){res=res.slice().sort(function(a,b){return b.t-a.t}).slice(0,topN);}
  var keep={};for(var k=0;k<res.length;k++)keep[res[k].dot]=1;
  for(var i2=0;i2<D.length;i2++)D[i2]._e.show=!!keep[D[i2].dot];
  setStatus(res.length+" match"+(res.length===1?"":"es")+(topN?(" · top "+topN):""));
- if(res.length){viewer.flyTo(res.slice(0,400).map(function(r){return r._e})).catch(function(){});}
+ if(res.length)viewer.flyTo(res.slice(0,400).map(function(r){return r._e})).catch(function(){});
  else setStatus("no matches for “"+q+"”");
 }
 $("#go").addEventListener("click",function(){runSearch($("#q").value)});
 $("#q").addEventListener("keydown",function(e){if(e.key==="Enter")runSearch($("#q").value)});
 $("#clear").addEventListener("click",function(){$("#q").value="";runSearch("")});
 $("#reset").addEventListener("click",reset);
-(function(){build();wirePick();reset();setStatus(D.length+" pins · tap one, or search");
- Cesium.createGooglePhotorealistic3DTileset().then(function(ts){viewer.scene.primitives.add(ts);}).catch(function(e){viewer.scene.globe.show=true;setStatus(D.length+" pins · (3D tiles off: "+(e&&e.message||e)+")");});
+(function(){
+ build(); wirePick(); reset();
+ setStatus(D.length+" pins · drag to orbit · pinch/scroll to zoom · tap a pin");
+ Cesium.createGooglePhotorealistic3DTileset().then(function(ts){
+   viewer.scene.primitives.add(ts);
+ }).catch(function(e){
+   setStatus("3D tiles error — enable 'Map Tiles API' on the key. "+(e&&e.message||e));
+ });
 })();
 </script>
 </body>

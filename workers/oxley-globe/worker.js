@@ -63,6 +63,7 @@ const params = new URLSearchParams(location.search);
 let GKEY = params.get("key") || "__TILES_KEY__";
 if (!GKEY || GKEY.indexOf("__TILES") === 0) GKEY = prompt("Google Map Tiles API key:") || "";
 let ROUTES_KEY = params.get("routesKey") || GKEY;
+const ENRICH_BASE = params.get("enrichBase") || "https://oxley-enrich.moxley.workers.dev";
 
 Cesium.Ion.defaultAccessToken = undefined;
 Cesium.GoogleMaps.defaultApiKey = GKEY;
@@ -124,6 +125,43 @@ function styleFleetDS(ds){
   }
 }
 
+// Merge cached Places enrichment (photo/hours/phone/rating) into Tier-1 pin cards.
+function applyEnrichment(ds){
+  fetch(ENRICH_BASE + "/enriched.json").then(r => r.ok ? r.json() : []).then(recs => {
+    if (!recs || !recs.length) return;
+    const norm = s => (s || "").toUpperCase().replace(/&AMP;/g, "&").replace(/[^A-Z0-9]/g, "");
+    const R = recs.map(x => ({ rec: x, key: norm(x.n) })).filter(x => x.key.length >= 5);
+    const ents = ds.entities.values;
+    let n = 0;
+    for (let i = 0; i < ents.length; i++){
+      const ent = ents[i];
+      if (!ent.name) continue;
+      const en = norm(ent.name);
+      let found = null;
+      for (let j = 0; j < R.length; j++){
+        if (en.indexOf(R[j].key) !== -1 || R[j].key.indexOf(en) !== -1){ found = R[j].rec; break; }
+      }
+      if (!found) continue;
+      const parts = [];
+      parts.push('<div style="font:13px/1.4 sans-serif;color:#eee">');
+      if (found.photo) parts.push('<img src="' + ENRICH_BASE + found.photo + '" style="width:100%;max-width:340px;border-radius:8px;margin:6px 0" />');
+      if (found.rating) parts.push('<div>&#9733; ' + found.rating + (found.ratingCount ? ' (' + found.ratingCount + ')' : '') + '</div>');
+      if (found.phone) parts.push('<div>&#128222; <a style="color:#4ab3ff" href="tel:' + found.phone + '">' + found.phone + '</a></div>');
+      if (found.website) parts.push('<div><a style="color:#4ab3ff" href="' + found.website + '" target="_blank" rel="noopener">website</a></div>');
+      if (found.hours && found.hours.length){
+        parts.push('<div style="margin-top:5px;opacity:.85">');
+        for (let h = 0; h < found.hours.length; h++) parts.push('<div>' + found.hours[h] + '</div>');
+        parts.push('</div>');
+      }
+      parts.push('</div>');
+      const cur = ent.description ? (ent.description.getValue ? ent.description.getValue(viewer.clock.currentTime) : ent.description) : "";
+      ent.description = parts.join("") + (cur || "");
+      n++;
+    }
+    if (n) setStatus(n + " Tier-1 pin" + (n === 1 ? "" : "s") + " enriched · " + ds.entities.values.length + " pins total");
+  }).catch(() => {});
+}
+
 let currentDS = null;
 async function loadKml(source){
   try {
@@ -134,6 +172,7 @@ async function loadKml(source){
     });
     currentDS = await viewer.dataSources.add(ds);
     styleFleetDS(ds);
+    applyEnrichment(ds);
     await viewer.flyTo(ds);
     setStatus(ds.entities.values.length + " pins — tap a pin for details");
   } catch(e){ setStatus("KML failed: " + (e.message||e)); }

@@ -13,10 +13,41 @@
 // Tier-1 list is embedded below. Add entries to grow it, then re-run /run.
 
 const TIER1 = [
-  { n: "LSJ Trucking Inc",        a: "5020 Fannett Rd, Beaumont TX",         t: 30.0377,    g: -94.1468 },
-  { n: "KDSI Trucking Inc",       a: "190 S 4th St, Beaumont, TX 77701",     t: 30.0773108, g: -94.1156712 },
-  { n: "Beaumont Iron & Metal",   a: "3190 Hollywood St, Beaumont, TX 77701", t: 30.0753545, g: -94.1231927 },
-  { n: "C & T Trucking",          a: "4240 Cadillac Ln, Beaumont TX",        t: 30.0454,    g: -94.1009 },
+  { n: "LSJ Trucking Inc", a: "5020 Fannett Rd, Beaumont TX", t: 30.0377, g: -94.1468 },
+  { n: "KDSI Trucking Inc", a: "190 S 4th St, Beaumont, TX 77701", t: 30.0773108, g: -94.1156712 },
+  { n: "Beaumont Iron & Metal", a: "3190 Hollywood St, Beaumont, TX 77701", t: 30.0753545, g: -94.1231927 },
+  { n: "C & T Trucking", a: "4240 Cadillac Ln, Beaumont TX", t: 30.0454, g: -94.1009 },
+  { n: "CURTIS & SON VACUUM SERVICE INC", a: "4408 NORTH MAIN STREET, LIBERTY 77575", t: 30.09021, g: -94.75877 },
+  { n: "SUPERIOR WASTE SOLUTIONS LLC", a: "5565 ERIE ST, BEAUMONT 77705", t: 30.032367, g: -94.100749 },
+  { n: "SMART OILFIELD SERVICES LLC", a: "2251 MIZELL RD, LIBERTY 77575", t: 30.07959, g: -94.77106 },
+  { n: "MODERN CONCRETE & MATERIALS LLC", a: "4825 ROMEDA ROAD, BEAUMONT 77705", t: 30.039152, g: -94.123525 },
+  { n: "CLEARSTREAM WASTEWATER SYSTEMS INC", a: "4899 US HWY 69 S, LUMBERTON 77657", t: 30.186543, g: -94.186762 },
+  { n: "IMPACT WASTE LLC", a: "6315 N HWY 347, BEAUMONT 77720", t: 30.021073, g: -94.048237 },
+  { n: "INTEGRITY READY MIX CONCRETE LLC", a: "1288A FOSTORIA RD, CLEVELAND 77328", t: 30.339193, g: -95.166425 },
+  { n: "CURTIS OILFIELD SERVICES LLC", a: "4779 US HWY 96 NORTH, SILSBEE 77656", t: 30.356908, g: -94.109959 },
+  { n: "BIOMEDICAL WASTE SOLUTIONS", a: "9665 JADE AVE, PORT ARTHUR 77642", t: 29.927078, g: -94.031777 },
+  { n: "PARKS LEASE & VACUUM SERVICE LP", a: "27194 HWY 96, KIRBYVILLE 75956", t: 30.549054, g: -93.931907 },
+  { n: "SANDIFER'S LP GAS AND SERVICE CO INC", a: "5812 GULFWAY DRIVE, PORT ARTHUR 77642", t: 29.925645, g: -93.906019 },
+  { n: "MARTINEZ CARGO LOGISTICS LLC", a: "275 RD 3554, CLEVELAND 77327", t: 30.181552, g: -95.09043 },
+  { n: "YELLOW JACKET DAYTON READYMIX LLC", a: "3303 BEAUMONT AVE, LIBERTY 77575", t: 30.059747, g: -94.770132 },
+  { n: "E5IVE LOGISTICS LLC", a: "1022 MAGNOLIA AVE, PORT NECHES 77651", t: 29.980781, g: -93.963789 },
+  { n: "BENDY LOGISTICS LLC", a: "3985 MARIE ST, BEAUMONT 77705", t: 30.04785, g: -94.106267 },
+  { n: "LIBERTY READY MIX LP", a: "3033 BEAUMONT AVENUE, LIBERTY 77575", t: 30.059628, g: -94.777413 },
+  { n: "MR GARBAGE LLC", a: "4745 FANNETT RD, BEAUMONT 77705", t: 30.039985, g: -94.13718 },
+  { n: "READ LOGGING INC", a: "208 CR 1308, WARREN 77664", t: 30.622342, g: -94.41215 },
+  { n: "CRANE TECH LOGISTICS INC", a: "16415 HIGHWAY 90, BEAUMONT 77713", t: 30.052274, g: -94.299934 },
+  { n: "M&S HEAVY HAUL LLC", a: "101 FM HIGHWAY 365, PORT ARTHUR 77640", t: 29.924841, g: -94.014421 },
+  { n: "WILTEX LOGISTICS LLC", a: "1600 CEDAR ST, BEAUMONT 77701", t: 30.077294, g: -94.111689 },
+  { n: "PERYN HEAVY HAUL LLC", a: "500 MOCKINGBIRD, VIDOR 77662", t: 30.109396, g: -94.048748 },
+  { n: "COASTLINE CONCRETE PUMPING LLC", a: "910 N ROSE CITY DR, VIDOR 77662", t: 30.101955, g: -94.063803 },
+  { n: "2S ROLL OFF SERVICE LLC", a: "6642 INDUSTRIAL ROAD, BEAUMONT 77705", t: 29.989231, g: -94.204504 },
+  { n: "A VALDEZ LOGISTICS LLC", a: "507 COUNTY RD 4861, DAYTON 77535", t: 29.955386, g: -94.944741 },
+  { n: "LONESTAR TRUCKING AND LOGISTICS LLC", a: "2115 AVENUE L, NEDERLAND 77627", t: 29.962094, g: -93.985855 },
+  { n: "PAUL GREER LOGGING INC", a: "9208 US HWY 69 SOUTH, WARREN 77664", t: 30.651066, g: -94.397744 },
+  { n: "GLOBAL RHINO READY MIX RR LLC", a: "8375 CHEMICAL RD, BEAUMONT 77705", t: 29.990298, g: -94.198848 },
+  { n: "NAVTRANS LOGISTICS LLC", a: "11065 FM 1008, DAYTON 77535", t: 30.198338, g: -94.909138 },
+  { n: "DDH LOGISTICS LLC", a: "1990 DRISKILL ST, BEAUMONT 77706", t: 30.10026, g: -94.13857 },
+  { n: "TRIANGLE CONCRETE SERVICES INC", a: "1350 S MAJOR DR, BEAUMONT 77707", t: 30.062467, g: -94.189619 },
 ];
 
 const CORS = {
@@ -121,20 +152,30 @@ export default {
       const key = url.searchParams.get("key") || (env && env.PLACES_KEY) || "";
       if (!key) return json({ error: "provide ?key=<PLACES_KEY> (Places API New enabled)" }, 400);
       const force = url.searchParams.get("force") === "1";
+      // Cloudflare caps subrequests per invocation (50 on the free plan) and each
+      // pin costs up to 3, so enrich at most `limit` uncached pins per call and
+      // track finished pins in a single "done" key (cheap skip-check, no re-charge).
+      const limit = Math.max(1, parseInt(url.searchParams.get("limit") || "12", 10));
+      let done = [];
+      if (!force) { try { done = JSON.parse((await env.ENRICH.get("done")) || "[]"); } catch (e) { done = []; } }
+      const doneSet = new Set(done);
       const results = [];
+      let processed = 0, remaining = 0;
       for (const pin of TIER1) {
+        if (doneSet.has(pin.n)) continue;
+        if (processed >= limit) { remaining++; continue; }
+        processed++;
         try {
-          if (!force) {
-            // skip if we already have a record whose original name matches
-            const existing = await readIndex(env);
-            if (existing.some((r) => r.n === pin.n)) { results.push({ n: pin.n, ok: true, skipped: "cached" }); continue; }
-          }
-          results.push(await enrichOne(pin, key, env));
+          const r = await enrichOne(pin, key, env);
+          results.push(r);
+          // Mark done on success, or on a definitive "no place match" (won't improve on retry).
+          if (r && (r.ok || (r.stage === "searchText" && r.status === 200))) doneSet.add(pin.n);
         } catch (e) {
           results.push({ n: pin.n, ok: false, stage: "exception", detail: String(e && e.message || e) });
         }
       }
-      return json({ ran: results.length, results });
+      await env.ENRICH.put("done", JSON.stringify([...doneSet]));
+      return json({ processed: results.length, enrichedTotal: doneSet.size, remaining, results });
     }
 
     if (url.pathname === "/enriched.json") {

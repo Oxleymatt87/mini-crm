@@ -84,6 +84,8 @@ const PAGE = String.raw`<!DOCTYPE html>
   #sv{position:absolute;inset:0;z-index:9999;background:#000;display:none}
   #sv iframe{width:100%;height:100%;border:0;display:block}
   #svclose{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));right:12px;z-index:10000;background:#161616;color:#fff;border:1px solid #555;border-radius:10px;padding:13px 17px;font-size:16px;font-weight:700}
+  #tip{position:absolute;z-index:9997;pointer-events:none;background:rgba(10,12,16,.93);color:#fff;padding:8px 11px;border-radius:9px;font:13px/1.3 -apple-system,Arial,sans-serif;display:none;box-shadow:0 4px 14px rgba(0,0,0,.5);border:1px solid #333;max-width:260px}
+  #tip b{font-size:15px;display:block;margin-bottom:2px}#tip span{opacity:.82;font-size:12px}
 </style>
 </head>
 <body>
@@ -100,6 +102,7 @@ const PAGE = String.raw`<!DOCTYPE html>
 </div>
 <div id="status">booting…</div>
 <div id="cesiumContainer"></div>
+<div id="tip"></div>
 <div id="panel"></div>
 <div id="nearlist"><h4><span id="nearhdr">Nearest fleets</span> <span class="clo" onclick="toggleNear(false)">close</span></h4><div id="listbody"></div></div>
 <div id="sv"><button id="svclose" onclick="closeStreetView()">✕ Close</button><iframe id="svframe" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div>
@@ -176,7 +179,8 @@ function openStreetView(la,lo){var f=$("#svframe");f.src="https://www.google.com
 function closeStreetView(){$("#sv").style.display="none";var f=$("#svframe");if(f)f.src="about:blank";}
 function flyToRec(r){viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(r.lon,r.lat-0.0035,820),orientation:{heading:0,pitch:Cesium.Math.toRadians(-50),roll:0},duration:1.3});}
 var HEAVY_VERT={"Logistics / General Freight":1,"Aggregate / Construction":1,"Logging / Timber":1,"Heavy Haul / Specialized":1,"Waste / Environmental":1,"Oilfield / Energy":1,"Agriculture":1};
-function isHeavy(r){if(!r)return true;if(HEAVY_VERT[r.ind])return true;var pu=r.pu||0;return pu>0&&(r.mi||0)/pu>=50000;}
+var HEAVY_KW=/WIRELINE|OILFIELD|OIL FIELD|OIL WELL|WELL SERVIC|VACUUM|VAC TRUCK|HOTSHOT|HOT SHOT|CRANE|DOZER|EXCAVAT|BACKHOE|READY ?MIX|CONCRETE|CEMENT|AGGREGATE|GRAVEL|DUMP|HEAVY HAUL|HAULING|LOGGING|TIMBER|ROLL ?OFF|WASTE|DISPOSAL|SEPTIC|TANKER|FRAC|DRILLING|PIPELINE|PROPANE|PETROLEUM|ASPHALT|PAVING|WINCH|TRANSPORT|LOGISTIC|FREIGHT|TRUCKING|DEDICATED|ENERGY|OILWELL|DIRT WORK|MATERIALS/;
+function isHeavy(r){if(!r)return true;if(HEAVY_VERT[r.ind])return true;var nm=((r.dba||"")+" "+(r.n||"")).toUpperCase();if(HEAVY_KW.test(nm))return true;var pu=r.pu||0;return pu>0&&(r.mi||0)/pu>=50000;}
 function applyHeavy(){var on=window.__heavyMode;var ents=src.entities.values;for(var i=0;i<ents.length;i++){var e=ents[i];if(!e.billboard)continue;var hv=isHeavy(e.rec);if(!on||hv){e.billboard.color=Cesium.Color.WHITE;if(e.label)e.label.show=true;}else{e.billboard.color=Cesium.Color.WHITE.withAlpha(0.2);if(e.label)e.label.show=false;}}}
 var CITIES=[{"n":"Anahuac","lat":29.73515,"lon":-94.67903},{"n":"Beaumont","lat":30.06665,"lon":-94.15606},{"n":"Bridge City","lat":30.02816,"lon":-93.83541},{"n":"Buna","lat":30.41685,"lon":-93.97254},{"n":"Cleveland","lat":30.25207,"lon":-95.04862},{"n":"Dayton","lat":30.05165,"lon":-94.91991},{"n":"Devers","lat":29.97857,"lon":-94.59762},{"n":"Groves","lat":29.94238,"lon":-93.91194},{"n":"Hull","lat":30.17289,"lon":-94.66753},{"n":"Jasper","lat":30.94691,"lon":-94.02869},{"n":"Kirbyville","lat":30.65879,"lon":-93.92151},{"n":"Kountze","lat":30.34731,"lon":-94.29954},{"n":"Liberty","lat":30.07727,"lon":-94.76306},{"n":"Lumberton","lat":30.24348,"lon":-94.20928},{"n":"Nederland","lat":29.97434,"lon":-94.00801},{"n":"Newton","lat":30.82862,"lon":-93.76537},{"n":"Orange","lat":30.12735,"lon":-93.81282},{"n":"Port Arthur","lat":29.91152,"lon":-93.94647},{"n":"Port Neches","lat":29.97848,"lon":-93.96361},{"n":"Saratoga","lat":30.29768,"lon":-94.61712},{"n":"Silsbee","lat":30.37857,"lon":-94.18646},{"n":"Sour Lake","lat":30.14547,"lon":-94.38831},{"n":"Vidor","lat":30.14718,"lon":-94.00947},{"n":"Wallisville","lat":29.84937,"lon":-94.67707},{"n":"Warren","lat":30.61846,"lon":-94.40975},{"n":"Winnie","lat":29.81989,"lon":-94.37914},{"n":"Woodville","lat":30.75366,"lon":-94.41154}];
 function addCityLabels(){var ds=new Cesium.CustomDataSource("cities");viewer.dataSources.add(ds);for(var i=0;i<CITIES.length;i++){var c=CITIES[i];ds.entities.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,0),label:{text:c.n,font:"800 20px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:2,showBackground:true,backgroundColor:new Cesium.Color(0,0,0,0.68),backgroundPadding:new Cesium.Cartesian2(10,7),style:Cesium.LabelStyle.FILL_AND_OUTLINE,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(4000,1.35,150000,0.7),translucencyByDistance:new Cesium.NearFarScalar(2000,1.0,170000,0.55),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0.0,180000.0)}});}}
@@ -256,7 +260,9 @@ function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
    if(p.id&&p.id.rec){flyToRec(p.id.rec);showPanel(p.id.rec);return;}
    if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
   if(window.__svMode){var sp=viewer.scene.pickPosition(m.position);if(sp){var cgp=Cesium.Cartographic.fromCartesian(sp);var sla=Cesium.Math.toDegrees(cgp.latitude),slo=Cesium.Math.toDegrees(cgp.longitude);openStreetView(sla,slo);window.__svMode=false;var sb=$("#svbtn");if(sb)sb.style.background="";setStatus("");}else{setStatus("couldn\u0027t read that spot — try again");}}
- },Cesium.ScreenSpaceEventType.LEFT_CLICK);}
+ },Cesium.ScreenSpaceEventType.LEFT_CLICK);
+ hnd.setInputAction(function(mm){var pk=viewer.scene.pick(mm.endPosition);var tip=$("#tip");if(pk&&pk.id&&pk.id.rec){var r=pk.id.rec;var u=(r.pu||r.t);var us=u?(u+" power unit"+(u==1?"":"s")):"";var ind=r.ind||r.v||"";tip.innerHTML='<b>'+esc(r.dba||r.n)+'</b>'+((us||ind)?('<span>'+[us,ind].filter(Boolean).join(" · ")+'</span>'):"");tip.style.display="block";tip.style.left=Math.min(mm.endPosition.x+16,window.innerWidth-270)+"px";tip.style.top=(mm.endPosition.y+16)+"px";}else{tip.style.display="none";}},Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+}
 function nz(s){return (s==null?"":String(s)).toLowerCase()}
 function runSearch(q){
  q=(q||"").trim();

@@ -93,6 +93,7 @@ const PAGE = String.raw`<!DOCTYPE html>
   <button id="clear">Clear</button>
   <button id="reset">Reset</button>
   <button id="prio">🔥 Priority</button>
+  <button id="heavy">🚛 Heavy</button>
   <button id="near">📋 List</button>
   <button id="clrt">Clear route</button>
   <button id="svbtn">🛣 Street</button>
@@ -174,6 +175,9 @@ function routeNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;window._
 function openStreetView(la,lo){var f=$("#svframe");f.src="https://www.google.com/maps/embed/v1/streetview?key="+encodeURIComponent(GKEY)+"&location="+la+","+lo+"&fov=90";$("#sv").style.display="block";}
 function closeStreetView(){$("#sv").style.display="none";var f=$("#svframe");if(f)f.src="about:blank";}
 function flyToRec(r){viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(r.lon,r.lat-0.0035,820),orientation:{heading:0,pitch:Cesium.Math.toRadians(-50),roll:0},duration:1.3});}
+var HEAVY_VERT={"Logistics / General Freight":1,"Aggregate / Construction":1,"Logging / Timber":1,"Heavy Haul / Specialized":1,"Waste / Environmental":1,"Oilfield / Energy":1,"Agriculture":1};
+function isHeavy(r){if(!r)return true;if(HEAVY_VERT[r.ind])return true;var pu=r.pu||0;return pu>0&&(r.mi||0)/pu>=50000;}
+function applyHeavy(){var on=window.__heavyMode;var ents=src.entities.values;for(var i=0;i<ents.length;i++){var e=ents[i];if(!e.billboard)continue;var hv=isHeavy(e.rec);if(!on||hv){e.billboard.color=Cesium.Color.WHITE;if(e.label)e.label.show=true;}else{e.billboard.color=Cesium.Color.WHITE.withAlpha(0.2);if(e.label)e.label.show=false;}}}
 var CITIES=[{"n":"Anahuac","lat":29.73515,"lon":-94.67903},{"n":"Beaumont","lat":30.06665,"lon":-94.15606},{"n":"Bridge City","lat":30.02816,"lon":-93.83541},{"n":"Buna","lat":30.41685,"lon":-93.97254},{"n":"Cleveland","lat":30.25207,"lon":-95.04862},{"n":"Dayton","lat":30.05165,"lon":-94.91991},{"n":"Devers","lat":29.97857,"lon":-94.59762},{"n":"Groves","lat":29.94238,"lon":-93.91194},{"n":"Hull","lat":30.17289,"lon":-94.66753},{"n":"Jasper","lat":30.94691,"lon":-94.02869},{"n":"Kirbyville","lat":30.65879,"lon":-93.92151},{"n":"Kountze","lat":30.34731,"lon":-94.29954},{"n":"Liberty","lat":30.07727,"lon":-94.76306},{"n":"Lumberton","lat":30.24348,"lon":-94.20928},{"n":"Nederland","lat":29.97434,"lon":-94.00801},{"n":"Newton","lat":30.82862,"lon":-93.76537},{"n":"Orange","lat":30.12735,"lon":-93.81282},{"n":"Port Arthur","lat":29.91152,"lon":-93.94647},{"n":"Port Neches","lat":29.97848,"lon":-93.96361},{"n":"Saratoga","lat":30.29768,"lon":-94.61712},{"n":"Silsbee","lat":30.37857,"lon":-94.18646},{"n":"Sour Lake","lat":30.14547,"lon":-94.38831},{"n":"Vidor","lat":30.14718,"lon":-94.00947},{"n":"Wallisville","lat":29.84937,"lon":-94.67707},{"n":"Warren","lat":30.61846,"lon":-94.40975},{"n":"Winnie","lat":29.81989,"lon":-94.37914},{"n":"Woodville","lat":30.75366,"lon":-94.41154}];
 function addCityLabels(){var ds=new Cesium.CustomDataSource("cities");viewer.dataSources.add(ds);for(var i=0;i<CITIES.length;i++){var c=CITIES[i];ds.entities.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,0),label:{text:c.n,font:"800 20px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:2,showBackground:true,backgroundColor:new Cesium.Color(0,0,0,0.68),backgroundPadding:new Cesium.Cartesian2(10,7),style:Cesium.LabelStyle.FILL_AND_OUTLINE,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(4000,1.35,150000,0.7),translucencyByDistance:new Cesium.NearFarScalar(2000,1.0,170000,0.55),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0.0,180000.0)}});}}
 var roadsDS=null,lastBbox="",svLabelTimer=null;
@@ -289,6 +293,7 @@ $("#q").addEventListener("keydown",function(e){if(e.key==="Enter")runSearch($("#
 $("#clear").addEventListener("click",function(){$("#q").value="";runSearch("")});
 $("#reset").addEventListener("click",reset);
 $("#prio").addEventListener("click",showPriority);
+$("#heavy").addEventListener("click",function(){window.__heavyMode=!window.__heavyMode;this.style.background=window.__heavyMode?"#d35400":"";applyHeavy();setStatus(window.__heavyMode?"Heavy view — light/unknown dimmed (still tappable, nothing removed)":"showing all fleets");});
 $("#near").addEventListener("click",function(){var l=$("#nearlist");if(l.style.display==="block"){toggleNear(false);return;}if(!window.__searchActive){if(ME)refreshList();else{setStatus("allow location for nearest list");startGeo();}}toggleNear(true);});
 $("#clrt").addEventListener("click",function(){clearRoute();setStatus("route cleared");});
 $("#svbtn").addEventListener("click",function(){window.__svMode=!window.__svMode;this.style.background=window.__svMode?"#0a84ff":"";setStatus(window.__svMode?"Street View: tap the road/ground":"");});

@@ -166,6 +166,8 @@ function iconFor(r){var ind=r.ind||"Other / Unclassified";var pu=r.pu||0;var ban
 function meIcon(){if(ICONCACHE.__me)return ICONCACHE.__me;var sz=54;var c=document.createElement("canvas");c.width=c.height=sz*2;var g=c.getContext("2d");g.beginPath();g.arc(sz,sz,sz-4,0,Math.PI*2);g.fillStyle="#0a84ff";g.fill();g.lineWidth=6;g.strokeStyle="#fff";g.stroke();g.font=Math.round(sz*1.0)+"px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText("📍",sz,sz+2);ICONCACHE.__me=c.toDataURL();return ICONCACHE.__me;}
 function routeNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;window.__curRec=arr[idx].r;toggleNear(false);routeCur();}
 function flyToRec(r){viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(r.lon,r.lat-0.0035,820),orientation:{heading:0,pitch:Cesium.Math.toRadians(-50),roll:0},duration:1.3});}
+var CITIES=[{"n":"Anahuac","lat":29.73515,"lon":-94.67903},{"n":"Beaumont","lat":30.06665,"lon":-94.15606},{"n":"Bridge City","lat":30.02816,"lon":-93.83541},{"n":"Buna","lat":30.41685,"lon":-93.97254},{"n":"Cleveland","lat":30.25207,"lon":-95.04862},{"n":"Dayton","lat":30.05165,"lon":-94.91991},{"n":"Devers","lat":29.97857,"lon":-94.59762},{"n":"Groves","lat":29.94238,"lon":-93.91194},{"n":"Hull","lat":30.17289,"lon":-94.66753},{"n":"Jasper","lat":30.94691,"lon":-94.02869},{"n":"Kirbyville","lat":30.65879,"lon":-93.92151},{"n":"Kountze","lat":30.34731,"lon":-94.29954},{"n":"Liberty","lat":30.07727,"lon":-94.76306},{"n":"Lumberton","lat":30.24348,"lon":-94.20928},{"n":"Nederland","lat":29.97434,"lon":-94.00801},{"n":"Newton","lat":30.82862,"lon":-93.76537},{"n":"Orange","lat":30.12735,"lon":-93.81282},{"n":"Port Arthur","lat":29.91152,"lon":-93.94647},{"n":"Port Neches","lat":29.97848,"lon":-93.96361},{"n":"Saratoga","lat":30.29768,"lon":-94.61712},{"n":"Silsbee","lat":30.37857,"lon":-94.18646},{"n":"Sour Lake","lat":30.14547,"lon":-94.38831},{"n":"Vidor","lat":30.14718,"lon":-94.00947},{"n":"Wallisville","lat":29.84937,"lon":-94.67707},{"n":"Warren","lat":30.61846,"lon":-94.40975},{"n":"Winnie","lat":29.81989,"lon":-94.37914},{"n":"Woodville","lat":30.75366,"lon":-94.41154}];
+function addCityLabels(){var ds=new Cesium.CustomDataSource("cities");viewer.dataSources.add(ds);for(var i=0;i<CITIES.length;i++){var c=CITIES[i];ds.entities.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,0),label:{text:c.n,font:"600 16px sans-serif",fillColor:Cesium.Color.WHITE,showBackground:true,backgroundColor:new Cesium.Color(0,0,0,0.55),backgroundPadding:new Cesium.Cartesian2(8,5),style:Cesium.LabelStyle.FILL,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(4000,1.15,120000,0.55),translucencyByDistance:new Cesium.NearFarScalar(2000,1.0,150000,0.45),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0.0,180000.0)}});}}
 function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat,40),
@@ -265,7 +267,7 @@ function runSearch(q){
  arr.sort(function(a,b){if(b.sc!==a.sc)return b.sc-a.sc;return ME?(a.d-b.d):((b.r.t||0)-(a.r.t||0));});
  renderList(arr,"Search: "+res.length+" result"+(res.length===1?"":"s")+" — tap one");
  if(res.length===1){flyToRec(res[0]);showPanel(res[0]);toggleNear(false);}
- else{toggleNear(true);viewer.flyTo(res.slice(0,400).map(function(r){return r._e})).catch(function(){});}
+ else{toggleNear(true);flyToRec(arr[0].r);}
 }
 $("#go").addEventListener("click",function(){runSearch($("#q").value)});
 $("#q").addEventListener("keydown",function(e){if(e.key==="Enter")runSearch($("#q").value)});
@@ -275,7 +277,7 @@ $("#prio").addEventListener("click",showPriority);
 $("#near").addEventListener("click",function(){if(!ME){setStatus("allow location for nearest");startGeo();}toggleNear();});
 $("#clrt").addEventListener("click",function(){clearRoute();setStatus("route cleared");});
 (function(){
- build(); wirePick(); loadEnrich(); preloadNotes(); startGeo(); reset();
+ build(); addCityLabels(); wirePick(); loadEnrich(); preloadNotes(); startGeo(); reset();
  setStatus(D.length+" pins · drag to orbit · pinch/scroll to zoom · tap a pin");
  Cesium.createGooglePhotorealistic3DTileset().then(function(ts){
    viewer.scene.primitives.add(ts);

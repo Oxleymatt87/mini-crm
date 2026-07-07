@@ -1,6 +1,10 @@
+const MANIFEST = JSON.stringify({name:"Oxley Fleet Map",short_name:"Oxley Fleet",start_url:"/",scope:"/",display:"standalone",orientation:"any",background_color:"#0b0d12",theme_color:"#0b0d12",icons:[{src:"/icon.svg",sizes:"any",type:"image/svg+xml",purpose:"any maskable"}]});
+const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0b0d12"/><rect x="46" y="46" width="420" height="420" rx="84" fill="#d35400"/><text x="256" y="356" font-size="300" text-anchor="middle" font-family="Apple Color Emoji,Segoe UI Emoji,sans-serif">🚛</text></svg>';
 export default {
   fetch(req, env) {
     const url = new URL(req.url);
+    if (url.pathname === "/manifest.json") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json", "cache-control":"no-store" } });
+    if (url.pathname === "/icon.svg") return new Response(ICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control":"public,max-age=86400" } });
     const key = url.searchParams.get("key") || (env && env.TILES_KEY) || "AIzaSyDsv6pVM0beDl0xaqNWmVkyBiUuzxRDr5c";
     const html = PAGE.replaceAll("__TILES_KEY__", key);
     return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control":"no-store" } });
@@ -16,6 +20,13 @@ const PAGE = String.raw`<!DOCTYPE html>
 <script>window.CESIUM_BASE_URL="https://cdn.jsdelivr.net/npm/cesium@1.142.0/Build/Cesium/";</script>
 <script src="https://cdn.jsdelivr.net/npm/cesium@1.142.0/Build/Cesium/Cesium.js"></script>
 <link href="https://cdn.jsdelivr.net/npm/cesium@1.142.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet"/>
+<link rel="manifest" href="/manifest.json"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="Oxley Fleet"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#0b0d12"/>
+<link rel="apple-touch-icon" href="/icon.svg"/>
 <style>
   html,body,#cesiumContainer{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#000;font-family:-apple-system,Segoe UI,Roboto,sans-serif}
   .cesium-widget-credits,.cesium-viewer-bottom{display:none!important}
@@ -50,7 +61,9 @@ const PAGE = String.raw`<!DOCTYPE html>
   #panel .save{margin-top:8px;padding:10px 20px;border:0;border-radius:8px;background:#1f3864;color:#fff;font-weight:700;font-size:15px;cursor:pointer}#panel .saved{font-size:13px;color:#7bd88f;margin-left:8px}
   #nearlist{position:absolute;left:8px;right:8px;bottom:8px;z-index:20;background:rgba(10,12,16,.97);color:#fff;border-radius:14px;padding:10px 12px;display:none;max-height:56vh;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.7)}
   #nearlist h4{margin:2px 4px 8px;font-size:16px}#nearlist .clo{float:right;background:#444;padding:4px 11px;border-radius:8px;cursor:pointer;font-size:14px}
-  .li{padding:11px 6px;border-bottom:1px solid #222;font-size:14px;cursor:pointer}.li b{color:#7bd88f;margin-right:6px}.lt{opacity:.6;font-size:12px;float:right}.ld{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+  .li{border-bottom:1px solid #222}.lihead{padding:12px 8px;font-size:15px;cursor:pointer}.lihead b{color:#7bd88f;margin-right:6px}.lt{opacity:.6;font-size:12px;float:right}.ld{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:0}
+  .liact{display:flex;gap:8px;padding:0 8px 12px}.liact button,.liact a{flex:1;text-align:center;text-decoration:none;padding:12px 0;border-radius:9px;border:0;font-size:14px;font-weight:700;color:#fff;background:#1f3864;cursor:pointer}.liact a{background:#1f7a37}
+  #q{font-size:16px!important;padding:12px 12px!important}#bar button{font-size:15px!important;padding:12px 13px!important}#status{font-size:14px!important;padding:7px 11px!important}#nearlist h4{font-size:17px!important}
 </style>
 </head>
 <body>
@@ -97,8 +110,8 @@ function clearRoute(){if(routeEntity){viewer.entities.remove(routeEntity);routeE
 function routeCur(){var r=window.__curRec;if(!r){setStatus("select a pin first");return;}if(!navigator.geolocation){setStatus("no geolocation");return;}setStatus("locating you…");navigator.geolocation.getCurrentPosition(function(geo){var oLat=geo.coords.latitude,oLng=geo.coords.longitude;setStatus("routing to "+r.n+"…");fetch("https://routes.googleapis.com/directions/v2:computeRoutes",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":ROUTES_KEY,"X-Goog-FieldMask":"routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration"},body:JSON.stringify({origin:{location:{latLng:{latitude:oLat,longitude:oLng}}},destination:{location:{latLng:{latitude:r.lat,longitude:r.lon}}},travelMode:"DRIVE"})}).then(function(resp){if(!resp.ok){setStatus("route error "+resp.status+(resp.status===403?" — add Routes API to the key":""));return null;}return resp.json();}).then(function(data){if(!data)return;var rt=data.routes&&data.routes[0];if(!rt||!rt.polyline){setStatus("no route to "+r.n);return;}var pts=decodePolyline(rt.polyline.encodedPolyline),flat=[];for(var i=0;i<pts.length;i++){flat.push(pts[i][1],pts[i][0]);}clearRoute();routeEntity=viewer.entities.add({polyline:{positions:Cesium.Cartesian3.fromDegreesArray(flat),width:6,clampToGround:true,material:new Cesium.PolylineOutlineMaterialProperty({color:Cesium.Color.CYAN,outlineColor:Cesium.Color.BLACK,outlineWidth:2})}});var mi=rt.distanceMeters/1609.34;setStatus(r.n+" — "+mi.toFixed(1)+" mi · "+fmtDuration(rt.duration)+" drive");}).catch(function(e){setStatus("route failed: "+(e.message||e));});},function(e){setStatus("location unavailable: "+e.message);},{enableHighAccuracy:true,timeout:15000,maximumAge:60000});}
 function haversine(a,b,c,d){var R=3958.8,dLat=(c-a)*Math.PI/180,dLon=(d-b)*Math.PI/180,x=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
 function onPos(pos){ME={lat:pos.coords.latitude,lng:pos.coords.longitude};placeMe();refreshList();}
-function placeMe(){if(!ME)return;if(meEntity)viewer.entities.remove(meEntity);meEntity=viewer.entities.add({position:Cesium.Cartesian3.fromDegrees(ME.lng,ME.lat,20),point:{pixelSize:18,color:Cesium.Color.DODGERBLUE,outlineColor:Cesium.Color.WHITE,outlineWidth:3,disableDepthTestDistance:INF},label:{text:"◉ YOU",font:"bold 14px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new Cesium.Cartesian2(0,-20),disableDepthTestDistance:INF}});}
-function refreshList(){if(!ME)return;var arr=[];for(var i=0;i<D.length;i++){var r=D[i];if(r._e&&r._e.show===false)continue;arr.push({r:r,d:haversine(ME.lat,ME.lng,r.lat,r.lon)});}arr.sort(function(a,b){return a.d-b.d;});window.__near=arr;var el=$("#listbody");if(!el)return;var h="";for(var j=0;j<Math.min(40,arr.length);j++){var it=arr[j],r=it.r;h+='<div class="li" onclick="flyNear('+j+')"><span class="ld" style="background:'+r.col+'"></span><b>'+it.d.toFixed(1)+' mi</b> '+esc(r.n)+' <span class="lt">'+(r.t||"")+' trk</span></div>';}el.innerHTML=h;}
+function placeMe(){if(!ME)return;if(meEntity)viewer.entities.remove(meEntity);meEntity=viewer.entities.add({position:Cesium.Cartesian3.fromDegrees(ME.lng,ME.lat,25),billboard:{image:meIcon(),disableDepthTestDistance:INF,verticalOrigin:Cesium.VerticalOrigin.CENTER},label:{text:"ME — tap for nearest",font:"bold 14px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new Cesium.Cartesian2(0,-34),disableDepthTestDistance:INF}});meEntity.__me=true;}
+function refreshList(){if(!ME)return;var arr=[];for(var i=0;i<D.length;i++){var r=D[i];if(r._e&&r._e.show===false)continue;arr.push({r:r,d:haversine(ME.lat,ME.lng,r.lat,r.lon)});}arr.sort(function(a,b){return a.d-b.d;});window.__near=arr;var el=$("#listbody");if(!el)return;var h="";for(var j=0;j<Math.min(60,arr.length);j++){var it=arr[j],r=it.r;var tel=r.ph?("+1"+String(r.ph).replace(/\D/g,"")):"";h+='<div class="li"><div class="lihead" onclick="flyNear('+j+')"><span class="ld" style="background:'+puColor(r.pu)+'"></span><b>'+it.d.toFixed(1)+' mi</b> '+esc(r.n)+' <span class="lt">'+((r.pu||r.t||"?")+" units")+'</span></div><div class="liact"><button onclick="routeNear('+j+')">🧭 Route</button>'+(tel?('<a href="tel:'+tel+'">📞 Call</a>'):"")+'<button onclick="flyNear('+j+')">📋 Card</button></div></div>';}el.innerHTML=h;}
 function flyNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;var r=arr[idx].r;viewer.flyTo(r._e,{duration:1.2}).catch(function(){});showPanel(r);toggleNear(false);}
 function toggleNear(force){var l=$("#nearlist");var show=(force===undefined)?(l.style.display!=="block"):force;l.style.display=show?"block":"none";}
 function startGeo(){if(!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(onPos,function(){},{enableHighAccuracy:true,timeout:12000});navigator.geolocation.watchPosition(onPos,function(){},{enableHighAccuracy:true,maximumAge:8000});}
@@ -127,11 +140,18 @@ function reset(){viewer.camera.flyTo({destination:HOME.destination,orientation:H
 var src=new Cesium.CustomDataSource("fleets");
 viewer.dataSources.add(src);
 var INF=Number.POSITIVE_INFINITY, HR=Cesium.HeightReference.CLAMP_TO_GROUND;
+var ICON_EMOJI={"Logistics / General Freight":"🚛","Aggregate / Construction":"🏗️","Logging / Timber":"🪵","Heavy Haul / Specialized":"🚚","Waste / Environmental":"♻️","Agriculture":"🚜","Oilfield / Energy":"🛢️","Other / Unclassified":"📦"};
+function puColor(pu){pu=pu||0;return pu>=25?"#ff3b30":pu>=10?"#ff9500":pu>=5?"#ffcc00":pu>=2?"#0a84ff":"#8a8f98";}
+function puSize(pu){pu=pu||0;return pu>=25?56:pu>=10?48:pu>=5?42:pu>=2?36:30;}
+var ICONCACHE={};
+function iconFor(r){var ind=r.ind||"Other / Unclassified";var pu=r.pu||0;var band=pu>=25?"e":pu>=10?"d":pu>=5?"c":pu>=2?"b":"a";var key=ind+band;if(ICONCACHE[key])return ICONCACHE[key];var sz=puSize(pu),col=puColor(pu),em=ICON_EMOJI[ind]||"📦";var c=document.createElement("canvas");c.width=c.height=sz*2;var g=c.getContext("2d");g.beginPath();g.arc(sz,sz,sz-3,0,Math.PI*2);g.fillStyle=col;g.globalAlpha=.93;g.fill();g.globalAlpha=1;g.lineWidth=3;g.strokeStyle="#fff";g.stroke();g.font=Math.round(sz*0.95)+"px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(em,sz,sz+2);ICONCACHE[key]=c.toDataURL();return ICONCACHE[key];}
+function meIcon(){if(ICONCACHE.__me)return ICONCACHE.__me;var sz=54;var c=document.createElement("canvas");c.width=c.height=sz*2;var g=c.getContext("2d");g.beginPath();g.arc(sz,sz,sz-4,0,Math.PI*2);g.fillStyle="#0a84ff";g.fill();g.lineWidth=6;g.strokeStyle="#fff";g.stroke();g.font=Math.round(sz*1.0)+"px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText("📍",sz,sz+2);ICONCACHE.__me=c.toDataURL();return ICONCACHE.__me;}
+function routeNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;window.__curRec=arr[idx].r;toggleNear(false);routeCur();}
 function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat,40),
-   point:{pixelSize:18,color:Cesium.Color.fromCssColorString(r.col),outlineColor:Cesium.Color.WHITE,outlineWidth:3,disableDepthTestDistance:INF},
-   label:{text:r.n,font:"700 15px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,12),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.25,14000,0.55),translucencyByDistance:new Cesium.NearFarScalar(9000,1.0,26000,0.0)}});
+   billboard:{image:iconFor(r),disableDepthTestDistance:INF,verticalOrigin:Cesium.VerticalOrigin.CENTER,scaleByDistance:new Cesium.NearFarScalar(500,1.0,60000,0.3)},
+   label:{text:r.n,font:"700 15px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,24),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.1,14000,0.5),translucencyByDistance:new Cesium.NearFarScalar(9000,1.0,26000,0.0)}});
   e.rec=r; r._e=e;
  }
  // distance-based clustering so 3,255 pins don't lag
@@ -192,6 +212,7 @@ function showPanel(r){
 function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
  hnd.setInputAction(function(m){var picks=viewer.scene.drillPick(m.position,20);
   for(var i=0;i<picks.length;i++){var p=picks[i];if(!Cesium.defined(p))continue;
+   if(p.id&&p.id.__me){refreshList();toggleNear(true);return;}
    if(p.id&&p.id.rec){showPanel(p.id.rec);return;}
    if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);}

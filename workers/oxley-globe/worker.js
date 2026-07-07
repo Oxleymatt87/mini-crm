@@ -207,7 +207,7 @@ function showPanel(r){
  h+='<div class="row">'+esc(loc)+'</div>';
  if(er&&er.photo)h+='<img class="ph" src="'+ENRICH_BASE+er.photo+'" loading="lazy">';
  if(er&&er.rating)h+='<div class="row">⭐ '+er.rating+(er.ratingCount?(" ("+er.ratingCount+")"):"")+'</div>';
- if(contact)h+='<div class="ask">👤 Ask for: '+esc(contact)+'</div>';
+ if(contact)h+='<div class="ask">👤 Ask for: '+esc(contact)+' <span style="opacity:.7;font-weight:400">· Owner/Officer</span></div>';
  var fleet=[];
  if(r.pu)fleet.push(r.pu+" power unit"+(r.pu==1?"":"s"));else if(r.t)fleet.push(r.t+" trucks");
  if(r.dr)fleet.push(r.dr+" driver"+(r.dr==1?"":"s"));

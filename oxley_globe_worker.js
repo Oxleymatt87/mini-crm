@@ -80,14 +80,14 @@ viewer.dataSources.add(src);
 var INF=Number.POSITIVE_INFINITY, HR=Cesium.HeightReference.CLAMP_TO_GROUND;
 function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
-  var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat),
+  var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat,40),
    point:{pixelSize:11,color:Cesium.Color.fromCssColorString(r.col),outlineColor:Cesium.Color.WHITE,outlineWidth:2,disableDepthTestDistance:INF},
-   label:{text:r.n,font:"600 12px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:3,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,9),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1200,1.05,9000,0.4),translucencyByDistance:new Cesium.NearFarScalar(4000,1.0,10000,0.0)}});
+   label:{text:r.n,font:"600 12px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:3,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,9),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1200,1.05,9000,0.4),translucencyByDistance:new Cesium.NearFarScalar(6000,1.0,22000,0.0)}});
   e.rec=r; r._e=e;
  }
  // distance-based clustering so 3,255 pins don't lag
  var cl=src.clustering;
- cl.enabled=true; cl.pixelRange=55; cl.minimumClusterSize=5;
+ cl.enabled=true; cl.pixelRange=55; cl.minimumClusterSize=5;viewer.camera.percentageChanged=0.15;viewer.camera.changed.addEventListener(function(){try{var h=viewer.camera.positionCartographic.height;cl.enabled=h>2500;}catch(_){}}); 
  cl.clusterEvent.addEventListener(function(list,cluster){
    var n=list.length; var sz=(n<20?15:n<80?21:n<300?27:33);
    if(cluster.billboard){cluster.billboard.show=true;cluster.billboard.image=circleImg(sz,"#d35400");cluster.billboard.disableDepthTestDistance=INF;cluster.billboard.verticalOrigin=Cesium.VerticalOrigin.CENTER;cluster.billboard.horizontalOrigin=Cesium.HorizontalOrigin.CENTER;}

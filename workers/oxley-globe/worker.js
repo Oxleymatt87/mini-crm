@@ -91,6 +91,7 @@ const PAGE = String.raw`<!DOCTYPE html>
   <button id="prio">🔥 Priority</button>
   <button id="near">📋 List</button>
   <button id="clrt">Clear route</button>
+  <button id="svbtn">🛣 Street</button>
 </div>
 <div id="status">booting…</div>
 <div id="cesiumContainer"></div>
@@ -236,6 +237,7 @@ function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
    if(p.id&&p.id.__me){window.__searchActive=false;refreshList();toggleNear(true);return;}
    if(p.id&&p.id.rec){flyToRec(p.id.rec);showPanel(p.id.rec);return;}
    if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
+  if(window.__svMode){var sp=viewer.scene.pickPosition(m.position);if(sp){var cgp=Cesium.Cartographic.fromCartesian(sp);var sla=Cesium.Math.toDegrees(cgp.latitude),slo=Cesium.Math.toDegrees(cgp.longitude);window.open("https://www.google.com/maps/@?api=1&map_action=pano&viewpoint="+sla+","+slo,"_blank");window.__svMode=false;var sb=$("#svbtn");if(sb)sb.style.background="";setStatus("");}else{setStatus("couldn\u0027t read that spot — try again");}}
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);}
 function nz(s){return (s==null?"":String(s)).toLowerCase()}
 function runSearch(q){
@@ -275,6 +277,7 @@ $("#reset").addEventListener("click",reset);
 $("#prio").addEventListener("click",showPriority);
 $("#near").addEventListener("click",function(){var l=$("#nearlist");if(l.style.display==="block"){toggleNear(false);return;}if(!window.__searchActive){if(ME)refreshList();else{setStatus("allow location for nearest list");startGeo();}}toggleNear(true);});
 $("#clrt").addEventListener("click",function(){clearRoute();setStatus("route cleared");});
+$("#svbtn").addEventListener("click",function(){window.__svMode=!window.__svMode;this.style.background=window.__svMode?"#0a84ff":"";setStatus(window.__svMode?"Street View: tap the road/ground":"");});
 (function(){
  build(); addCityLabels(); wirePick(); loadEnrich(); preloadNotes(); startGeo(); reset();
  setStatus(D.length+" pins · drag to orbit · pinch/scroll to zoom · tap a pin");

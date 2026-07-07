@@ -89,7 +89,7 @@ const PAGE = String.raw`<!DOCTYPE html>
   <button id="clear">Clear</button>
   <button id="reset">Reset</button>
   <button id="prio">🔥 Priority</button>
-  <button id="near">Nearest</button>
+  <button id="near">📋 List</button>
   <button id="clrt">Clear route</button>
 </div>
 <div id="status">booting…</div>
@@ -233,14 +233,14 @@ function showPanel(r){
 function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
  hnd.setInputAction(function(m){var picks=viewer.scene.drillPick(m.position,20);
   for(var i=0;i<picks.length;i++){var p=picks[i];if(!Cesium.defined(p))continue;
-   if(p.id&&p.id.__me){refreshList();toggleNear(true);return;}
+   if(p.id&&p.id.__me){window.__searchActive=false;refreshList();toggleNear(true);return;}
    if(p.id&&p.id.rec){flyToRec(p.id.rec);showPanel(p.id.rec);return;}
    if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);}
 function nz(s){return (s==null?"":String(s)).toLowerCase()}
 function runSearch(q){
  q=(q||"").trim();
- if(!q){for(var i=0;i<D.length;i++)D[i]._e.show=true;setStatus(D.length+" pins");return;}
+ if(!q){for(var i=0;i<D.length;i++)D[i]._e.show=true;window.__searchActive=false;toggleNear(false);setStatus(D.length+" pins");return;}
  var ql=q.toLowerCase();
  var topN=null;var mt=ql.match(/top\s+(\d+)/);if(mt)topN=+mt[1];
  var fields={};
@@ -266,15 +266,14 @@ function runSearch(q){
  var arr=res.map(function(r){var nm=nz(r.n);var sc=0;for(var z=0;z<toks.length;z++){var t=toks[z];if(nm.indexOf(t)>=0||(t.length>3&&t.charAt(t.length-1)==="s"&&nm.indexOf(t.slice(0,-1))>=0))sc++;}return {r:r,d:ME?haversine(ME.lat,ME.lng,r.lat,r.lon):null,sc:sc};});
  arr.sort(function(a,b){if(b.sc!==a.sc)return b.sc-a.sc;return ME?(a.d-b.d):((b.r.t||0)-(a.r.t||0));});
  renderList(arr,"Search: "+res.length+" result"+(res.length===1?"":"s")+" — tap one");
- if(res.length===1){flyToRec(res[0]);showPanel(res[0]);toggleNear(false);}
- else{toggleNear(true);flyToRec(arr[0].r);}
+ window.__searchActive=true;toggleNear(false);flyToRec(arr[0].r);showPanel(arr[0].r);
 }
 $("#go").addEventListener("click",function(){runSearch($("#q").value)});
 $("#q").addEventListener("keydown",function(e){if(e.key==="Enter")runSearch($("#q").value)});
 $("#clear").addEventListener("click",function(){$("#q").value="";runSearch("")});
 $("#reset").addEventListener("click",reset);
 $("#prio").addEventListener("click",showPriority);
-$("#near").addEventListener("click",function(){if(!ME){setStatus("allow location for nearest");startGeo();}toggleNear();});
+$("#near").addEventListener("click",function(){var l=$("#nearlist");if(l.style.display==="block"){toggleNear(false);return;}if(!window.__searchActive){if(ME)refreshList();else{setStatus("allow location for nearest list");startGeo();}}toggleNear(true);});
 $("#clrt").addEventListener("click",function(){clearRoute();setStatus("route cleared");});
 (function(){
  build(); addCityLabels(); wirePick(); loadEnrich(); preloadNotes(); startGeo(); reset();

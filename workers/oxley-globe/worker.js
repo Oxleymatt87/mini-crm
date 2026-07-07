@@ -63,7 +63,23 @@ const PAGE = String.raw`<!DOCTYPE html>
   #nearlist h4{margin:2px 4px 8px;font-size:16px}#nearlist .clo{float:right;background:#444;padding:4px 11px;border-radius:8px;cursor:pointer;font-size:14px}
   .li{border-bottom:1px solid #222}.lihead{padding:12px 8px;font-size:15px;cursor:pointer}.lihead b{color:#7bd88f;margin-right:6px}.lt{opacity:.6;font-size:12px;float:right}.ld{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:0}
   .liact{display:flex;gap:8px;padding:0 8px 12px}.liact button,.liact a{flex:1;text-align:center;text-decoration:none;padding:12px 0;border-radius:9px;border:0;font-size:14px;font-weight:700;color:#fff;background:#1f3864;cursor:pointer}.liact a{background:#1f7a37}
-  #q{font-size:16px!important;padding:12px 12px!important}#bar button{font-size:15px!important;padding:12px 13px!important}#status{font-size:14px!important;padding:7px 11px!important}#nearlist h4{font-size:17px!important}
+  #bar{flex-wrap:wrap!important;gap:8px!important;padding:8px!important}
+  #q{flex:1 1 100%!important;font-size:17px!important;padding:14px 12px!important;border-radius:10px!important}
+  #bar button{flex:1 1 28%!important;min-height:52px!important;font-size:15px!important;font-weight:700!important;padding:0 8px!important;border-radius:10px!important}
+  #status{font-size:14px!important;padding:9px 12px!important;top:auto!important;bottom:calc(12px + env(safe-area-inset-bottom,0px))!important;left:50%!important;transform:translateX(-50%)!important;max-width:92vw!important;text-align:center!important}
+  #nearlist h4{font-size:18px!important}
+  #panel{max-width:min(470px,95vw)!important;font-size:16px!important;padding:18px!important;bottom:calc(10px + env(safe-area-inset-bottom,0px))!important;max-height:72vh!important}
+  #panel h3{font-size:22px!important;margin:0 34px 8px 0!important}
+  #panel .row{font-size:15.5px!important;margin:6px 0!important}
+  #panel .ask{font-size:16px!important}
+  #panel .btns{gap:8px!important}
+  #panel .btns a{font-size:16px!important;padding:0 14px!important;min-height:50px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}
+  #panel .stbtn{padding:15px 0!important;font-size:14px!important}
+  #panel .takeme{font-size:17px!important;padding:16px!important}
+  #panel .x{padding:9px 15px!important;font-size:19px!important}
+  #panel .note{font-size:15px!important;min-height:66px!important}
+  #panel .save{font-size:16px!important;padding:13px 24px!important}
+  #panel img.ph{max-height:40vh;object-fit:cover}
 </style>
 </head>
 <body>
@@ -112,7 +128,7 @@ function haversine(a,b,c,d){var R=3958.8,dLat=(c-a)*Math.PI/180,dLon=(d-b)*Math.
 function onPos(pos){ME={lat:pos.coords.latitude,lng:pos.coords.longitude};placeMe();refreshList();}
 function placeMe(){if(!ME)return;if(meEntity)viewer.entities.remove(meEntity);meEntity=viewer.entities.add({position:Cesium.Cartesian3.fromDegrees(ME.lng,ME.lat,25),billboard:{image:meIcon(),disableDepthTestDistance:INF,verticalOrigin:Cesium.VerticalOrigin.CENTER},label:{text:"ME — tap for nearest",font:"bold 14px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new Cesium.Cartesian2(0,-34),disableDepthTestDistance:INF}});meEntity.__me=true;}
 function refreshList(){if(!ME)return;var arr=[];for(var i=0;i<D.length;i++){var r=D[i];if(r._e&&r._e.show===false)continue;arr.push({r:r,d:haversine(ME.lat,ME.lng,r.lat,r.lon)});}arr.sort(function(a,b){return a.d-b.d;});window.__near=arr;var el=$("#listbody");if(!el)return;var h="";for(var j=0;j<Math.min(60,arr.length);j++){var it=arr[j],r=it.r;var tel=r.ph?("+1"+String(r.ph).replace(/\D/g,"")):"";h+='<div class="li"><div class="lihead" onclick="flyNear('+j+')"><span class="ld" style="background:'+puColor(r.pu)+'"></span><b>'+it.d.toFixed(1)+' mi</b> '+esc(r.n)+' <span class="lt">'+((r.pu||r.t||"?")+" units")+'</span></div><div class="liact"><button onclick="routeNear('+j+')">🧭 Route</button>'+(tel?('<a href="tel:'+tel+'">📞 Call</a>'):"")+'<button onclick="flyNear('+j+')">📋 Card</button></div></div>';}el.innerHTML=h;}
-function flyNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;var r=arr[idx].r;viewer.flyTo(r._e,{duration:1.2}).catch(function(){});showPanel(r);toggleNear(false);}
+function flyNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;var r=arr[idx].r;flyToRec(r);showPanel(r);toggleNear(false);}
 function toggleNear(force){var l=$("#nearlist");var show=(force===undefined)?(l.style.display!=="block"):force;l.style.display=show?"block":"none";}
 function startGeo(){if(!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(onPos,function(){},{enableHighAccuracy:true,timeout:12000});navigator.geolocation.watchPosition(onPos,function(){},{enableHighAccuracy:true,maximumAge:8000});}
 function showPriority(){var n=0;for(var i=0;i<D.length;i++){var on=(D[i].tier==="Heavy"||D[i].tier==="Severe");D[i]._e.show=on;if(on)n++;}setStatus("Priority (Heavy+Severe): "+n+" tire-burners");var arr=[];for(var k=0;k<D.length;k++){if(D[k]._e.show)arr.push(D[k]._e);}if(arr.length)viewer.flyTo(arr.slice(0,400)).catch(function(){});}
@@ -147,6 +163,7 @@ var ICONCACHE={};
 function iconFor(r){var ind=r.ind||"Other / Unclassified";var pu=r.pu||0;var band=pu>=25?"e":pu>=10?"d":pu>=5?"c":pu>=2?"b":"a";var key=ind+band;if(ICONCACHE[key])return ICONCACHE[key];var sz=puSize(pu),col=puColor(pu),em=ICON_EMOJI[ind]||"📦";var c=document.createElement("canvas");c.width=c.height=sz*2;var g=c.getContext("2d");g.beginPath();g.arc(sz,sz,sz-3,0,Math.PI*2);g.fillStyle=col;g.globalAlpha=.93;g.fill();g.globalAlpha=1;g.lineWidth=3;g.strokeStyle="#fff";g.stroke();g.font=Math.round(sz*0.95)+"px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(em,sz,sz+2);ICONCACHE[key]=c.toDataURL();return ICONCACHE[key];}
 function meIcon(){if(ICONCACHE.__me)return ICONCACHE.__me;var sz=54;var c=document.createElement("canvas");c.width=c.height=sz*2;var g=c.getContext("2d");g.beginPath();g.arc(sz,sz,sz-4,0,Math.PI*2);g.fillStyle="#0a84ff";g.fill();g.lineWidth=6;g.strokeStyle="#fff";g.stroke();g.font=Math.round(sz*1.0)+"px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText("📍",sz,sz+2);ICONCACHE.__me=c.toDataURL();return ICONCACHE.__me;}
 function routeNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;window.__curRec=arr[idx].r;toggleNear(false);routeCur();}
+function flyToRec(r){viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(r.lon,r.lat-0.0035,820),orientation:{heading:0,pitch:Cesium.Math.toRadians(-50),roll:0},duration:1.3});}
 function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat,40),
@@ -213,7 +230,7 @@ function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
  hnd.setInputAction(function(m){var picks=viewer.scene.drillPick(m.position,20);
   for(var i=0;i<picks.length;i++){var p=picks[i];if(!Cesium.defined(p))continue;
    if(p.id&&p.id.__me){refreshList();toggleNear(true);return;}
-   if(p.id&&p.id.rec){showPanel(p.id.rec);return;}
+   if(p.id&&p.id.rec){flyToRec(p.id.rec);showPanel(p.id.rec);return;}
    if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);}
 function nz(s){return (s==null?"":String(s)).toLowerCase()}

@@ -84,8 +84,8 @@ const PAGE = String.raw`<!DOCTYPE html>
   #sv{position:absolute;inset:0;z-index:9999;background:#000;display:none}
   #sv iframe{width:100%;height:100%;border:0;display:block}
   #svclose{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));right:12px;z-index:10000;background:#161616;color:#fff;border:1px solid #555;border-radius:10px;padding:13px 17px;font-size:16px;font-weight:700}
-  #tip{position:absolute;z-index:9997;pointer-events:none;background:rgba(10,12,16,.93);color:#fff;padding:8px 11px;border-radius:9px;font:13px/1.3 -apple-system,Arial,sans-serif;display:none;box-shadow:0 4px 14px rgba(0,0,0,.5);border:1px solid #333;max-width:260px}
-  #tip b{font-size:15px;display:block;margin-bottom:2px}#tip span{opacity:.82;font-size:12px}
+  #tip{position:fixed;left:50%;transform:translateX(-50%);bottom:100px;z-index:9997;pointer-events:none;background:rgba(10,12,16,.96);color:#fff;padding:14px 24px;border-radius:14px;font-family:-apple-system,Arial,sans-serif;display:none;box-shadow:0 6px 24px rgba(0,0,0,.7);border:1px solid #444;text-align:center;min-width:220px;max-width:88vw}
+  #tip b{font-size:20px;display:block;margin-bottom:5px;line-height:1.2}#tip .tpu{font-size:17px;color:#ffd479;font-weight:700;display:block;margin-bottom:3px}#tip .tind{font-size:13px;opacity:.7;display:block}
 </style>
 </head>
 <body>
@@ -99,6 +99,11 @@ const PAGE = String.raw`<!DOCTYPE html>
   <button id="near">📋 List</button>
   <button id="clrt">Clear route</button>
   <button id="svbtn">🛣 Street</button>
+  <div id="pubar" style="flex:1 1 100%;display:flex;align-items:center;gap:10px;padding:2px 0 2px">
+    <span style="font-size:13px;white-space:nowrap;color:#bbb">Min PU:</span>
+    <input type="range" id="puslider" min="0" max="50" value="0" step="1" style="flex:1;accent-color:#d35400;cursor:pointer;height:6px">
+    <span id="pulabel" style="font-size:14px;font-weight:700;white-space:nowrap;min-width:48px;text-align:right;color:#fff">Any</span>
+  </div>
 </div>
 <div id="status">booting…</div>
 <div id="cesiumContainer"></div>
@@ -143,7 +148,7 @@ function refreshList(){if(!ME)return;var arr=[];for(var i=0;i<D.length;i++){var 
 function flyNear(idx){var arr=window.__near;if(!arr||!arr[idx])return;var r=arr[idx].r;flyToRec(r);showPanel(r);toggleNear(false);}
 function toggleNear(force){var l=$("#nearlist");var show=(force===undefined)?(l.style.display!=="block"):force;l.style.display=show?"block":"none";}
 function startGeo(){if(!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(onPos,function(){},{enableHighAccuracy:true,timeout:12000});navigator.geolocation.watchPosition(onPos,function(){},{enableHighAccuracy:true,maximumAge:8000});}
-function showPriority(){var n=0;for(var i=0;i<D.length;i++){var on=(D[i].tier==="Heavy"||D[i].tier==="Severe");D[i]._e.show=on;if(on)n++;}setStatus("Priority (Heavy+Severe): "+n+" tire-burners");var arr=[];for(var k=0;k<D.length;k++){if(D[k]._e.show)arr.push(D[k]._e);}if(arr.length)viewer.flyTo(arr.slice(0,400)).catch(function(){});}
+function showPriority(){var n=0;var puMin=window.__puMin||0;for(var i=0;i<D.length;i++){var on=(D[i].tier==="Heavy"||D[i].tier==="Severe");if(puMin>0&&(D[i].pu||0)<puMin)on=false;D[i]._e.show=on;if(on)n++;}setStatus("Priority (Heavy+Severe): "+n+" tire-burners");var arr=[];for(var k=0;k<D.length;k++){if(D[k]._e.show)arr.push(D[k]._e);}if(arr.length)viewer.flyTo(arr.slice(0,400)).catch(function(){});}
 
 var viewer=new Cesium.Viewer("cesiumContainer",{
   globe:false, baseLayer:false, baseLayerPicker:false, geocoder:false, homeButton:false,
@@ -191,7 +196,7 @@ function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat,40),
    billboard:{image:iconFor(r),disableDepthTestDistance:INF,verticalOrigin:Cesium.VerticalOrigin.CENTER,scaleByDistance:new Cesium.NearFarScalar(500,1.0,60000,0.3)},
-   label:{text:(r.dba||r.n),font:"700 15px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,24),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.1,14000,0.5),translucencyByDistance:new Cesium.NearFarScalar(9000,1.0,26000,0.0)}});
+   label:{text:(r.dba||r.n)+((r.pu||r.t)?('\n'+(r.pu||r.t)+' PU'):""),font:"700 15px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,24),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.1,14000,0.5),translucencyByDistance:new Cesium.NearFarScalar(9000,1.0,26000,0.0)}});
   e.rec=r; r._e=e;
  }
  // distance-based clustering so 3,255 pins don't lag
@@ -262,12 +267,13 @@ function wirePick(){var hnd=new Cesium.ScreenSpaceEventHandler(viewer.canvas);
    if(Array.isArray(p.id)&&p.id.length){viewer.flyTo(p.id,{duration:0.9}).then(function(){viewer.camera.zoomIn(Math.max(viewer.camera.positionCartographic.height*0.4,300));}).catch(function(){});return;}}
   if(window.__svMode){var sp=viewer.scene.pickPosition(m.position);if(sp){var cgp=Cesium.Cartographic.fromCartesian(sp);var sla=Cesium.Math.toDegrees(cgp.latitude),slo=Cesium.Math.toDegrees(cgp.longitude);openStreetView(sla,slo);window.__svMode=false;var sb=$("#svbtn");if(sb)sb.style.background="";setStatus("");}else{setStatus("couldn\u0027t read that spot — try again");}}
  },Cesium.ScreenSpaceEventType.LEFT_CLICK);
- hnd.setInputAction(function(mm){var pk=viewer.scene.pick(mm.endPosition);var tip=$("#tip");if(pk&&pk.id&&pk.id.rec){var r=pk.id.rec;var u=(r.pu||r.t);var us=u?(u+" power unit"+(u==1?"":"s")):"";var ind=r.ind||r.v||"";tip.innerHTML='<b>'+esc(r.dba||r.n)+'</b>'+((us||ind)?('<span>'+[us,ind].filter(Boolean).join(" · ")+'</span>'):"");tip.style.display="block";tip.style.left=Math.min(mm.endPosition.x+16,window.innerWidth-270)+"px";tip.style.top=(mm.endPosition.y+16)+"px";}else{tip.style.display="none";}},Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+ hnd.setInputAction(function(mm){var pk=viewer.scene.pick(mm.endPosition);var tip=$("#tip");if(pk&&pk.id&&pk.id.rec){var r=pk.id.rec;var u=(r.pu||r.t);var us=u?(u+" power unit"+(u==1?"":"s")):"";var ind=r.ind||r.v||"";tip.innerHTML='<b>'+esc(r.dba||r.n)+'</b>'+(us?('<span class="tpu">🚛 '+us+'</span>'):"")+(ind?('<span class="tind">'+esc(ind)+'</span>'):"");tip.style.display="block";}else{tip.style.display="none";}},Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 }
 function nz(s){return (s==null?"":String(s)).toLowerCase()}
 function runSearch(q){
  q=(q||"").trim();
- if(!q){for(var i=0;i<D.length;i++)D[i]._e.show=true;window.__searchActive=false;toggleNear(false);setStatus(D.length+" pins");return;}
+ var puMin=window.__puMin||0;
+ if(!q){var nt=0;for(var i=0;i<D.length;i++){var ps=puMin===0||(D[i].pu||0)>=puMin;D[i]._e.show=ps;if(ps)nt++;}window.__searchActive=false;toggleNear(false);setStatus(nt+" pins"+(puMin>0?" · PU≥"+puMin:""));return;}
  var ql=q.toLowerCase();
  var topN=null;var mt=ql.match(/top\s+(\d+)/);if(mt)topN=+mt[1];
  var fields={};
@@ -277,6 +283,7 @@ function runSearch(q){
  var rest=ql.replace(/top\s+\d+/," ");if(mc)rest=rest.replace(/\bin\s+[a-z .'\-]+?\s*$/," ");
  var toks=rest.split(/[^a-z0-9]+/).filter(function(t){return t&&!stop[t]});
  var res=D.filter(function(r){
+  if(puMin>0&&(r.pu||0)<puMin)return false;
   if(fields.city&&nz(r.city).indexOf(fields.city)<0)return false;
   if(fields.county&&nz(r.county).indexOf(fields.county)<0)return false;
   if(fields.zip&&nz(r.zip)!==fields.zip)return false;
@@ -300,6 +307,7 @@ $("#q").addEventListener("keydown",function(e){if(e.key==="Enter")runSearch($("#
 $("#clear").addEventListener("click",function(){$("#q").value="";runSearch("")});
 $("#reset").addEventListener("click",reset);
 $("#prio").addEventListener("click",showPriority);
+(function(){var sl=$("#puslider"),lb=$("#pulabel");sl.addEventListener("input",function(){var v=+sl.value;window.__puMin=v;lb.textContent=v===0?"Any":"≥"+v;runSearch($("#q").value);});})();
 $("#heavy").addEventListener("click",function(){window.__heavyMode=!window.__heavyMode;this.style.background=window.__heavyMode?"#d35400":"";applyHeavy();setStatus(window.__heavyMode?"Heavy view — light/unknown dimmed (still tappable, nothing removed)":"showing all fleets");});
 $("#near").addEventListener("click",function(){var l=$("#nearlist");if(l.style.display==="block"){toggleNear(false);return;}if(!window.__searchActive){if(ME)refreshList();else{setStatus("allow location for nearest list");startGeo();}}toggleNear(true);});
 $("#clrt").addEventListener("click",function(){clearRoute();setStatus("route cleared");});

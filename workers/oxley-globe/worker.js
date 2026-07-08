@@ -35,7 +35,7 @@ const PAGE = String.raw`<!DOCTYPE html>
   #bar button{background:#161616;color:#eee;border:1px solid #333;border-radius:8px;padding:9px 11px;cursor:pointer;font-size:13px;white-space:nowrap}
   #bar button:hover{background:#222}
   #status{position:absolute;top:52px;left:8px;z-index:9;background:rgba(10,12,16,.85);color:#cbd5e1;padding:5px 9px;border-radius:8px;font-size:12px}
-  #panel{position:absolute;left:8px;bottom:8px;z-index:21;background:rgba(16,18,22,.97);color:#fff;padding:13px 15px;border-radius:14px;max-width:86vw;max-height:60vh;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.6);display:none}
+  #panel{position:fixed;left:8px;bottom:8px;z-index:9999;background:rgba(16,18,22,.97);color:#fff;padding:13px 15px;border-radius:14px;max-width:86vw;max-height:60vh;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.6);display:none}
   #panel h3{margin:0 26px 6px 0;font-size:17px}
   #panel .row{font-size:13px;opacity:.92;margin:3px 0}
   #panel .ask{color:#ffd479;font-size:13px;margin:5px 0}

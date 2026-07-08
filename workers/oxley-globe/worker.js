@@ -112,6 +112,7 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
 const cc = viewer.scene.screenSpaceCameraController;
 cc.enableCollisionDetection = true;
 cc.minimumZoomDistance = 1;
+cc.zoomFactor = 12.0;   // boost sensitivity — default 5 feels sluggish with short beams
 viewer.scene.skyAtmosphere.show = true;
 
 const HOME = Cesium.Cartesian3.fromDegrees(-94.14, 30.10, 9000);
@@ -242,6 +243,7 @@ function applyEnrichment(ds){
 let currentDS = null;
 async function loadKml(source){
   try {
+    _pinLoading = true;
     setStatus("loading pins…");
     if (currentDS) viewer.dataSources.remove(currentDS, true);
     await loadNotes();   // fetch status notes before styling so colors are ready
@@ -255,6 +257,7 @@ async function loadKml(source){
     if (!Object.keys(NOTECACHE).length)
       setStatus(ds.entities.values.length + " pins — tap a pin for details");
   } catch(e){ setStatus("KML failed: " + (e.message||e)); }
+  finally { _pinLoading = false; }
 }
 
 $("#kmlFile").addEventListener("change", e => { if(e.target.files[0]) loadKml(e.target.files[0]); });
@@ -360,8 +363,10 @@ function routeToEntity(ent){
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
 }
 
+// Only route on explicit user tap — not during programmatic flyTo/load.
+let _pinLoading = false;
 viewer.selectedEntityChanged.addEventListener((ent) => {
-  if (ent && ent.position) routeToEntity(ent);
+  if (!_pinLoading && ent && ent.position) routeToEntity(ent);
 });
 </script>
 </body>

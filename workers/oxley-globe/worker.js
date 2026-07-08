@@ -54,6 +54,13 @@ const PAGE = String.raw`<!DOCTYPE html>
 </div>
 <div id="drop">drop KML here</div>
 <div id="cesiumContainer"></div>
+<div id="legend" style="position:absolute;bottom:16px;left:12px;z-index:10;background:rgba(0,0,0,.78);border:1px solid #333;border-radius:8px;padding:8px 12px;font:12px/1.6 sans-serif;color:#ddd;display:none">
+  <div style="font-weight:600;letter-spacing:.5px;margin-bottom:2px">STATUS</div>
+  <div><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#2ecc71;margin-right:6px;vertical-align:middle"></span>Sold</div>
+  <div><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#f5a623;margin-right:6px;vertical-align:middle"></span>Visited</div>
+  <div><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#aaa;margin-right:6px;vertical-align:middle"></span>Dead</div>
+  <div><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#0ff;margin-right:6px;vertical-align:middle"></span>Fresh lead</div>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -64,6 +71,25 @@ let GKEY = params.get("key") || "__TILES_KEY__";
 if (!GKEY || GKEY.indexOf("__TILES") === 0) GKEY = prompt("Google Map Tiles API key:") || "";
 let ROUTES_KEY = params.get("routesKey") || GKEY;
 const ENRICH_BASE = params.get("enrichBase") || "https://oxley-enrich.moxley.workers.dev";
+const NOTES_BASE = "https://oxley-beams.moxley.workers.dev";
+
+// Status colors: status wins over fleet-size color; no status = fleet-size KML col.
+const STATUS_COLORS = { sold:'#2ecc71', visited:'#f5a623', dead:'#999', lead:'#00bfff' };
+let NOTECACHE = {};
+
+async function loadNotes(){
+  try { const r = await fetch(NOTES_BASE + "/notes"); if (r.ok) NOTECACHE = await r.json() || {}; } catch(e){}
+}
+
+// Extract USDOT number from the SAFER link embedded in the KML description.
+function extractDot(ent){
+  try {
+    const raw = ent.description;
+    const desc = raw ? (raw.getValue ? raw.getValue(Cesium.JulianDate.now()) : String(raw)) : "";
+    const m = desc.match(/query_string=(\d+)/);
+    return m ? m[1] : null;
+  } catch(e){ return null; }
+}
 
 Cesium.Ion.defaultAccessToken = undefined;
 Cesium.GoogleMaps.defaultApiKey = GKEY;
@@ -114,15 +140,66 @@ function styleFleetDS(ds){
   ds.clustering.pixelRange = 42;
   ds.clustering.minimumClusterSize = 8;
   const ents = ds.entities.values;
+  let soldCount = 0, visitedCount = 0;
   for (let i=0;i<ents.length;i++){
     const ent = ents[i];
     if (!ent.position) continue;
-    let col = Cesium.Color.CYAN;
-    try { if (ent.properties && ent.properties.col) col = Cesium.Color.fromCssColorString(ent.properties.col.getValue()); } catch(e){}
+
+    // Determine status from notes cache keyed by USDOT number.
+    const dot = extractDot(ent);
+    const noteEntry = dot ? NOTECACHE[dot] : null;
+    const status = (noteEntry && noteEntry.status) ? noteEntry.status : "";
+
+    // Status wins over fleet-size KML color; no status = use KML col.
+    let col;
+    if (status && STATUS_COLORS[status]){
+      col = Cesium.Color.fromCssColorString(STATUS_COLORS[status]);
+      if (status === "sold") soldCount++;
+      if (status === "visited") visitedCount++;
+    } else {
+      col = Cesium.Color.CYAN;
+      try { if (ent.properties && ent.properties.col) col = Cesium.Color.fromCssColorString(ent.properties.col.getValue()); } catch(e){}
+    }
+
+    const isDead = status === "dead";
+    const isSold = status === "sold";
     ent.billboard = undefined;
-    ent.point = new Cesium.PointGraphics({ pixelSize:13, color:col, outlineColor:Cesium.Color.WHITE, outlineWidth:2, disableDepthTestDistance:INF });
-    ent.label = new Cesium.LabelGraphics({ text: ent.name, font:"13px sans-serif", fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset:new Cesium.Cartesian2(0,-18), distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0.0, 4000.0), disableDepthTestDistance:Number.POSITIVE_INFINITY });
+    ent.point = new Cesium.PointGraphics({
+      pixelSize: isSold ? 17 : 13,
+      color: isDead ? col.withAlpha(0.35) : col,
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: status ? 3 : 2,
+      disableDepthTestDistance: INF
+    });
+    ent.label = new Cesium.LabelGraphics({
+      text: ent.name,
+      font: "13px sans-serif",
+      fillColor: isDead ? Cesium.Color.fromCssColorString("#888") : Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0,-18),
+      distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 4000.0),
+      disableDepthTestDistance: INF
+    });
+
+    // Prepend a status badge to the infobox description.
+    if (status){
+      const badge = '<div style="display:inline-block;padding:3px 12px;border-radius:12px;background:' +
+        STATUS_COLORS[status] + ';color:#fff;font-size:12px;font-weight:700;text-transform:uppercase;' +
+        'letter-spacing:.5px;margin-bottom:8px">' + status + '</div><br>';
+      try {
+        const raw = ent.description;
+        const cur = raw ? (raw.getValue ? raw.getValue(Cesium.JulianDate.now()) : String(raw)) : "";
+        ent.description = badge + cur;
+      } catch(e){}
+    }
   }
+  // Show legend and update status bar with a sold/visited tally.
+  const leg = document.getElementById("legend");
+  if (leg) leg.style.display = "block";
+  if (soldCount || visitedCount)
+    setStatus(ds.entities.values.length + " pins · " + soldCount + " sold · " + visitedCount + " visited");
 }
 
 // Merge cached Places enrichment (photo/hours/phone/rating) into Tier-1 pin cards.
@@ -167,6 +244,7 @@ async function loadKml(source){
   try {
     setStatus("loading pins…");
     if (currentDS) viewer.dataSources.remove(currentDS, true);
+    await loadNotes();   // fetch status notes before styling so colors are ready
     const ds = await Cesium.KmlDataSource.load(source, {
       camera: viewer.camera, canvas: viewer.canvas, clampToGround: false
     });
@@ -174,7 +252,8 @@ async function loadKml(source){
     styleFleetDS(ds);
     applyEnrichment(ds);
     await viewer.flyTo(ds);
-    setStatus(ds.entities.values.length + " pins — tap a pin for details");
+    if (!Object.keys(NOTECACHE).length)
+      setStatus(ds.entities.values.length + " pins — tap a pin for details");
   } catch(e){ setStatus("KML failed: " + (e.message||e)); }
 }
 

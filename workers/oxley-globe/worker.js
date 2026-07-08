@@ -196,7 +196,7 @@ function build(){
  for(var i=0;i<D.length;i++){var r=D[i];
   var e=src.entities.add({position:Cesium.Cartesian3.fromDegrees(r.lon,r.lat,40),
    billboard:{image:iconFor(r),disableDepthTestDistance:INF,verticalOrigin:Cesium.VerticalOrigin.CENTER,scaleByDistance:new Cesium.NearFarScalar(500,1.0,60000,0.3)},
-   label:{text:(r.dba||r.n),font:"700 15px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,24),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.1,14000,0.5),translucencyByDistance:new Cesium.NearFarScalar(9000,1.0,26000,0.0)}});
+   label:{text:(r.dba||r.n)+((r.pu||r.t)?('\n'+(r.pu||r.t)+' PU'):""),font:"700 15px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:4,style:Cesium.LabelStyle.FILL_AND_OUTLINE,verticalOrigin:Cesium.VerticalOrigin.TOP,pixelOffset:new Cesium.Cartesian2(0,24),disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(1500,1.1,14000,0.5),translucencyByDistance:new Cesium.NearFarScalar(9000,1.0,26000,0.0)}});
   e.rec=r; r._e=e;
  }
  // distance-based clustering so 3,255 pins don't lag

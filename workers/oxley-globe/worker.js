@@ -126,7 +126,7 @@ function enrichFor(n){var k=normName(n);if(ENRICHMAP[k])return ENRICHMAP[k];for(
 function loadEnrich(){fetch(ENRICH_BASE+"/enriched.json").then(function(r){return r.ok?r.json():[];}).then(function(a){for(var i=0;i<a.length;i++){var k=normName(a[i].n);if(k.length>=5)ENRICHMAP[k]=a[i];}}).catch(function(){});}
 function preloadNotes(){return fetch(BEAMS_BASE+"/notes").then(function(r){return r.json();}).then(function(d){NOTECACHE=d||{};}).catch(function(){});}
 function loadNote(key){if(NOTECACHE[key])return NOTECACHE[key];try{var s=localStorage.getItem("oxleyNote:"+key);return s?JSON.parse(s):{};}catch(e){return {};}}
-function saveNoteKey(){var key=window.__curKey;var note=$("#note").value;var st=window.__curStatus||"";var o={note:note,status:st,ts:Date.now()};if(!note&&!st)delete NOTECACHE[key];else NOTECACHE[key]=o;try{if(!note&&!st)localStorage.removeItem("oxleyNote:"+key);else localStorage.setItem("oxleyNote:"+key,JSON.stringify(o));}catch(e){}var m=$("#savedmsg");fetch(BEAMS_BASE+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({dot:key,note:note,status:st})}).then(function(r){return r.json();}).then(function(){if(m){m.textContent="✓ saved & synced";setTimeout(function(){m.textContent="";},1800);}}).catch(function(){if(m){m.textContent="✓ saved on device";setTimeout(function(){m.textContent="";},1800);}});}
+function saveNoteKey(){var key=window.__curKey;var note=$("#note").value;var st=window.__curStatus||"";var rn=$("#rename")?$("#rename").value.trim():"";var o={note:note,status:st,rn:rn,ts:Date.now()};if(!note&&!st&&!rn)delete NOTECACHE[key];else NOTECACHE[key]=o;try{if(!note&&!st&&!rn)localStorage.removeItem("oxleyNote:"+key);else localStorage.setItem("oxleyNote:"+key,JSON.stringify(o));}catch(e){}if(window.__curRec&&window.__curRec._e&&window.__curRec._e.label){window.__curRec._e.label.text=rn||window.__curRec.dba||window.__curRec.n;}var m=$("#savedmsg");fetch(BEAMS_BASE+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({dot:key,note:note,status:st,rn:rn})}).then(function(r){return r.json();}).then(function(){if(m){m.textContent="✓ saved & synced";setTimeout(function(){m.textContent="";},1800);}}).catch(function(){if(m){m.textContent="✓ saved on device";setTimeout(function(){m.textContent="";},1800);}});}
 function toggleStatus(s){if(window.__curStatus===s)window.__curStatus="";else window.__curStatus=s;var b=document.querySelectorAll("#stat button");for(var i=0;i<b.length;i++){var x=b[i];if(x.getAttribute("data-s")===window.__curStatus){x.classList.add("on");x.style.background=STC[window.__curStatus];}else{x.classList.remove("on");x.style.background="";}}}
 function stBtn(s,active){var lbl=s.charAt(0).toUpperCase()+s.slice(1);var on=(active===s);return '<button data-s="'+s+'" onclick="toggleStatus(\''+s+'\')" class="stbtn'+(on?" on":"")+'"'+(on?(' style="background:'+STC[s]+'"'):"")+">"+lbl+"</button>";}
 function closePanel(){$("#panel").style.display="none";}
@@ -181,6 +181,7 @@ function flyToRec(r){viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegr
 var HEAVY_VERT={"Logistics / General Freight":1,"Aggregate / Construction":1,"Logging / Timber":1,"Heavy Haul / Specialized":1,"Waste / Environmental":1,"Oilfield / Energy":1,"Agriculture":1};
 var HEAVY_KW=/WIRELINE|OILFIELD|OIL FIELD|OIL WELL|WELL SERVIC|VACUUM|VAC TRUCK|HOTSHOT|HOT SHOT|CRANE|DOZER|EXCAVAT|BACKHOE|READY ?MIX|CONCRETE|CEMENT|AGGREGATE|GRAVEL|DUMP|HEAVY HAUL|HAULING|LOGGING|TIMBER|ROLL ?OFF|WASTE|DISPOSAL|SEPTIC|TANKER|FRAC|DRILLING|PIPELINE|PROPANE|PETROLEUM|ASPHALT|PAVING|WINCH|TRANSPORT|LOGISTIC|FREIGHT|TRUCKING|DEDICATED|ENERGY|OILWELL|DIRT WORK|MATERIALS/;
 function isHeavy(r){if(!r)return true;if(r.res)return false;if(HEAVY_VERT[r.ind])return true;var nm=((r.dba||"")+" "+(r.n||"")).toUpperCase();if(HEAVY_KW.test(nm))return true;var pu=r.pu||0;return pu>0&&(r.mi||0)/pu>=50000;}
+function applyRenames(){for(var i=0;i<D.length;i++){var r=D[i];if(!r._e||!r._e.label)continue;var key=r.dot?String(r.dot):("P:"+normName(r.n));var sv=NOTECACHE[key];if(sv&&sv.rn)r._e.label.text=sv.rn;}}
 function applyHeavy(){var on=window.__heavyMode;var ents=src.entities.values;for(var i=0;i<ents.length;i++){var e=ents[i];if(!e.billboard)continue;var hv=isHeavy(e.rec);if(!on||hv){e.billboard.color=Cesium.Color.WHITE;if(e.label)e.label.show=true;}else{e.billboard.color=Cesium.Color.WHITE.withAlpha(0.2);if(e.label)e.label.show=false;}}}
 var CITIES=[{"n":"Anahuac","lat":29.73515,"lon":-94.67903},{"n":"Beaumont","lat":30.06665,"lon":-94.15606},{"n":"Bridge City","lat":30.02816,"lon":-93.83541},{"n":"Buna","lat":30.41685,"lon":-93.97254},{"n":"Cleveland","lat":30.25207,"lon":-95.04862},{"n":"Dayton","lat":30.05165,"lon":-94.91991},{"n":"Devers","lat":29.97857,"lon":-94.59762},{"n":"Groves","lat":29.94238,"lon":-93.91194},{"n":"Hull","lat":30.17289,"lon":-94.66753},{"n":"Jasper","lat":30.94691,"lon":-94.02869},{"n":"Kirbyville","lat":30.65879,"lon":-93.92151},{"n":"Kountze","lat":30.34731,"lon":-94.29954},{"n":"Liberty","lat":30.07727,"lon":-94.76306},{"n":"Lumberton","lat":30.24348,"lon":-94.20928},{"n":"Nederland","lat":29.97434,"lon":-94.00801},{"n":"Newton","lat":30.82862,"lon":-93.76537},{"n":"Orange","lat":30.12735,"lon":-93.81282},{"n":"Port Arthur","lat":29.91152,"lon":-93.94647},{"n":"Port Neches","lat":29.97848,"lon":-93.96361},{"n":"Saratoga","lat":30.29768,"lon":-94.61712},{"n":"Silsbee","lat":30.37857,"lon":-94.18646},{"n":"Sour Lake","lat":30.14547,"lon":-94.38831},{"n":"Vidor","lat":30.14718,"lon":-94.00947},{"n":"Wallisville","lat":29.84937,"lon":-94.67707},{"n":"Warren","lat":30.61846,"lon":-94.40975},{"n":"Winnie","lat":29.81989,"lon":-94.37914},{"n":"Woodville","lat":30.75366,"lon":-94.41154}];
 function addCityLabels(){var ds=new Cesium.CustomDataSource("cities");viewer.dataSources.add(ds);for(var i=0;i<CITIES.length;i++){var c=CITIES[i];ds.entities.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,0),label:{text:c.n,font:"800 20px sans-serif",fillColor:Cesium.Color.WHITE,outlineColor:Cesium.Color.BLACK,outlineWidth:2,showBackground:true,backgroundColor:new Cesium.Color(0,0,0,0.68),backgroundPadding:new Cesium.Cartesian2(10,7),style:Cesium.LabelStyle.FILL_AND_OUTLINE,disableDepthTestDistance:INF,scaleByDistance:new Cesium.NearFarScalar(4000,1.35,150000,0.7),translucencyByDistance:new Cesium.NearFarScalar(2000,1.0,170000,0.55),distanceDisplayCondition:new Cesium.DistanceDisplayCondition(0.0,180000.0)}});}}
@@ -218,10 +219,12 @@ function showPanel(r){
  var ind=r.ind||r.v||"fleet";
  var contact=r.ask||"";
  var key=r.dot?String(r.dot):("P:"+normName(r.n));window.__curKey=key;window.__curRec=r;
- var sv=loadNote(key);window.__curStatus=sv.status||"";
+ var sv=loadNote(key);window.__curStatus=sv.status||"";window.__curRename=sv.rn||"";
+ var dispName=sv.rn||(r.dba||r.n);
  var h='<button class="x" onclick="closePanel()">X</button>';
- h+='<h3>'+esc(r.dba||r.n)+'</h3>';
- if(r.dba&&normName(r.dba)!==normName(r.n))h+='<div class="row" style="opacity:.6;margin-top:-3px">legal: '+esc(r.n)+'</div>';
+ h+='<h3>'+esc(dispName)+'</h3>';
+ if(sv.rn)h+='<div class="row" style="opacity:.45;font-size:12px;margin-top:-2px">FMCSA: '+esc(r.dba||r.n)+'</div>';
+ else if(r.dba&&normName(r.dba)!==normName(r.n))h+='<div class="row" style="opacity:.6;margin-top:-3px">legal: '+esc(r.n)+'</div>';
  h+='<div class="row" style="font-size:15px"><b>'+esc(ind)+'</b>'+(r.tier?(' · '+esc(r.tier)+' duty'):"")+'</div>';
  if(r.src==="places")h+='<div class="row" style="color:#ff8fce">🔎 Google listing · not FMCSA-registered</div>';
  if(r.res)h+='<div class="row" style="color:#c9a">🏠 home-based owner-op</div>';
@@ -251,6 +254,7 @@ function showPanel(r){
  h+='<button class="takeme" onclick="routeCur()">🧭 Route on globe</button>';
  h+='<div class="status" id="stat">'+stBtn("lead",sv.status)+stBtn("visited",sv.status)+stBtn("sold",sv.status)+stBtn("dead",sv.status)+'</div>';
  h+='<textarea class="note" id="note" placeholder="Notes — contact, what they run, follow-up...">'+((sv.note||"").replace(/</g,"&lt;"))+'</textarea>';
+ h+='<div style="margin-top:10px"><div style="font-size:11.5px;opacity:.5;margin-bottom:3px">✏️ Working name (overrides FMCSA name on globe)</div><input id="rename" class="note" style="min-height:0;padding:8px 9px;width:100%;box-sizing:border-box" placeholder="e.g. Benitez Trucking" value="'+esc(sv.rn||"")+'"></div>';
  h+='<button class="save" onclick="saveNoteKey()">Save</button> <span class="saved" id="savedmsg"></span>';
  $("#panel").innerHTML=h;$("#panel").style.display="block";
 }
@@ -305,7 +309,7 @@ $("#near").addEventListener("click",function(){var l=$("#nearlist");if(l.style.d
 $("#clrt").addEventListener("click",function(){clearRoute();setStatus("route cleared");});
 $("#svbtn").addEventListener("click",function(){window.__svMode=!window.__svMode;this.style.background=window.__svMode?"#0a84ff":"";setStatus(window.__svMode?"Street View: tap the road/ground":"");});
 (function(){
- build(); addCityLabels(); wirePick(); loadEnrich(); preloadNotes(); startGeo(); reset();
+ build(); addCityLabels(); wirePick(); loadEnrich(); preloadNotes().then(applyRenames); startGeo(); reset();
  viewer.camera.changed.addEventListener(function(){if(svLabelTimer)clearTimeout(svLabelTimer);svLabelTimer=setTimeout(updateStreetNames,700);});
  setStatus(D.length+" pins · drag to orbit · pinch/scroll to zoom · tap a pin");
  Cesium.createGooglePhotorealistic3DTileset().then(function(ts){

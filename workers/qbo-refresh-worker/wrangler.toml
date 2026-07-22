@@ -6,5 +6,10 @@ compatibility_date = "2024-11-01"
 binding = "QBO_TOKENS"
 id = "9e61d4d0d02a476692cfa71c1002908b"
 
+[vars]
+# Plaid API credentials — PLAID_SECRET must be set as a secret via
+# "wrangler secret put PLAID_SECRET" or the Cloudflare dashboard.
+PLAID_CLIENT_ID = "6a0a249b9114fc000d01ccbd"
+
 [triggers]
 crons = ["*/50 * * * *"]

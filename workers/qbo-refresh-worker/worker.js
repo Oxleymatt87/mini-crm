@@ -483,13 +483,16 @@ async function syncChaseToQbo(request, env, h) {
     plaidAcctMap[pa.account_id] = { plaid: pa, qbo: byMask || byType };
   }
 
-  // Filter: skip pending, already-synced, and internal transfers
-  const transferRe = /payment to chase card|online transfer (?:to|from)|chase card ending|american express|amex epayment|visa payment/i;
+  // Filter: skip pending, already-synced, internal transfers, and CC payment credits
+  const transferRe = /payment to chase card|online transfer (?:to|from)|chase card ending|american express|amex epayment|visa payment|payment thank you/i;
   const toSync = plaidData.transactions.filter(t => {
     if (t.pending) return false;
     if (syncedIds.has(t.transaction_id)) return false;
     if ((t.category || [])[0] === 'Transfer') return false;
     if (transferRe.test(t.name || '')) return false;
+    // Skip credits (negative amounts) on credit card accounts — these are card payments, not income
+    const acctType = plaidAcctMap[t.account_id]?.plaid?.type;
+    if (t.amount < 0 && acctType === 'credit') return false;
     return true;
   });
 

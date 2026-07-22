@@ -1,6 +1,3 @@
---8e638aeadf026132281f65d8ec001c624ab69d265970e3b98921fbfecfa6
-Content-Disposition: form-data; name="worker.js"
-
 const REALM_ID = "9130357532009796";
 const SHEET_ID = "1EghclLR5lUwHRsEVvmmNrHZQcyKvLGP0JCQHyJKOoEY";
 const QBO_API_BASE = "https://quickbooks.api.intuit.com/v3/company";
@@ -39,6 +36,8 @@ export default {
       if (url.pathname === '/plaid-link-token' && request.method === 'POST') return await createPlaidLinkToken(env, corsHeaders);
       if (url.pathname === '/plaid-exchange' && request.method === 'POST') return await exchangePlaidToken(request, env, corsHeaders);
       if (url.pathname === '/chase-transactions') { const d = parseInt(url.searchParams.get('days')||'90'); return await getChaseTransactions(env, corsHeaders, d); }
+      if (url.pathname === '/sync-chase-to-qbo' && request.method === 'POST') return await syncChaseToQbo(request, env, corsHeaders);
+      if (url.pathname === '/sync-status') return await getSyncStatus(env, corsHeaders);
       if (url.pathname === '/dad') return new Response(DAD_HTML, { headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' } });
 
       if (url.pathname === '/payments-by-customer') {
@@ -47,7 +46,7 @@ export default {
         return await fetchPaymentsByCustomer(env, corsHeaders, s, e);
       }
 
-      return new Response(JSON.stringify({ status: 'ok', endpoints: ['/dad','/dashboard-summary','/overdue-invoices','/chase-transactions','/bank-transactions','/profit-loss','/top-customers','/expenses-detail','/connect-chase','/new-prospect','/payments-by-customer'] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ status: 'ok', endpoints: ['/dad','/dashboard-summary','/overdue-invoices','/chase-transactions','/bank-transactions','/profit-loss','/top-customers','/expenses-detail','/connect-chase','/new-prospect','/payments-by-customer','/sync-chase-to-qbo','/sync-status'] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
     } catch (error) {
       return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -129,6 +128,16 @@ async function qboApiCall(endpoint, env) {
   const res = await fetch(fullUrl, { headers: { 'Authorization': `Bearer ${tokens.access_token}`, 'Accept': 'application/json' } });
   if (!res.ok) throw new Error(`QBO API error: ${res.status} ${await res.text()}`);
   return await res.json();
+}
+
+async function qboPost(path, env, body) {
+  let tokens = await getTokens(env);
+  if (!tokens.expires_in || tokens.expires_in < 300) tokens = await refreshAccessToken(env);
+  const url = `${QBO_API_BASE}/${REALM_ID}/${path}?minorversion=73`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Authorization': `Bearer ${tokens.access_token}`, 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`QBO POST ${path} → ${res.status}: ${text}`);
+  try { return JSON.parse(text); } catch { return { raw: text }; }
 }
 
 async function fetchCustomers(env, h) {
@@ -417,9 +426,142 @@ async function fetchPaymentsByCustomer(env, h, startDate, endDate) {
   }), { headers: { ...h, 'Content-Type': 'application/json' } });
 }
 
+// ─── PLAID → QBO SYNC ────────────────────────────────────────────────────────
+async function syncChaseToQbo(request, env, h) {
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const days = Math.min(parseInt(body.days || '30'), 365);
+  const dryRun = body.dry_run === true;
+
+  const accessToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!accessToken) return new Response(JSON.stringify({ error: 'Chase not connected. Visit /connect-chase first.' }), { status: 401, headers: { ...h, 'Content-Type': 'application/json' } });
+
+  const syncedRaw = await env.QBO_TOKENS.get('plaid_synced_ids');
+  const syncedIds = new Set(syncedRaw ? JSON.parse(syncedRaw) : []);
+
+  // Fetch Plaid transactions
+  const endDate = new Date().toISOString().split('T')[0];
+  const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+  const plaidData = { transactions: [], accounts: [] };
+  let plaidTotal = null;
+  while (plaidTotal === null || plaidData.transactions.length < plaidTotal) {
+    const pr = await fetch('https://production.plaid.com/transactions/get', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: env.PLAID_CLIENT_ID, secret: env.PLAID_SECRET, access_token: accessToken, start_date: startDate, end_date: endDate, options: { count: 500, offset: plaidData.transactions.length } }) });
+    const pg = await pr.json();
+    if (!pr.ok) return new Response(JSON.stringify({ error: pg.error_message || 'Plaid error', code: pg.error_code }), { status: 400, headers: { ...h, 'Content-Type': 'application/json' } });
+    if (!plaidData.accounts.length) plaidData.accounts = pg.accounts || [];
+    plaidData.transactions.push(...(pg.transactions || []));
+    plaidTotal = pg.total_transactions || 0;
+    if (!(pg.transactions || []).length || plaidData.transactions.length >= 10000) break;
+  }
+
+  // QBO account lookup (Bank, Credit Card, Expense, Income)
+  const [bankData, ccData, expData, incData] = await Promise.all([
+    qboApiCall('query?query=' + encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Bank' MAXRESULTS 100"), env),
+    qboApiCall('query?query=' + encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Credit Card' MAXRESULTS 100"), env),
+    qboApiCall('query?query=' + encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Expense' MAXRESULTS 200"), env),
+    qboApiCall('query?query=' + encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Income' MAXRESULTS 200"), env),
+  ]);
+  const bankAccounts = bankData?.QueryResponse?.Account || [];
+  const ccAccounts = ccData?.QueryResponse?.Account || [];
+  const qboPayAccounts = [...bankAccounts, ...ccAccounts];
+  const expenseAccounts = expData?.QueryResponse?.Account || [];
+  const incomeAccounts = incData?.QueryResponse?.Account || [];
+  const uncatExpense = expenseAccounts.find(a => /uncategor/i.test(a.Name)) || expenseAccounts[0];
+  const uncatIncome = incomeAccounts.find(a => /uncategor/i.test(a.Name)) || incomeAccounts[0];
+
+  // Map Plaid account_id → QBO account: AcctNum last-4, then name "(NNNN)", then type fallback
+  const qboByMask = {};
+  for (const a of qboPayAccounts) {
+    if (a.AcctNum) qboByMask[a.AcctNum.slice(-4)] = a;
+    const m = a.Name && a.Name.match(/\((\d{4})\)/);
+    if (m && !qboByMask[m[1]]) qboByMask[m[1]] = a;
+  }
+  const plaidAcctMap = {};
+  for (const pa of plaidData.accounts) {
+    const byMask = pa.mask ? qboByMask[pa.mask] : undefined;
+    const byType = pa.type === 'credit' ? (ccAccounts[0] || bankAccounts[0]) : bankAccounts[0];
+    plaidAcctMap[pa.account_id] = { plaid: pa, qbo: byMask || byType };
+  }
+
+  // Filter: skip pending, already-synced, and internal transfers
+  const transferRe = /payment to chase card|online transfer (?:to|from)|chase card ending|american express|amex epayment|visa payment/i;
+  const toSync = plaidData.transactions.filter(t => {
+    if (t.pending) return false;
+    if (syncedIds.has(t.transaction_id)) return false;
+    if ((t.category || [])[0] === 'Transfer') return false;
+    if (transferRe.test(t.name || '')) return false;
+    return true;
+  });
+
+  if (dryRun) {
+    return new Response(JSON.stringify({
+      dryRun: true, period: { start: startDate, end: endDate, days },
+      totalFetched: plaidData.transactions.length, alreadySynced: syncedIds.size, toSync: toSync.length,
+      qboPayAccounts: qboPayAccounts.map(a => ({ id: a.Id, name: a.Name, type: a.AccountType, acctNum: a.AcctNum || null })),
+      qboExpenseAccount: uncatExpense ? { id: uncatExpense.Id, name: uncatExpense.Name } : null,
+      qboIncomeAccount: uncatIncome ? { id: uncatIncome.Id, name: uncatIncome.Name } : null,
+      accounts: plaidData.accounts.map(a => ({ name: a.name, mask: a.mask, type: a.type, qboMatch: plaidAcctMap[a.account_id]?.qbo?.Name || '(no match)' })),
+      transactions: toSync.map(t => ({ id: t.transaction_id, date: t.date, name: t.merchant_name || t.name, amount: t.amount, type: t.amount > 0 ? 'Purchase/expense' : 'Deposit/income', plaidAccount: plaidAcctMap[t.account_id]?.plaid?.name, qboAccount: plaidAcctMap[t.account_id]?.qbo?.Name || '(no match)' })),
+    }), { headers: { ...h, 'Content-Type': 'application/json' } });
+  }
+
+  // Live sync
+  const results = { synced: [], errors: [], period: { start: startDate, end: endDate, days } };
+  const newSyncedIds = [];
+
+  for (const t of toSync) {
+    const acctInfo = plaidAcctMap[t.account_id] || {};
+    const qboAcct = acctInfo.qbo;
+    const name = t.merchant_name || t.name || 'Unknown';
+    const note = `Plaid:${t.transaction_id} | ${(t.category || []).join('>')}`;
+    try {
+      if (t.amount > 0) {
+        // Debit: money out → QBO Purchase
+        if (!qboAcct) { results.errors.push({ id: t.transaction_id, name, reason: 'No QBO account match for mask ' + (acctInfo.plaid?.mask || '?') }); continue; }
+        if (!uncatExpense) { results.errors.push({ id: t.transaction_id, name, reason: 'No expense account in QBO' }); continue; }
+        await qboPost('purchase', env, {
+          TxnDate: t.date,
+          PaymentType: qboAcct.AccountType === 'Credit Card' ? 'CreditCard' : 'Check',
+          AccountRef: { value: qboAcct.Id, name: qboAcct.Name },
+          PrivateNote: note,
+          Line: [{ Amount: t.amount, DetailType: 'AccountBasedExpenseLineDetail', AccountBasedExpenseLineDetail: { AccountRef: { value: uncatExpense.Id, name: uncatExpense.Name } } }],
+        });
+      } else {
+        // Credit: money in → QBO Deposit
+        const depositAcct = qboAcct || bankAccounts[0];
+        if (!depositAcct) { results.errors.push({ id: t.transaction_id, name, reason: 'No bank account in QBO for deposit' }); continue; }
+        const incomeRef = uncatIncome ? { value: uncatIncome.Id, name: uncatIncome.Name } : { name: 'Uncategorized Income' };
+        await qboPost('deposit', env, {
+          TxnDate: t.date,
+          DepositToAccountRef: { value: depositAcct.Id, name: depositAcct.Name },
+          PrivateNote: note,
+          Line: [{ Amount: Math.abs(t.amount), DetailType: 'DepositLineDetail', DepositLineDetail: { AccountRef: incomeRef } }],
+        });
+      }
+      newSyncedIds.push(t.transaction_id);
+      results.synced.push({ id: t.transaction_id, date: t.date, name, amount: t.amount });
+    } catch (e) {
+      results.errors.push({ id: t.transaction_id, name, reason: e.message });
+    }
+  }
+
+  if (newSyncedIds.length > 0) {
+    const allIds = [...syncedIds, ...newSyncedIds].slice(-10000);
+    const meta = { timestamp: new Date().toISOString(), period: { start: startDate, end: endDate, days }, synced: results.synced.length, errors: results.errors.length, totalSyncedIds: allIds.length };
+    await Promise.all([env.QBO_TOKENS.put('plaid_synced_ids', JSON.stringify(allIds)), env.QBO_TOKENS.put('plaid_last_sync', JSON.stringify(meta))]);
+    results.meta = meta;
+  }
+
+  return new Response(JSON.stringify(results), { headers: { ...h, 'Content-Type': 'application/json' } });
+}
+
+async function getSyncStatus(env, h) {
+  const [lastSyncRaw, syncedRaw] = await Promise.all([env.QBO_TOKENS.get('plaid_last_sync'), env.QBO_TOKENS.get('plaid_synced_ids')]);
+  return new Response(JSON.stringify({ lastSync: lastSyncRaw ? JSON.parse(lastSyncRaw) : null, totalSyncedIds: syncedRaw ? JSON.parse(syncedRaw).length : 0 }), { headers: { ...h, 'Content-Type': 'application/json' } });
+}
+
 const CONNECT_HTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Connect Chase</title><style>body{background:#0a0a0a;color:#e8e8e8;font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}.box{background:#111;border:1px solid #222;border-top:2px solid #e8a020;padding:40px;max-width:400px;width:90%;text-align:center}h1{font-size:24px;color:#e8a020;margin-bottom:8px;letter-spacing:2px}p{color:#888;font-size:14px;margin-bottom:24px}button{background:#e8a020;color:#000;border:none;padding:16px 32px;font-size:16px;font-weight:700;cursor:pointer;width:100%;letter-spacing:1px}button:disabled{background:#444;color:#666;cursor:not-allowed}#status{margin-top:16px;font-size:13px;color:#888;min-height:20px}#status.success{color:#27ae60}#status.error{color:#c0392b}</style></head><body><div class="box"><h1>OXLEY TIRE</h1><p>Connect your Chase accounts to enable live transaction tracking. This is a one-time setup.</p><button id="btn" onclick="startLink()">CONNECT CHASE</button><div id="status"></div></div><script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script><script>async function startLink(){const btn=document.getElementById('btn'),s=document.getElementById('status');btn.disabled=true;s.textContent='Initializing...';s.className='';try{const r=await fetch('https://qbo-refresh-worker.moxley.workers.dev/plaid-link-token',{method:'POST'});const d=await r.json();if(!d.link_token)throw new Error(d.error||'Failed');const h=Plaid.create({token:d.link_token,onSuccess:async(pt,m)=>{s.textContent='Exchanging...';const er=await fetch('https://qbo-refresh-worker.moxley.workers.dev/plaid-exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token:pt,metadata:m})});const ed=await er.json();if(ed.success){s.textContent='✅ Chase connected! Close this window.';s.className='success';btn.textContent='CONNECTED';}else throw new Error(ed.error||'Exchange failed');},onExit:(e)=>{btn.disabled=false;s.textContent=e?'Error: '+(e.display_message||e.error_code||JSON.stringify(e)):'Cancelled.';if(e)s.className='error';}});h.open();}catch(e){s.textContent='Error: '+e.message;s.className='error';btn.disabled=false;}}</script></body></html>`;
 
 const DAD_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Oxley Tire — Command Center</title><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"><style>:root{--bg:#0a0a0a;--surface:#111111;--border:#222222;--accent:#e8a020;--red:#c0392b;--green:#27ae60;--text:#e8e8e8;--muted:#666666;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;--display:'Bebas Neue',sans-serif}*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh}header{background:var(--surface);border-bottom:2px solid var(--accent);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}.logo{font-family:var(--display);font-size:28px;letter-spacing:2px;color:var(--accent)}.logo span{color:var(--text);font-size:13px;font-family:var(--mono);display:block;letter-spacing:3px;margin-top:2px}#refresh-btn{background:var(--accent);color:#000;border:none;padding:8px 16px;font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:1px;margin-top:4px;display:block;width:100%}.main{padding:16px;max-width:900px;margin:0 auto}#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;gap:16px}.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.loading-text{font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:2px}.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}@media(min-width:600px){.summary-grid{grid-template-columns:repeat(3,1fr)}}.card{background:var(--surface);border:1px solid var(--border);padding:16px;position:relative;overflow:hidden}.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent)}.card.red::before{background:var(--red)}.card.green::before{background:var(--green)}.card-label{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:8px}.card-value{font-family:var(--display);font-size:32px;line-height:1;letter-spacing:1px}.card-value.red{color:var(--red)}.card-value.green{color:var(--green)}.card-value.amber{color:var(--accent)}.card-sub{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px}.section{margin-bottom:24px}.section-header{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}.section-title{font-family:var(--display);font-size:22px;letter-spacing:2px;color:var(--accent)}.badge{background:var(--red);color:#fff;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 8px;border-radius:2px}.badge.green{background:var(--green)}.badge.amber{background:var(--accent);color:#000}.invoice-list{display:flex;flex-direction:column;gap:6px}.invoice-row{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--red);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px}.inv-customer{font-weight:600;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.inv-meta{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}.inv-amount{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--red);white-space:nowrap}.inv-days{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}.inv-days.hot{color:var(--red);font-weight:600}.inv-days.warm{color:var(--accent)}.txn-list{display:flex;flex-direction:column;gap:4px}.txn-row{background:var(--surface);border:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px}.txn-type{font-family:var(--mono);font-size:10px;letter-spacing:1px;padding:2px 6px;border-radius:2px;white-space:nowrap}.txn-type.deposit{background:rgba(39,174,96,.15);color:var(--green)}.txn-type.expense{background:rgba(192,57,43,.15);color:var(--red)}.txn-desc{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.txn-sub{font-family:var(--mono);font-size:11px;color:var(--muted)}.txn-amount{font-family:var(--mono);font-size:14px;font-weight:600;white-space:nowrap}.txn-amount.pos{color:var(--green)}.txn-amount.neg{color:var(--red)}.txn-date{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}#content{display:none}</style></head><body><header><div class="logo">OXLEY TIRE<span>COMMAND CENTER</span></div><div><div id="update-time" style="font-family:var(--mono);font-size:11px;color:var(--muted)">Loading...</div><button id="refresh-btn" onclick="loadData()">↻ REFRESH</button></div></header><div class="main"><div id="loading"><div class="spinner"></div><div class="loading-text">PULLING LIVE DATA...</div></div><div id="error" style="display:none"><div style="background:#1a0a0a;border:1px solid var(--red);padding:20px;text-align:center;font-family:var(--mono);font-size:13px;color:var(--red)">Failed to load. Try refreshing.</div></div><div id="content"><div class="summary-grid" id="summary-cards"></div><div class="section"><div class="section-header"><div class="section-title">OVERDUE INVOICES</div><div class="badge" id="overdue-badge">—</div></div><div class="invoice-list" id="invoice-list"></div></div><div class="section"><div class="section-header"><div class="section-title">RECENT DEPOSITS</div><div class="badge green">MONEY IN</div></div><div class="txn-list" id="deposit-list"></div></div><div class="section"><div class="section-header"><div class="section-title">RECENT EXPENSES</div><div class="badge amber">MONEY OUT</div></div><div class="txn-list" id="expense-list"></div></div></div></div><script>const W='https://qbo-refresh-worker.moxley.workers.dev';function fmt(n){return'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}function fmtDate(d){if(!d)return'';const p=d.split('-');return p[1]+'/'+p[2]+'/'+p[0].slice(2)}async function loadData(){document.getElementById('loading').style.display='flex';document.getElementById('content').style.display='none';document.getElementById('error').style.display='none';document.getElementById('refresh-btn').textContent='↻ LOADING...';try{const[sr,tr]=await Promise.all([fetch(W+'/dashboard-summary'),fetch(W+'/chase-transactions?days=90')]);const[s,t]=await Promise.all([sr.json(),tr.json()]);renderSummary(s,t);renderInvoices(s.topOverdueAccounts||[]);renderTransactions(t.transactions||[]);document.getElementById('update-time').textContent='Updated: '+new Date().toLocaleTimeString();document.getElementById('refresh-btn').textContent='↻ REFRESH';document.getElementById('loading').style.display='none';document.getElementById('content').style.display='block';}catch(e){document.getElementById('loading').style.display='none';document.getElementById('error').style.display='block';document.getElementById('refresh-btn').textContent='↻ REFRESH';}}function renderSummary(data,txnData){const s=data.summary,accts=txnData?.accounts||[],chk=accts.find(a=>a.mask==='2236'),cc=accts.find(a=>a.mask==='8784');const cards=[{label:'OVERDUE AR',value:fmt(s.totalOverdue),sub:s.overdueCount+' invoices',cls:'red'},{label:'CHECKING 2236',value:chk?fmt(chk.balance):'--',sub:chk?fmt(chk.available)+' available':'Live Chase',cls:'green'},{label:'CC 8784',value:cc?fmt(cc.balance):'--',sub:cc?fmt(cc.available)+' available':'Live Chase',cls:'red'},{label:'MTD REVENUE',value:fmt(s.monthRevenue),sub:'This month',cls:'green'},{label:'MTD NET',value:fmt(s.netThisMonth),sub:s.netThisMonth>=0?'Profitable':'In the red',cls:s.netThisMonth>=0?'green':'red'},{label:'AS OF',value:fmtDate(data.asOf),sub:'Live data',cls:''}];document.getElementById('summary-cards').innerHTML=cards.map(c=>'<div class="card '+c.cls+'"><div class="card-label">'+c.label+'</div><div class="card-value '+c.cls+'">'+c.value+'</div><div class="card-sub">'+c.sub+'</div></div>').join('');}function renderInvoices(invoices){document.getElementById('overdue-badge').textContent=invoices.length+' accounts';document.getElementById('invoice-list').innerHTML=invoices.map(inv=>{const u=inv.daysOverdue>60?'hot':inv.daysOverdue>30?'warm':'';return'<div class="invoice-row"><div><div class="inv-customer">'+inv.customer+'</div><div class="inv-meta">INV #'+inv.invoiceNum+' · Due '+fmtDate(inv.dueDate)+'</div></div><div style="text-align:right"><div class="inv-amount">'+fmt(inv.balance)+'</div><div class="inv-days '+u+'">'+inv.daysOverdue+'d overdue</div></div></div>';}).join('');}function renderTransactions(txns){const deps=txns.filter(t=>t.type==='CREDIT'),exps=txns.filter(t=>t.type==='DEBIT');document.getElementById('deposit-list').innerHTML=deps.length?deps.slice(0,30).map(t=>'<div class="txn-row"><span class="txn-type deposit">IN</span><div class="txn-desc"><div>'+t.name+'</div><div class="txn-sub">'+t.category+'</div></div><div style="text-align:right"><div class="txn-amount pos">'+fmt(t.amount)+'</div><div class="txn-date">'+fmtDate(t.date)+'</div></div></div>').join(''):'<div style="color:var(--muted);padding:12px;font-size:13px">No recent deposits.</div>';document.getElementById('expense-list').innerHTML=exps.length?exps.slice(0,30).map(t=>'<div class="txn-row"><span class="txn-type expense">OUT</span><div class="txn-desc"><div>'+t.name+'</div><div class="txn-sub">'+t.category+'</div></div><div style="text-align:right"><div class="txn-amount neg">'+fmt(t.amount)+'</div><div class="txn-date">'+fmtDate(t.date)+'</div></div></div>').join(''):'<div style="color:var(--muted);padding:12px;font-size:13px">No recent expenses.</div>';}loadData();</script></body></html>`;
 
 const CHASE_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Oxley Tire — Chase Spending</title><style>:root{--bg:#0a0a0a;--panel:#121212;--line:#242424;--gold:#e8a020;--green:#27ae60;--red:#d6493b;--muted:#8a8a8a;--text:#ececec}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:14px}header{position:sticky;top:0;background:#0c0c0c;border-bottom:2px solid var(--gold);padding:14px 18px;z-index:5}h1{margin:0 0 4px;font-size:18px;color:var(--gold);letter-spacing:1px}.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}select,button,input{background:#1b1b1b;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px}button{cursor:pointer}button.gold{background:var(--gold);color:#000;font-weight:700;border:none}.wrap{padding:18px;max-width:1100px;margin:0 auto}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:22px}.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}.card .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}.card .val{font-size:22px;font-weight:700;margin-top:6px}.green{color:var(--green)}.red{color:var(--red)}.muted{color:var(--muted)}h2{font-size:15px;color:var(--gold);border-bottom:1px solid var(--line);padding-bottom:6px;margin:26px 0 12px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}.bar{height:6px;background:#222;border-radius:4px;overflow:hidden;margin-top:4px}.bar>span{display:block;height:100%;background:var(--gold)}tr.cr td{color:var(--green)}#txwrap{max-height:600px;overflow:auto;border:1px solid var(--line);border-radius:10px}#txwrap thead th{position:sticky;top:0;background:#161616}.loading{color:var(--muted);padding:40px;text-align:center}</style></head><body><header><h1>OXLEY TIRE — CHASE SPENDING</h1><div id="period" class="muted">Loading…</div><div class="controls"><label>Window:<select id="days" onchange="load()"><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="153" selected>Year to date</option><option value="365">Last 12 months</option></select></label><button onclick="load()">Refresh</button><button class="gold" onclick="downloadCSV()">Download CSV</button></div></header><div class="wrap"><div id="content"><div class="loading">Loading…</div></div></div><script>var WORKER=location.origin,DATA=null;function fmt(n){n=Number(n)||0;return(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}function esc(s){s=(s==null?'':String(s));return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;')}function load(){var days=document.getElementById('days').value;document.getElementById('content').innerHTML='<div class="loading">Loading '+days+' days…</div>';fetch(WORKER+'/chase-transactions?days='+days+'&cb='+Date.now()).then(function(r){return r.json()}).then(function(d){DATA=d;render(d)}).catch(function(e){document.getElementById('content').innerHTML='<div class="loading">Error: '+esc(e.message)+'</div>'})}function render(d){document.getElementById('period').textContent='Period: '+d.period.start+' to '+d.period.end+'  ('+d.totalTransactions+' transactions)';var net=(d.realIncomeTotal||0)-(d.realExpenseTotal||0),h=[];h.push('<div class="cards">');h.push('<div class="card"><div class="label">Real Income</div><div class="val green">'+fmt(d.realIncomeTotal)+'</div></div>');h.push('<div class="card"><div class="label">Real Expense</div><div class="val red">'+fmt(d.realExpenseTotal)+'</div></div>');h.push('<div class="card"><div class="label">Net</div><div class="val '+(net>=0?'green':'red')+'">'+fmt(net)+'</div></div>');h.push('<div class="card"><div class="label">Transfers (excluded)</div><div class="val muted">'+fmt(d.transfersTotal)+'</div></div>');h.push('</div>');var months={};(d.transactions||[]).forEach(function(t){if(!t.date||(t.category||'').indexOf('Transfer')===0)return;var m=t.date.slice(0,7);if(!months[m])months[m]={inc:0,exp:0};if(t.amount<0)months[m].inc+=-t.amount;else months[m].exp+=t.amount});var mk=Object.keys(months).sort();if(mk.length){var maxv=0;mk.forEach(function(m){maxv=Math.max(maxv,months[m].inc,months[m].exp)});h.push('<h2>Monthly Timeline</h2><table><thead><tr><th>Month</th><th class="num">Money In</th><th class="num">Money Out</th><th class="num">Net</th></tr></thead><tbody>');mk.forEach(function(m){var o=months[m],net=o.inc-o.exp,inb=maxv?(o.inc/maxv*100):0,exb=maxv?(o.exp/maxv*100):0;h.push('<tr><td>'+esc(m)+'</td><td class="num green">'+fmt(o.inc)+'<div class="bar"><span style="width:'+inb.toFixed(1)+'%;background:var(--green)"></span></div></td><td class="num red">'+fmt(o.exp)+'<div class="bar"><span style="width:'+exb.toFixed(1)+'%"></span></div></td><td class="num '+(net>=0?'green':'red')+'">'+fmt(net)+'</td></tr>')});h.push('</tbody></table>')}h.push('<h2>Account Balances</h2><table><thead><tr><th>Account</th><th class="num">Balance</th><th class="num">Available</th></tr></thead><tbody>');(d.accounts||[]).forEach(function(a){h.push('<tr><td>'+esc(a.name)+' ('+esc(a.mask)+')</td><td class="num">'+fmt(a.balance)+'</td><td class="num">'+fmt(a.available)+'</td></tr>')});h.push('</tbody></table>');var exp=d.realExpenseTotal||1;h.push('<h2>Spending by Category</h2><table><thead><tr><th>Category</th><th class="num">Total</th><th class="num">%</th></tr></thead><tbody>');(d.byCategory||[]).forEach(function(c){var p=(c.total/exp*100);h.push('<tr><td>'+esc(c.category)+'<div class="bar"><span style="width:'+p.toFixed(1)+'%"></span></div></td><td class="num">'+fmt(c.total)+'</td><td class="num muted">'+p.toFixed(1)+'%</td></tr>')});h.push('</tbody></table>');h.push('<h2>All Transactions</h2><div class="controls"><input id="q" placeholder="Search…" oninput="filterTx()" style="flex:1;min-width:160px">');h.push('<select id="acct" onchange="filterTx()"><option value="">All accounts</option>');(d.accounts||[]).forEach(function(a){h.push('<option value="'+esc(a.name)+'">'+esc(a.name)+' ('+esc(a.mask)+')</option>')});h.push('</select></div><div id="txwrap"><table><thead><tr><th>Date</th><th>Account</th><th>Name</th><th>Category</th><th class="num">Amount</th></tr></thead><tbody id="txbody"></tbody></table></div>');document.getElementById('content').innerHTML=h.join('');filterTx()}function filterTx(){if(!DATA)return;var q=(document.getElementById('q').value||'').toLowerCase(),acct=document.getElementById('acct').value||'',rows=[];(DATA.transactions||[]).forEach(function(t){if(acct&&t.accountName!==acct)return;var hay=((t.name||'')+' '+(t.category||'')).toLowerCase();if(q&&hay.indexOf(q)<0)return;var isCr=t.amount<0;rows.push('<tr class="'+(isCr?'cr':'')+'"><td class="muted">'+esc(t.date)+'</td><td class="muted">'+esc(t.accountName)+'</td><td>'+esc(t.name)+'</td><td>'+esc(t.category)+'</td><td class="num">'+(isCr?'+':'')+fmt(Math.abs(t.amount))+'</td></tr>')});document.getElementById('txbody').innerHTML=rows.join('')||'<tr><td colspan="5" class="muted">No matching transactions.</td></tr>'}function downloadCSV(){if(!DATA)return;function cell(v){v=(v==null?'':String(v));if(v.indexOf('"')>-1||v.indexOf(',')>-1||v.indexOf('\\n')>-1){v='"'+v.split('"').join('""')+'"'}return v}var lines=['Date,Account,Mask,Name,Category,Type,Amount'],maskFor={};(DATA.accounts||[]).forEach(function(a){maskFor[a.name]=a.mask});(DATA.transactions||[]).forEach(function(t){lines.push([cell(t.date),cell(t.accountName),cell(maskFor[t.accountName]||''),cell(t.name),cell(t.category),cell(t.type),cell(t.amount)].join(','))});var blob=new Blob([lines.join('\\n')],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='chase-'+DATA.period.start+'_to_'+DATA.period.end+'.csv';document.body.appendChild(a);a.click();document.body.removeChild(a)}load();</script></body></html>`;
---8e638aeadf026132281f65d8ec001c624ab69d265970e3b98921fbfecfa6--

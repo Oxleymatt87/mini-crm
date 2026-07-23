@@ -764,6 +764,30 @@ export default {
         });
       }
 
+      if (url.pathname === '/chase-transactions') {
+        return await handleChaseTransactions(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/overdue-invoices') {
+        return await handleOverdueInvoices(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/top-customers') {
+        return await handleTopCustomers(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/payments-by-customer') {
+        return await handlePaymentsByCustomer(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/dad') {
+        return await handleDadDashboard(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/chase-report') {
+        return await handleChaseReport(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1810,4 +1834,265 @@ function base64UrlEncode(data) {
   if (typeof data === 'string') str = btoa(unescape(encodeURIComponent(data)));
   else str = btoa(String.fromCharCode(...new Uint8Array(data)));
   return str.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// ---------------------------------------------------------------------------
+// /chase-transactions
+// ---------------------------------------------------------------------------
+async function handleChaseTransactions(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const days = Math.min(parseInt(params.get('days') || '90', 10), 730);
+  const plaidToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!plaidToken) throw new Error('No plaid_access_token in KV');
+
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  const fmt = d => d.toISOString().split('T')[0];
+
+  const res = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: plaidToken,
+      start_date: fmt(start),
+      end_date: fmt(end),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  const data = await res.json();
+  if (data.error_code) throw new Error(`Plaid: ${data.error_code} — ${data.error_message}`);
+
+  const txns = (data.transactions || [])
+    .filter(t => t.amount > 0)
+    .map(t => {
+      const cat = categorizeVendor(t.merchant_name || t.name || '');
+      return {
+        date: t.date,
+        amount: t.amount,
+        vendor: t.merchant_name || t.name || '',
+        account_id: t.account_id,
+        category: cat.account,
+        personal: cat.personal,
+        plaid_category: (t.personal_finance_category || {}).primary || null,
+        transaction_id: t.transaction_id,
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const byAccount = {};
+  for (const t of txns) {
+    if (!byAccount[t.account_id]) byAccount[t.account_id] = [];
+    byAccount[t.account_id].push(t);
+  }
+
+  return new Response(JSON.stringify({
+    period: { start: fmt(start), end: fmt(end), days },
+    total_transactions: txns.length,
+    total_amount: txns.reduce((s, t) => s + t.amount, 0),
+    by_account: byAccount,
+    transactions: txns,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /overdue-invoices
+// ---------------------------------------------------------------------------
+async function handleOverdueInvoices(request, env, corsHeaders) {
+  const today = new Date().toISOString().split('T')[0];
+  const q = `SELECT Id, DocNumber, TxnDate, DueDate, Balance, TotalAmt, CustomerRef FROM Invoice WHERE Balance > '0' AND DueDate < '${today}' MAXRESULTS 200`;
+  const data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const invoices = (data.QueryResponse?.Invoice || []).map(inv => ({
+    id: inv.Id,
+    doc_number: inv.DocNumber,
+    customer: inv.CustomerRef?.name || '',
+    txn_date: inv.TxnDate,
+    due_date: inv.DueDate,
+    total: parseFloat(inv.TotalAmt || 0),
+    balance: parseFloat(inv.Balance || 0),
+    days_overdue: Math.floor((new Date(today) - new Date(inv.DueDate)) / 86400000),
+  })).sort((a, b) => b.balance - a.balance);
+
+  return new Response(JSON.stringify({
+    as_of: today,
+    count: invoices.length,
+    total_overdue: invoices.reduce((s, i) => s + i.balance, 0),
+    invoices,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /top-customers?year=
+// ---------------------------------------------------------------------------
+async function handleTopCustomers(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const start = `${year}-01-01`;
+  const end = year === new Date().getFullYear() ? new Date().toISOString().split('T')[0] : `${year}-12-31`;
+
+  const q = `SELECT CustomerRef, TotalAmt, TxnDate FROM Invoice WHERE TxnDate >= '${start}' AND TxnDate <= '${end}' MAXRESULTS 1000`;
+  const data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const invoices = data.QueryResponse?.Invoice || [];
+
+  const byCustomer = {};
+  for (const inv of invoices) {
+    const name = inv.CustomerRef?.name || 'Unknown';
+    if (!byCustomer[name]) byCustomer[name] = { customer: name, invoice_count: 0, total: 0 };
+    byCustomer[name].invoice_count++;
+    byCustomer[name].total += parseFloat(inv.TotalAmt || 0);
+  }
+
+  const customers = Object.values(byCustomer)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 25);
+
+  return new Response(JSON.stringify({
+    year,
+    period: { start, end },
+    top_customers: customers,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /payments-by-customer
+// ---------------------------------------------------------------------------
+async function handlePaymentsByCustomer(request, env, corsHeaders) {
+  const year = new Date().getFullYear();
+  const start = `${year}-01-01`;
+  const end = new Date().toISOString().split('T')[0];
+
+  const q = `SELECT CustomerRef, TotalAmt, TxnDate, PaymentMethodRef, UnappliedAmt FROM Payment WHERE TxnDate >= '${start}' AND TxnDate <= '${end}' MAXRESULTS 1000`;
+  const data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const payments = data.QueryResponse?.Payment || [];
+
+  const byCustomer = {};
+  for (const p of payments) {
+    const name = p.CustomerRef?.name || 'Unknown';
+    const method = p.PaymentMethodRef?.name || 'Other';
+    if (!byCustomer[name]) byCustomer[name] = { customer: name, total: 0, count: 0, methods: {} };
+    byCustomer[name].total += parseFloat(p.TotalAmt || 0);
+    byCustomer[name].count++;
+    byCustomer[name].methods[method] = (byCustomer[name].methods[method] || 0) + parseFloat(p.TotalAmt || 0);
+  }
+
+  const result = Object.values(byCustomer).sort((a, b) => b.total - a.total);
+  return new Response(JSON.stringify({
+    period: { start, end },
+    total_collected: result.reduce((s, c) => s + c.total, 0),
+    by_customer: result,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /dad  — combined HTML dashboard
+// ---------------------------------------------------------------------------
+async function handleDadDashboard(request, env, corsHeaders) {
+  const [overdueRes, plRes, chaseRes] = await Promise.allSettled([
+    handleOverdueInvoices(request, env, {}),
+    handleProfitLoss(request, env, {}),
+    handleChaseTransactions(request, env, {}),
+  ]);
+
+  const overdue = overdueRes.status === 'fulfilled' ? await overdueRes.value.json() : { invoices: [], total_overdue: 0 };
+  const pl = plRes.status === 'fulfilled' ? await plRes.value.json() : null;
+  const chase = chaseRes.status === 'fulfilled' ? await chaseRes.value.json() : { transactions: [] };
+
+  const recentTxns = (chase.transactions || []).slice(0, 20);
+  const overdueRows = (overdue.invoices || []).slice(0, 15).map(i =>
+    `<tr><td>${i.customer}</td><td>$${i.balance.toFixed(2)}</td><td>${i.days_overdue}d</td><td>${i.due_date}</td></tr>`
+  ).join('');
+
+  const chaseRows = recentTxns.map(t =>
+    `<tr><td>${t.date}</td><td>${t.vendor}</td><td>$${t.amount.toFixed(2)}</td><td>${t.category}</td></tr>`
+  ).join('');
+
+  const netIncome = pl ? `$${pl.net_income.toLocaleString()}` : 'N/A';
+  const grossProfit = pl ? `$${pl.gross_profit.toLocaleString()}` : 'N/A';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Oxley Dashboard</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;margin:0}
+h1{color:#f8fafc;font-size:28px;margin-bottom:4px}
+.subtitle{color:#94a3b8;margin-bottom:24px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
+.card{background:#1e293b;border-radius:12px;padding:20px;border:1px solid #334155}
+.card-label{color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+.card-value{font-size:28px;font-weight:700;color:#f1f5f9;margin-top:4px}
+.card-value.warn{color:#f59e0b}
+.card-value.good{color:#10b981}
+.section{background:#1e293b;border-radius:12px;padding:20px;margin-bottom:24px;border:1px solid #334155}
+.section h2{font-size:16px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:0 0 16px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:#64748b;font-weight:600;padding:6px 8px;border-bottom:1px solid #334155}
+td{padding:8px;border-bottom:1px solid #1e293b;color:#cbd5e1}
+tr:hover td{background:#263347}
+</style></head><body>
+<h1>Oxley Tire</h1>
+<div class="subtitle">Live Dashboard — ${new Date().toLocaleDateString()}</div>
+<div class="cards">
+  <div class="card"><div class="card-label">Net Income YTD</div><div class="card-value good">${netIncome}</div></div>
+  <div class="card"><div class="card-label">Gross Profit YTD</div><div class="card-value">${grossProfit}</div></div>
+  <div class="card"><div class="card-label">Overdue AR</div><div class="card-value warn">$${(overdue.total_overdue||0).toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Overdue Invoices</div><div class="card-value warn">${overdue.count||0}</div></div>
+</div>
+<div class="section"><h2>Overdue Invoices</h2>
+<table><tr><th>Customer</th><th>Balance</th><th>Days Late</th><th>Due Date</th></tr>${overdueRows}</table></div>
+<div class="section"><h2>Recent Chase Activity (90 days)</h2>
+<table><tr><th>Date</th><th>Vendor</th><th>Amount</th><th>Category</th></tr>${chaseRows}</table></div>
+</body></html>`;
+
+  return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
+}
+
+// ---------------------------------------------------------------------------
+// /chase-report  — HTML spending report with account breakdown
+// ---------------------------------------------------------------------------
+async function handleChaseReport(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const days = parseInt(params.get('days') || '90', 10);
+  const chaseReq = new Request(`${new URL(request.url).origin}/chase-transactions?days=${days}`);
+  const chaseData = await handleChaseTransactions(chaseReq, env, {}).then(r => r.json());
+
+  const txns = chaseData.transactions || [];
+  const byCategory = {};
+  for (const t of txns) {
+    if (!byCategory[t.category]) byCategory[t.category] = { total: 0, count: 0, transactions: [] };
+    byCategory[t.category].total += t.amount;
+    byCategory[t.category].count++;
+    byCategory[t.category].transactions.push(t);
+  }
+
+  const catRows = Object.entries(byCategory)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([cat, d]) => `<tr><td>${cat}</td><td>${d.count}</td><td>$${d.total.toFixed(2)}</td></tr>`)
+    .join('');
+
+  const txnRows = txns.map(t =>
+    `<tr><td>${t.date}</td><td>${t.vendor}</td><td>$${t.amount.toFixed(2)}</td><td>${t.category}</td><td>${t.personal ? 'Personal' : 'Business'}</td></tr>`
+  ).join('');
+
+  const totalAmt = txns.reduce((s, t) => s + t.amount, 0);
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Chase Spending Report</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;margin:0}
+h1{color:#f8fafc;font-size:24px}h2{color:#94a3b8;font-size:14px;text-transform:uppercase;letter-spacing:.05em}
+.stat{display:inline-block;background:#1e293b;border-radius:8px;padding:16px 24px;margin:0 12px 20px 0;border:1px solid #334155}
+.stat-val{font-size:24px;font-weight:700;color:#10b981}.stat-label{color:#64748b;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:32px}
+th{text-align:left;color:#64748b;padding:6px 8px;border-bottom:1px solid #334155}
+td{padding:7px 8px;border-bottom:1px solid #1a2540;color:#cbd5e1}tr:hover td{background:#1e293b}
+</style></head><body>
+<h1>Chase Spending Report — Last ${days} Days</h1>
+<div class="stat"><div class="stat-val">${txns.length}</div><div class="stat-label">Transactions</div></div>
+<div class="stat"><div class="stat-val">$${totalAmt.toFixed(2)}</div><div class="stat-label">Total Spent</div></div>
+<div class="stat"><div class="stat-val">${Object.keys(chaseData.by_account||{}).length}</div><div class="stat-label">Accounts</div></div>
+<h2>By Category</h2>
+<table><tr><th>Category</th><th>Count</th><th>Total</th></tr>${catRows}</table>
+<h2>All Transactions</h2>
+<table><tr><th>Date</th><th>Vendor</th><th>Amount</th><th>Category</th><th>Type</th></tr>${txnRows}</table>
+</body></html>`;
+
+  return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
 }

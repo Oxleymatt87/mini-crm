@@ -1047,6 +1047,7 @@ async function handleProfitLoss(request, env, corsHeaders) {
     return v ? parseFloat(v) || 0 : 0;
   }
 
+  // Recursively extract individual Data rows; Section rows are traversed, not summarized
   function extractLines(section) {
     const lines = [];
     for (const row of section?.Rows?.Row || []) {
@@ -1055,13 +1056,7 @@ async function handleProfitLoss(request, env, corsHeaders) {
         const amount = num(row.ColData);
         if (name && amount !== 0) lines.push({ account: name, amount });
       } else if (row.type === 'Section') {
-        // Nested sub-group — use its summary
-        const cd = row.Summary?.ColData;
-        if (cd) {
-          const name = cd[0]?.value || '';
-          const amount = num(cd);
-          if (name && amount !== 0) lines.push({ account: name, amount });
-        }
+        lines.push(...extractLines(row));
       }
     }
     return lines;

@@ -689,6 +689,10 @@ export default {
         return await handleProfitLoss(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/expenses-detail') {
+        return await handleExpensesDetail(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1024,6 +1028,114 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
 
 // ---------------------------------------------------------------------------
 // QBO / token helpers
+// ---------------------------------------------------------------------------
+async function qboQueryAll(entity, where, env) {
+  const rows = [];
+  let pos = 1;
+  while (true) {
+    const q = `SELECT * FROM ${entity} WHERE ${where} ORDERBY TxnDate DESC STARTPOSITION ${pos} MAXRESULTS 200`;
+    const r = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+    const batch = r?.QueryResponse?.[entity] || [];
+    rows.push(...batch);
+    if (batch.length < 200) break;
+    pos += 200;
+  }
+  return rows;
+}
+
+async function handleExpensesDetail(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const startDate = `${year}-01-01`;
+  const endDate = isCurrentYear ? now.toISOString().slice(0, 10) : `${year}-12-31`;
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+
+  // Fetch Purchases (debit/check/card), Bills, and JournalEntries in parallel
+  const [purchases, bills, journalEntries] = await Promise.all([
+    qboQueryAll('Purchase', dateWhere, env),
+    qboQueryAll('Bill', dateWhere, env),
+    qboQueryAll('JournalEntry', dateWhere, env),
+  ]);
+
+  // txnsByAccount[accountName] = [{date, type, vendor, memo, amount}, ...]
+  const txnsByAccount = {};
+  function push(account, txn) {
+    if (!account) return;
+    if (!txnsByAccount[account]) txnsByAccount[account] = [];
+    txnsByAccount[account].push(txn);
+  }
+
+  // Purchases: EntityRef.name is the payee; lines have AccountBasedExpenseLineDetail
+  // For bank-imported transactions, EntityRef is null — fall back to PrivateNote (bank description)
+  for (const p of purchases) {
+    const date = p.TxnDate;
+    const type = p.PaymentType === 'Check' ? 'Check' : 'Expense';
+    const bankDesc = p.PrivateNote || '';
+    const qboVendor = p.EntityRef?.name || '';
+    for (const line of p.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (!detail) continue;
+      const account = detail.AccountRef?.name;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      const memo = line.Description || bankDesc;
+      const vendor = qboVendor || memo || '(no vendor)';
+      push(account, { date, type, vendor, memo, amount });
+    }
+  }
+
+  // Bills: VendorRef.name is the payee; lines have AccountBasedExpenseLineDetail
+  for (const b of bills) {
+    const vendor = b.VendorRef?.name || '(no vendor)';
+    const date = b.TxnDate;
+    for (const line of b.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (!detail) continue;
+      const account = detail.AccountRef?.name;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      push(account, { date, type: 'Bill', vendor, memo: line.Description || '', amount });
+    }
+  }
+
+  // JournalEntries: debit lines are expenses; vendor encoded in Description as "Vendor — DATE"
+  for (const je of journalEntries) {
+    const date = je.TxnDate;
+    const note = je.PrivateNote || '';
+    for (const line of je.Line || []) {
+      const detail = line.JournalEntryLineDetail;
+      if (!detail || detail.PostingType !== 'Debit') continue;
+      const account = detail.AccountRef?.name;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      const rawDesc = line.Description || '';
+      const vendor = rawDesc.replace(/ — \d{4}-\d{2}-\d{2}$/, '').trim() || note.slice(0, 60) || '(journal entry)';
+      push(account, { date, type: 'JournalEntry', vendor, memo: rawDesc, amount });
+    }
+  }
+
+  // Build sorted result
+  const result = Object.entries(txnsByAccount)
+    .map(([account, txns]) => ({
+      account,
+      total: parseFloat(txns.reduce((s, t) => s + t.amount, 0).toFixed(2)),
+      transactions: txns.sort((a, b) => b.amount - a.amount),
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const grandTotal = parseFloat(result.reduce((s, a) => s + a.total, 0).toFixed(2));
+
+  return new Response(JSON.stringify({
+    period: { start: startDate, end: endDate },
+    total: grandTotal,
+    accounts: result,
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
 // ---------------------------------------------------------------------------
 async function handleProfitLoss(request, env, corsHeaders) {
   const params = new URL(request.url).searchParams;

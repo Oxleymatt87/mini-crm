@@ -22,13 +22,46 @@ const MCP_PROTOCOL_VERSION = '2025-06-18';
 const PLAID_BASE_URL = 'https://production.plaid.com';
 
 // ---------------------------------------------------------------------------
+// Transfer / non-expense filter — matched transactions are skipped entirely
+// (credit card payments, ACH transfers, ATM withdrawals, mortgage, Zelle)
+// ---------------------------------------------------------------------------
+const TRANSFER_PATTERNS = [
+  /payment to chase card/i,
+  /online transfer to chk/i,
+  /online ach payment/i,
+  /zelle payment/i,
+  /non-chase atm/i,
+  /atm withdraw/i,
+  /^withdrawal\b/i,
+  /orig co name:visa payment/i,
+  /orig co name:american express/i,
+  /visa payment.*payment/i,
+  /american express ach pmt/i,
+  /idaho housing mtg/i,         // personal mortgage
+  /\bctlp\*sw atm/i,            // ATM provider fee
+  /transaction fee/i,
+  /tkoehl/i,                    // ATM operator surcharge
+  /service charges? for the month/i,  // monthly bank fee
+  /american express retry pymt/i,
+  /online domestic wire transfer/i,
+];
+
+function isTransfer(name) {
+  const s = (name || '').trim();
+  return TRANSFER_PATTERNS.some(p => p.test(s));
+}
+
+// ---------------------------------------------------------------------------
 // Chase → QBO vendor categorization rules
 // Order matters: first match wins.
 // ---------------------------------------------------------------------------
 const VENDOR_CATEGORIES = [
   // Cost of Goods Sold — tire/wheel suppliers
   {
-    patterns: [/hesselbein/i, /bzo[\s-]*wheel/i, /\brtg\b/i, /liberty[\s-]*tire/i, /k\s*&\s*m\b/i],
+    patterns: [
+      /hesselbein/i, /bzo[\s-]*wheel/i, /\brtg\b/i, /liberty[\s-]*tire/i, /k\s*&\s*m\b/i,
+      /ppq[\s-]*roadster/i, /\batd\b/i, /american\s*tire\s*dist/i,
+    ],
     account: 'Cost of Goods Sold',
     personal: false
   },
@@ -36,14 +69,16 @@ const VENDOR_CATEGORIES = [
   {
     patterns: [/truck[\s-]*stop/i, /\bshell\b/i, /\bexxon/i, /fuel[\s-]*maxx/i,
       /\bloves\b/i, /pilot[\s-]*flying/i, /flying[\s-]*j\b/i, /\bvalero\b/i,
-      /\bcircle[\s-]*k\b/i, /\bracetrac\b/i, /\bmurphy[\s-]*usa/i],
+      /\bcircle[\s-]*k\b/i, /\bracetrac\b/i, /\bmurphy[\s-]*usa/i,
+      /speedy\s*stop/i, /gulf\s*station/i, /\bsunoco\b/i, /\btruck\s*st\b/i],
     account: 'Vehicle Fuel',
     personal: false
   },
   // Software & Subscriptions
   {
     patterns: [/\bintuit\b/i, /\badobe\b/i, /\bmicrosoft\b/i, /\bcloudflare\b/i,
-      /\bgithub\b/i, /\bgoogle[\s-]*workspace/i, /\bdropbox\b/i, /\bzoom\b/i],
+      /\bgithub\b/i, /\bgoogle[\s-]*workspace/i, /\bdropbox\b/i, /\bzoom\b/i,
+      /\bapify\b/i, /\brender\b/i, /\banthropicai\b/i, /\banthropic\b/i],
     account: 'Software & Subscriptions',
     personal: false
   },
@@ -54,24 +89,78 @@ const VENDOR_CATEGORIES = [
     account: 'Communications',
     personal: false
   },
-  // Personal — streaming / lending / subscriptions
+  // Insurance
   {
-    patterns: [/\baffirm\b/i, /best[\s-]*egg/i, /\bnetflix\b/i, /\bspotify\b/i,
-      /\bhulu\b/i, /\bpeacock\b/i, /\bhbo[\s-]*max/i, /\bdisney[\s+]\b/i,
-      /\bamazon[\s-]*prime/i],
+    patterns: [/clearcover/i, /\bgeico\b/i, /state\s*farm/i, /allstate/i,
+      /progressive\s*ins/i, /nationwide\s*ins/i],
+    account: 'Insurance',
+    personal: false
+  },
+  // Utilities
+  {
+    patterns: [/\bentergy\b/i, /\bcenterpoint\b/i, /\breliant\b/i, /\btxu\b/i,
+      /\bups\b/i, /\bfedex\b/i, /\busps\b/i, /stazco\s*electric/i,
+      /orig co name:cps\b/i, /\bcps\s*pmt\b/i],
+    account: 'Utilities',
+    personal: false
+  },
+  // Professional Services
+  {
+    patterns: [/chasity\s*tax/i, /\bbizee\b/i, /\blegalzoom\b/i, /\bwebfile\b/i],
+    account: 'Professional Fees',
+    personal: false
+  },
+  // Vehicle / Auto Maintenance
+  {
+    patterns: [/o'?reilly\s*auto/i, /autozone/i, /\bnapa\s*auto/i, /advance\s*auto/i,
+      /pep\s*boys/i],
+    account: 'Repairs & Maintenance',
+    personal: false
+  },
+  // Travel / Tolls
+  {
+    patterns: [/harris\s*county\s*toll/i, /\betoll\b/i, /\bsunpass\b/i, /txdot/i,
+      /enterprise\s*rent[\s-]*a[\s-]*car/i],
+    account: 'Travel',
+    personal: false
+  },
+  // Personal — streaming / lending / BNPL / subscriptions
+  {
+    patterns: [
+      /\baffirm\b/i, /best[\s-]*egg/i, /\bnetflix\b/i, /\bspotify\b/i,
+      /\bhulu\b/i, /\bpeacock\b/i, /\bhbo[\s-]*max/i, /\bdisney\b/i,
+      /\bamazon\b/i, /\bklarna\b/i, /\baudible\b/i, /\bstarz\b/i,
+      /\byoutube\b/i, /roku\s*channel/i, /planet\s*fitness/i,
+      /\bwalmart\b/i, /\bequifax\b/i, /\bexperian\b/i,
+      /identity[\s-]*iq/i, /\bapple\b/i, /play\s*pass/i, /deliverclub/i,
+      /yippee\s*enter/i, /the\s*ruby\s*hotel/i, /weekend\s*enter/i,
+      /\btemu\b/i, /\bshein\b/i, /\bburlington\b/i, /dollar\s*general/i,
+      /\bcvs\b/i, /\bwalgreens\b/i, /tractor\s*supply/i, /\barlo\b/i,
+      /airup\s*vending/i, /booking\.com/i, /\bvenmo\b/i, /\bfavor\b/i, /\buber\b/i,
+      /\bleslie['']?s\s*pool/i, /cash\s*app/i, /\bpetsmart\b/i,
+      /\bveterinary\b/i, /urgent\s*car/i, /wellness\s*store/i,
+      /\binmate/i, /klone\s*scents/i, /\bdaiquiri\b/i,
+    ],
     account: 'Personal Expenses',
     personal: true
   },
-  // Personal — restaurants, bars, hotels, cafes
+  // Personal — restaurants, bars, hotels, cafes, food delivery
   {
     patterns: [
-      /restaurant/i, /\bcafe\b/i, /\bcoffee\b/i, /starbucks/i, /\bbar\b/i,
+      /restaurant/i, /\bcafe\b/i, /\bcoffee\b/i, /starbucks/i,
       /\btavern\b/i, /\bgrill\b/i, /\bpizza\b/i, /\bburger\b/i, /\btaco\b/i,
       /mcdonald/i, /\bwendy/i, /chick[\s-]fil/i, /\bsubway\b/i, /domino/i,
       /\bhotel\b/i, /marriott/i, /\bhilton\b/i, /holiday[\s-]*inn/i,
       /\bhampton[\s-]*inn/i, /doordash/i, /grubhub/i, /uber[\s-]*eat/i,
       /\bdenny/i, /\bihop\b/i, /applebee/i, /\bsteakhouse\b/i, /\bbbq\b/i,
-      /\bsushi\b/i, /\boutback\b/i, /chili['']?s/i
+      /\bsushi\b/i, /\boutback\b/i, /chili['']?s/i,
+      /whataburger/i, /sonic\s*drive/i, /\bsonic\b/i,
+      /shipley\s*do[\s-]*nut/i, /little\s*caesar/i, /chicken\s*express/i,
+      /taqueria/i, /einstein\s*bros/i, /dee\s*best\s*donut/i,
+      /\bdonut/i, /\bbagel/i, /thai\s*bistro/i, /\bliquor\b/i,
+      /\bbistro\b/i, /fish\s*cam/i, /long\s*horn/i, /lucky\s*liquor/i,
+      /manor\s*food/i, /living\s*word/i, /\bdeli\b/i, /schlotzsky/i,
+      /h[\s-]*e[\s-]*b\b/i, /de\s*mayo/i, /daiquiri/i,
     ],
     account: 'Personal Expenses',
     personal: true
@@ -207,6 +296,7 @@ async function createJournalEntry(env, txn, expenseAccountId, chaseAccountId, ca
 const REQUIRED_EXPENSE_ACCOUNTS = [
   { name: 'Personal Expenses',      type: 'Expense', subType: 'OtherMiscellaneousExpense' },
   { name: 'Uncategorized - Review', type: 'Expense', subType: 'OtherMiscellaneousExpense' },
+  { name: 'Repairs & Maintenance',  type: 'Expense', subType: 'OtherMiscellaneousExpense' },
 ];
 
 async function ensureRequiredAccounts(env, map, raw) {
@@ -255,8 +345,22 @@ async function syncChaseToQBO(env, opts = {}) {
 
   for (const txn of txns) {
     const vendor = txn.merchant_name || txn.name || '';
-    const cat = categorizeVendor(vendor);
 
+    // Skip transfers — credit card payments, ACH, ATM, mortgage, Zelle
+    if (isTransfer(vendor)) {
+      results.push({
+        transaction_id: txn.transaction_id,
+        date: txn.date,
+        vendor,
+        amount: txn.amount,
+        status: 'skipped',
+        reason: 'Transfer / non-expense'
+      });
+      stats.skipped++;
+      continue;
+    }
+
+    const cat = categorizeVendor(vendor);
     const row = {
       transaction_id: txn.transaction_id,
       date: txn.date,

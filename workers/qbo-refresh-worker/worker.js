@@ -701,6 +701,10 @@ export default {
         return await handleBankTransactions(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/delete-uncategorized') {
+        return await handleDeleteUncategorized(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1032,6 +1036,58 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
     customer: updated.Invoice?.CustomerRef?.name,
     item_matches: itemMatches
   };
+}
+
+// ---------------------------------------------------------------------------
+async function handleDeleteUncategorized(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const startDate = `${year}-01-01`;
+  const endDate = year === now.getFullYear() ? now.toISOString().slice(0, 10) : `${year}-12-31`;
+
+  // Fetch all Purchase entries that have at least one "Uncategorized Expense" line
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+  const purchases = await qboQueryAll('Purchase', dateWhere, env);
+
+  const toDelete = [];
+  for (const p of purchases) {
+    const hasUncategorized = (p.Line || []).some(line => {
+      const detail = line.AccountBasedExpenseLineDetail;
+      return detail?.AccountRef?.name === 'Uncategorized Expense' && parseFloat(line.Amount || 0) > 0;
+    });
+    if (hasUncategorized) {
+      toDelete.push({ id: p.Id, syncToken: p.SyncToken, date: p.TxnDate, amount: p.TotalAmt });
+    }
+  }
+
+  if (toDelete.length === 0) {
+    return new Response(JSON.stringify({ deleted: 0, message: 'No uncategorized purchases found' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const results = { deleted: 0, failed: 0, errors: [] };
+
+  for (const entry of toDelete) {
+    try {
+      await qboRequest('purchase?operation=delete', env, 'POST', {
+        Id: entry.id,
+        SyncToken: entry.syncToken,
+      });
+      results.deleted++;
+    } catch (err) {
+      results.failed++;
+      results.errors.push({ id: entry.id, date: entry.date, amount: entry.amount, error: err.message });
+    }
+  }
+
+  return new Response(JSON.stringify({
+    period: { start: startDate, end: endDate },
+    found: toDelete.length,
+    deleted: results.deleted,
+    failed: results.failed,
+    errors: results.errors,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 // ---------------------------------------------------------------------------

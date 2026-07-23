@@ -685,6 +685,10 @@ export default {
         return await handleSyncChase(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/profit-loss') {
+        return await handleProfitLoss(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1021,6 +1025,85 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
 // ---------------------------------------------------------------------------
 // QBO / token helpers
 // ---------------------------------------------------------------------------
+async function handleProfitLoss(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const startDate = `${year}-01-01`;
+  const endDate = isCurrentYear
+    ? now.toISOString().slice(0, 10)
+    : `${year}-12-31`;
+
+  const report = await qboRequest(
+    `reports/ProfitAndLoss?start_date=${startDate}&end_date=${endDate}&accounting_method=Accrual`,
+    env
+  );
+
+  const rows = report?.Rows?.Row || [];
+
+  function num(colData, idx = 1) {
+    const v = colData?.[idx]?.value;
+    return v ? parseFloat(v) || 0 : 0;
+  }
+
+  function extractLines(section) {
+    const lines = [];
+    for (const row of section?.Rows?.Row || []) {
+      if (row.type === 'Data') {
+        const name = row.ColData?.[0]?.value || '';
+        const amount = num(row.ColData);
+        if (name && amount !== 0) lines.push({ account: name, amount });
+      } else if (row.type === 'Section') {
+        // Nested sub-group — use its summary
+        const cd = row.Summary?.ColData;
+        if (cd) {
+          const name = cd[0]?.value || '';
+          const amount = num(cd);
+          if (name && amount !== 0) lines.push({ account: name, amount });
+        }
+      }
+    }
+    return lines;
+  }
+
+  const out = {
+    period: { start: startDate, end: endDate },
+    income: { total: 0, lines: [] },
+    cogs: 0,
+    gross_profit: 0,
+    expenses: { total: 0, by_category: [] },
+    net_income: 0,
+  };
+
+  for (const section of rows) {
+    const g = section.group;
+    const cd = section.Summary?.ColData;
+    if (g === 'Income') {
+      out.income.total = num(cd);
+      out.income.lines = extractLines(section);
+    } else if (g === 'COGS') {
+      out.cogs = num(cd);
+    } else if (g === 'GrossProfit') {
+      out.gross_profit = num(cd);
+    } else if (g === 'Expenses') {
+      out.expenses.total = num(cd);
+      out.expenses.by_category = extractLines(section);
+    } else if (g === 'NetIncome') {
+      out.net_income = num(cd);
+    }
+  }
+
+  // Fall back to calculated gross profit if QBO didn't include it
+  if (!out.gross_profit) out.gross_profit = out.income.total - out.cogs;
+  // Fall back to calculated net income
+  if (!out.net_income) out.net_income = out.gross_profit - out.expenses.total;
+
+  return new Response(JSON.stringify(out), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
 async function qboRequest(path, env, method = 'GET', body = null) {
   let tokens = await getTokens(env);
   if (!tokens.expires_in || tokens.expires_in < 300) {

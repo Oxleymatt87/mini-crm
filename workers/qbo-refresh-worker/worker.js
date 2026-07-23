@@ -153,11 +153,16 @@ async function findChaseAccount(env) {
   return chase ? { id: chase.Id, name: chase.Name } : null;
 }
 
-async function checkDuplicateJE(env, txnId) {
-  const tag = `PLAID:${txnId}`.replace(/'/g, "''");
-  const q = `SELECT Id FROM JournalEntry WHERE PrivateNote LIKE '%${tag}%' MAXRESULTS 1`;
-  const res = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
-  return (res.QueryResponse?.JournalEntry?.length || 0) > 0;
+async function loadSyncedTxns(env) {
+  const raw = await env.QBO_TOKENS.get('plaid_synced_txns');
+  return raw ? new Set(JSON.parse(raw)) : new Set();
+}
+
+async function saveSyncedTxns(env, set) {
+  // Keep at most 5000 IDs to bound KV value size
+  const arr = [...set];
+  const trimmed = arr.slice(-5000);
+  await env.QBO_TOKENS.put('plaid_synced_txns', JSON.stringify(trimmed));
 }
 
 async function createJournalEntry(env, txn, expenseAccountId, chaseAccountId, category) {
@@ -198,6 +203,33 @@ async function createJournalEntry(env, txn, expenseAccountId, chaseAccountId, ca
   return qboRequest('journalentry', env, 'POST', payload);
 }
 
+// Expense accounts that must exist — auto-created on first sync if absent
+const REQUIRED_EXPENSE_ACCOUNTS = [
+  { name: 'Personal Expenses',      type: 'Expense', subType: 'OtherMiscellaneousExpense' },
+  { name: 'Uncategorized - Review', type: 'Expense', subType: 'OtherMiscellaneousExpense' },
+];
+
+async function ensureRequiredAccounts(env, map, raw) {
+  for (const acct of REQUIRED_EXPENSE_ACCOUNTS) {
+    const exists = await resolveAccountId(acct.name, map, raw);
+    if (exists) continue;
+    try {
+      const res = await qboRequest('account', env, 'POST', {
+        Name: acct.name,
+        AccountType: acct.type,
+        AccountSubType: acct.subType
+      });
+      const newId = res.Account?.Id;
+      if (newId) {
+        map[acct.name] = newId;
+        raw.push({ Id: newId, Name: acct.name, AccountType: acct.type, Active: true });
+      }
+    } catch (_) {
+      // already exists under a slightly different name — resolveAccountId fuzzy match will catch it
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main orchestrator
 // ---------------------------------------------------------------------------
@@ -212,10 +244,12 @@ async function syncChaseToQBO(env, opts = {}) {
   // 2. Pull Chase transactions
   const txns = await getPlaidTransactions(env, plaidToken, days);
 
-  // 3. QBO accounts
+  // 3. QBO accounts — auto-create any missing required accounts
   const { map: accountMap, raw: allAccounts } = await loadQBOAccounts(env);
+  if (!dryRun) await ensureRequiredAccounts(env, accountMap, allAccounts);
   const chaseAcct = await findChaseAccount(env);
 
+  const syncedTxns = dryRun ? new Set() : await loadSyncedTxns(env);
   const results = [];
   const stats = { total: txns.length, created: 0, skipped: 0, errors: 0, dry_run: 0 };
 
@@ -261,11 +295,10 @@ async function syncChaseToQBO(env, opts = {}) {
       continue;
     }
 
-    // Deduplicate
-    const isDupe = await checkDuplicateJE(env, txn.transaction_id);
-    if (isDupe) {
+    // Deduplicate via KV
+    if (syncedTxns.has(txn.transaction_id)) {
       row.status = 'skipped';
-      row.reason = 'Journal entry already exists';
+      row.reason = 'Already posted';
       stats.skipped++;
       results.push(row);
       continue;
@@ -276,6 +309,7 @@ async function syncChaseToQBO(env, opts = {}) {
       const je = await createJournalEntry(env, txn, expenseId, chaseAcct.id, cat);
       row.status = 'created';
       row.journal_entry_id = je.JournalEntry?.Id;
+      syncedTxns.add(txn.transaction_id);
       stats.created++;
     } catch (err) {
       row.status = 'error';
@@ -284,6 +318,10 @@ async function syncChaseToQBO(env, opts = {}) {
     }
 
     results.push(row);
+  }
+
+  if (!dryRun && stats.created > 0) {
+    await saveSyncedTxns(env, syncedTxns);
   }
 
   return {

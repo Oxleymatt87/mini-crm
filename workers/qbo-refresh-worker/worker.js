@@ -5,12 +5,12 @@
  *   - QBO OAuth token refresh (scheduled + on-demand)
  *   - Web dashboard (/, /dashboard)
  *   - NL query (/query), /customers, /sales-data, /token-status
+ *   - MCP endpoint (/mcp) with universal QBO tools
  *
- * New MCP endpoint (/mcp):
- *   - JSON-RPC 2.0 over HTTP (streamable HTTP transport)
- *   - Universal QBO tools: qbo_query, qbo_get, qbo_create, qbo_update,
- *     qbo_delete, qbo_batch, qbo_report, qbo_append_invoice_lines
- *   - Bearer token auth via MCP_AUTH_TOKEN env secret
+ * New feature:
+ *   - Chase auto-categorization (/sync-chase-to-qbo)
+ *   - Fetches Chase transactions via Plaid, categorizes by vendor,
+ *     creates QBO journal entries (debit expense, credit Chase bank)
  */
 
 const REALM_ID = '9130357532009796';
@@ -19,7 +19,285 @@ const QBO_API_BASE = 'https://quickbooks.api.intuit.com/v3/company';
 const GOOGLE_SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const QBO_MINOR_VERSION = '73';
 const MCP_PROTOCOL_VERSION = '2025-06-18';
+const PLAID_BASE_URL = 'https://production.plaid.com';
 
+// ---------------------------------------------------------------------------
+// Chase → QBO vendor categorization rules
+// Order matters: first match wins.
+// ---------------------------------------------------------------------------
+const VENDOR_CATEGORIES = [
+  // Cost of Goods Sold — tire/wheel suppliers
+  {
+    patterns: [/hesselbein/i, /bzo[\s-]*wheel/i, /\brtg\b/i, /liberty[\s-]*tire/i, /k\s*&\s*m\b/i],
+    account: 'Cost of Goods Sold',
+    personal: false
+  },
+  // Vehicle Fuel
+  {
+    patterns: [/truck[\s-]*stop/i, /\bshell\b/i, /\bexxon/i, /fuel[\s-]*maxx/i,
+      /\bloves\b/i, /pilot[\s-]*flying/i, /flying[\s-]*j\b/i, /\bvalero\b/i,
+      /\bcircle[\s-]*k\b/i, /\bracetrac\b/i, /\bmurphy[\s-]*usa/i],
+    account: 'Vehicle Fuel',
+    personal: false
+  },
+  // Software & Subscriptions
+  {
+    patterns: [/\bintuit\b/i, /\badobe\b/i, /\bmicrosoft\b/i, /\bcloudflare\b/i,
+      /\bgithub\b/i, /\bgoogle[\s-]*workspace/i, /\bdropbox\b/i, /\bzoom\b/i],
+    account: 'Software & Subscriptions',
+    personal: false
+  },
+  // Communications
+  {
+    patterns: [/t[\s-]*mobile/i, /\bat&t\b/i, /\bverizon\b/i, /\bcomcast\b/i,
+      /\bspectrum\b/i],
+    account: 'Communications',
+    personal: false
+  },
+  // Personal — streaming / lending / subscriptions
+  {
+    patterns: [/\baffirm\b/i, /best[\s-]*egg/i, /\bnetflix\b/i, /\bspotify\b/i,
+      /\bhulu\b/i, /\bpeacock\b/i, /\bhbo[\s-]*max/i, /\bdisney[\s+]\b/i,
+      /\bamazon[\s-]*prime/i],
+    account: 'Personal Expenses',
+    personal: true
+  },
+  // Personal — restaurants, bars, hotels, cafes
+  {
+    patterns: [
+      /restaurant/i, /\bcafe\b/i, /\bcoffee\b/i, /starbucks/i, /\bbar\b/i,
+      /\btavern\b/i, /\bgrill\b/i, /\bpizza\b/i, /\bburger\b/i, /\btaco\b/i,
+      /mcdonald/i, /\bwendy/i, /chick[\s-]fil/i, /\bsubway\b/i, /domino/i,
+      /\bhotel\b/i, /marriott/i, /\bhilton\b/i, /holiday[\s-]*inn/i,
+      /\bhampton[\s-]*inn/i, /doordash/i, /grubhub/i, /uber[\s-]*eat/i,
+      /\bdenny/i, /\bihop\b/i, /applebee/i, /\bsteakhouse\b/i, /\bbbq\b/i,
+      /\bsushi\b/i, /\boutback\b/i, /chili['']?s/i
+    ],
+    account: 'Personal Expenses',
+    personal: true
+  },
+];
+
+function categorizeVendor(name) {
+  const s = (name || '').trim();
+  for (const rule of VENDOR_CATEGORIES) {
+    if (rule.patterns.some(p => p.test(s))) {
+      return { account: rule.account, personal: rule.personal };
+    }
+  }
+  return { account: 'Uncategorized - Review', personal: false };
+}
+
+// ---------------------------------------------------------------------------
+// Plaid helpers
+// ---------------------------------------------------------------------------
+async function getPlaidTransactions(env, accessToken, days) {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  const fmt = d => d.toISOString().split('T')[0];
+
+  const res = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: accessToken,
+      start_date: fmt(start),
+      end_date: fmt(end),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  if (!res.ok) throw new Error(`Plaid HTTP ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  if (data.error_code) throw new Error(`Plaid: ${data.error_code} — ${data.error_message}`);
+  // Positive amount = money leaving the account (expense / debit)
+  return (data.transactions || []).filter(t => t.amount > 0);
+}
+
+// ---------------------------------------------------------------------------
+// QBO account helpers
+// ---------------------------------------------------------------------------
+async function loadQBOAccounts(env) {
+  const q = "SELECT Id, Name, AccountType, AccountSubType, Active FROM Account WHERE AccountType IN ('Expense', 'Cost of Goods Sold', 'Bank', 'Other Expense') MAXRESULTS 300";
+  const res = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const accounts = res.QueryResponse?.Account || [];
+  const map = {};
+  for (const a of accounts) {
+    if (a.Active !== false) map[a.Name] = a.Id;
+  }
+  return { map, raw: accounts };
+}
+
+async function resolveAccountId(name, map, raw) {
+  if (map[name]) return map[name];
+  // Case-insensitive exact
+  const lower = name.toLowerCase();
+  for (const a of raw) {
+    if (a.Name.toLowerCase() === lower) return a.Id;
+  }
+  // Contains match
+  for (const a of raw) {
+    const an = a.Name.toLowerCase();
+    if (an.includes(lower) || lower.includes(an)) return a.Id;
+  }
+  return null;
+}
+
+async function findChaseAccount(env) {
+  const q = "SELECT Id, Name FROM Account WHERE AccountType = 'Bank' MAXRESULTS 50";
+  const res = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const accounts = res.QueryResponse?.Account || [];
+  const chase = accounts.find(a => /chase/i.test(a.Name) || /checking/i.test(a.Name));
+  return chase ? { id: chase.Id, name: chase.Name } : null;
+}
+
+async function checkDuplicateJE(env, txnId) {
+  const tag = `PLAID:${txnId}`.replace(/'/g, "''");
+  const q = `SELECT Id FROM JournalEntry WHERE PrivateNote LIKE '%${tag}%' MAXRESULTS 1`;
+  const res = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  return (res.QueryResponse?.JournalEntry?.length || 0) > 0;
+}
+
+async function createJournalEntry(env, txn, expenseAccountId, chaseAccountId, category) {
+  const amount = parseFloat(Math.abs(txn.amount).toFixed(2));
+  const vendor = txn.merchant_name || txn.name || 'Unknown Vendor';
+  const description = `${vendor} — ${txn.date}`;
+  const note = [
+    'Chase auto-categorized',
+    `PLAID:${txn.transaction_id}`,
+    category.personal ? 'PERSONAL – non-deductible' : category.account
+  ].join(' | ');
+
+  const payload = {
+    TxnDate: txn.date,
+    PrivateNote: note,
+    Line: [
+      {
+        DetailType: 'JournalEntryLineDetail',
+        Amount: amount,
+        Description: description,
+        JournalEntryLineDetail: {
+          PostingType: 'Debit',
+          AccountRef: { value: String(expenseAccountId) }
+        }
+      },
+      {
+        DetailType: 'JournalEntryLineDetail',
+        Amount: amount,
+        Description: description,
+        JournalEntryLineDetail: {
+          PostingType: 'Credit',
+          AccountRef: { value: String(chaseAccountId) }
+        }
+      }
+    ]
+  };
+
+  return qboRequest('journalentry', env, 'POST', payload);
+}
+
+// ---------------------------------------------------------------------------
+// Main orchestrator
+// ---------------------------------------------------------------------------
+async function syncChaseToQBO(env, opts = {}) {
+  const days = Math.min(parseInt(opts.days) || 7, 90);
+  const dryRun = opts.dry_run === true || opts.dry_run === 'true';
+
+  // 1. Plaid access token
+  const plaidToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!plaidToken) throw new Error('No plaid_access_token in KV. Connect Chase via /connect-chase first.');
+
+  // 2. Pull Chase transactions
+  const txns = await getPlaidTransactions(env, plaidToken, days);
+
+  // 3. QBO accounts
+  const { map: accountMap, raw: allAccounts } = await loadQBOAccounts(env);
+  const chaseAcct = await findChaseAccount(env);
+
+  const results = [];
+  const stats = { total: txns.length, created: 0, skipped: 0, errors: 0, dry_run: 0 };
+
+  for (const txn of txns) {
+    const vendor = txn.merchant_name || txn.name || '';
+    const cat = categorizeVendor(vendor);
+
+    const row = {
+      transaction_id: txn.transaction_id,
+      date: txn.date,
+      vendor,
+      amount: txn.amount,
+      category: cat.account,
+      personal: cat.personal
+    };
+
+    // Resolve expense account
+    const expenseId = await resolveAccountId(cat.account, accountMap, allAccounts);
+    if (!expenseId) {
+      row.status = 'error';
+      row.error = `QBO account not found: "${cat.account}"`;
+      stats.errors++;
+      results.push(row);
+      continue;
+    }
+    row.expense_account_id = expenseId;
+
+    // Resolve Chase bank account
+    if (!chaseAcct) {
+      row.status = 'error';
+      row.error = 'Chase bank account not found in QBO (no Bank account named Chase/Checking)';
+      stats.errors++;
+      results.push(row);
+      continue;
+    }
+    row.chase_account_id = chaseAcct.id;
+    row.chase_account_name = chaseAcct.name;
+
+    if (dryRun) {
+      row.status = 'dry_run';
+      stats.dry_run++;
+      results.push(row);
+      continue;
+    }
+
+    // Deduplicate
+    const isDupe = await checkDuplicateJE(env, txn.transaction_id);
+    if (isDupe) {
+      row.status = 'skipped';
+      row.reason = 'Journal entry already exists';
+      stats.skipped++;
+      results.push(row);
+      continue;
+    }
+
+    // Create journal entry
+    try {
+      const je = await createJournalEntry(env, txn, expenseId, chaseAcct.id, cat);
+      row.status = 'created';
+      row.journal_entry_id = je.JournalEntry?.Id;
+      stats.created++;
+    } catch (err) {
+      row.status = 'error';
+      row.error = err.message;
+      stats.errors++;
+    }
+
+    results.push(row);
+  }
+
+  return {
+    days_scanned: days,
+    dry_run: dryRun,
+    stats,
+    chase_bank_account: chaseAcct,
+    results
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HTML dashboard
+// ---------------------------------------------------------------------------
 const HTML_INTERFACE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -230,6 +508,7 @@ export default {
             '/customers': 'List customers',
             '/sales-data': 'Sales summary',
             '/query': 'Natural language query (POST)',
+            '/sync-chase-to-qbo': 'Auto-categorize Chase txns → QBO journal entries (POST; ?days=7&dry_run=true)',
           }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -260,6 +539,10 @@ export default {
         return await fetchSalesData(env, corsHeaders);
       }
 
+      if (url.pathname === '/sync-chase-to-qbo') {
+        return await handleSyncChase(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -279,6 +562,29 @@ export default {
   }
 };
 
+// ---------------------------------------------------------------------------
+// /sync-chase-to-qbo handler
+// ---------------------------------------------------------------------------
+async function handleSyncChase(request, env, corsHeaders) {
+  const url = new URL(request.url);
+  let body = {};
+  if (request.method === 'POST') {
+    try { body = await request.json(); } catch { /* query params only */ }
+  }
+  const opts = {
+    days: body.days || url.searchParams.get('days') || 7,
+    dry_run: body.dry_run ?? url.searchParams.get('dry_run') ?? false
+  };
+
+  const result = await syncChaseToQBO(env, opts);
+  return new Response(JSON.stringify(result, null, 2), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// MCP server
+// ---------------------------------------------------------------------------
 async function handleMcp(request, env, corsHeaders) {
   if (request.method === 'GET') {
     return new Response(JSON.stringify({
@@ -457,6 +763,17 @@ const TOOL_DEFINITIONS = [
     name: 'qbo_find_customers',
     description: 'Quick customer lookup by name fragment.',
     inputSchema: { type: 'object', properties: { name_like: { type: 'string' }, limit: { type: 'number' } }, required: ['name_like'] }
+  },
+  {
+    name: 'chase_auto_categorize',
+    description: 'Fetch Chase bank transactions via Plaid and post categorized journal entries to QBO. Debits the matched expense account, credits the Chase bank account. Skips already-posted transactions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Days of history to scan (default 7, max 90)' },
+        dry_run: { type: 'boolean', description: 'Preview what would be created without posting (default false)' }
+      }
+    }
   }
 ];
 
@@ -503,6 +820,9 @@ async function callTool(name, args, env) {
       data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
       break;
     }
+    case 'chase_auto_categorize':
+      data = await syncChaseToQBO(env, { days: args.days || 7, dry_run: args.dry_run || false });
+      break;
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -556,6 +876,9 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// QBO / token helpers
+// ---------------------------------------------------------------------------
 async function qboRequest(path, env, method = 'GET', body = null) {
   let tokens = await getTokens(env);
   if (!tokens.expires_in || tokens.expires_in < 300) {

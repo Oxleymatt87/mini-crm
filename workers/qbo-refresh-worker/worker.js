@@ -709,6 +709,19 @@ export default {
         return await handleRecategorizeJE(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/store-qbo-tokens') {
+        const access = url.searchParams.get('access');
+        const refresh = url.searchParams.get('refresh');
+        if (!access || !refresh) {
+          return new Response('Usage: /store-qbo-tokens?access=ACCESS_TOKEN&refresh=REFRESH_TOKEN', { status: 400 });
+        }
+        const now = Math.floor(Date.now() / 1000);
+        await env.QBO_TOKENS.put('access_token', access);
+        await env.QBO_TOKENS.put('refresh_token', refresh);
+        await env.QBO_TOKENS.put('expires_at', (now + 3600).toString());
+        return new Response('Tokens stored. QBO is reconnected.', { headers: { 'Content-Type': 'text/plain' } });
+      }
+
       if (url.pathname === '/connect-qbo') {
         const redirectUri = `https://${url.hostname}/callback`;
         const authUrl = new URL('https://appcenter.intuit.com/connect/oauth2');

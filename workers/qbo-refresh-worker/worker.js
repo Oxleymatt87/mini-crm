@@ -693,6 +693,14 @@ export default {
         return await handleExpensesDetail(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/match-uncategorized') {
+        return await handleMatchUncategorized(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/bank-transactions') {
+        return await handleBankTransactions(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1024,6 +1032,151 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
     customer: updated.Invoice?.CustomerRef?.name,
     item_matches: itemMatches
   };
+}
+
+// ---------------------------------------------------------------------------
+async function handleBankTransactions(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const days = parseInt(params.get('days') || '90', 10);
+  const accessToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!accessToken) throw new Error('No Plaid access token');
+
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  const fmt = d => d.toISOString().split('T')[0];
+
+  const res = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: accessToken,
+      start_date: fmt(start),
+      end_date: fmt(end),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  const data = await res.json();
+  if (data.error_code) throw new Error(`Plaid: ${data.error_code} — ${data.error_message}`);
+
+  return new Response(JSON.stringify({
+    period: { start: fmt(start), end: fmt(end) },
+    total: data.total_transactions,
+    transactions: data.transactions || []
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+async function handleMatchUncategorized(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const startDate = `${year}-01-01`;
+  const endDate = isCurrentYear ? now.toISOString().slice(0, 10) : `${year}-12-31`;
+
+  // Get QBO Uncategorized Expense purchases
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+  const purchases = await qboQueryAll('Purchase', dateWhere, env);
+
+  const uncategorized = [];
+  for (const p of purchases) {
+    for (const line of p.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (!detail) continue;
+      if (detail.AccountRef?.name !== 'Uncategorized Expense') continue;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      uncategorized.push({
+        qbo_id: p.Id,
+        date: p.TxnDate,
+        amount,
+        type: p.PaymentType === 'Check' ? 'Check' : 'Expense',
+        bank_desc: p.PrivateNote || '',
+      });
+    }
+  }
+
+  // Get ALL Plaid transactions (including credits = incoming transfers to Chase)
+  const accessToken = await env.QBO_TOKENS.get('plaid_access_token');
+  const days = Math.ceil((new Date() - new Date(startDate)) / 86400000) + 5;
+  const fmt = d => d.toISOString().split('T')[0];
+  const endD = new Date(); const startD = new Date(startDate);
+  const plaidRes = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: accessToken,
+      start_date: fmt(startD),
+      end_date: fmt(endD),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  const plaidData = await plaidRes.json();
+  if (plaidData.error_code) throw new Error(`Plaid: ${plaidData.error_code}`);
+  const plaidTxns = plaidData.transactions || [];
+
+  // Match each uncategorized QBO entry to a Plaid transaction
+  // Transfers QBO Checking → Chase appear as CREDITS in Plaid (negative amount)
+  // So qbo_amount ≈ abs(plaid_amount); also check positive match for double-imports
+  function dateDiffDays(a, b) {
+    return Math.abs(new Date(a) - new Date(b)) / 86400000;
+  }
+
+  const matched = [];
+  const unmatched = [];
+  const usedPlaidIds = new Set();
+
+  for (const q of uncategorized) {
+    let best = null;
+    let bestDiff = Infinity;
+
+    for (const p of plaidTxns) {
+      if (usedPlaidIds.has(p.transaction_id)) continue;
+      const plaidAmt = Math.abs(p.amount);
+      if (Math.abs(plaidAmt - q.amount) > 0.02) continue;  // amount must match exactly
+      const dd = dateDiffDays(q.date, p.date);
+      if (dd > 5) continue;
+      if (dd < bestDiff) { bestDiff = dd; best = p; }
+    }
+
+    if (best) {
+      usedPlaidIds.add(best.transaction_id);
+      const direction = best.amount < 0 ? 'incoming_to_chase' : 'outgoing_from_chase';
+      matched.push({
+        date: q.date,
+        amount: q.amount,
+        type: q.type,
+        plaid_date: best.date,
+        plaid_merchant: best.merchant_name || best.name || '',
+        plaid_direction: direction,
+        days_diff: Math.round(bestDiff * 10) / 10,
+        suggested_category: direction === 'incoming_to_chase'
+          ? 'Transfer (QBO Checking → Chase)'
+          : (best.merchant_name || best.name || 'Unknown Expense'),
+      });
+    } else {
+      unmatched.push({ date: q.date, amount: q.amount, type: q.type, bank_desc: q.bank_desc });
+    }
+  }
+
+  matched.sort((a, b) => b.amount - a.amount);
+  unmatched.sort((a, b) => b.amount - a.amount);
+
+  return new Response(JSON.stringify({
+    period: { start: startDate, end: endDate },
+    summary: {
+      total_uncategorized: uncategorized.length,
+      matched: matched.length,
+      unmatched: unmatched.length,
+    },
+    matched,
+    unmatched,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 // ---------------------------------------------------------------------------

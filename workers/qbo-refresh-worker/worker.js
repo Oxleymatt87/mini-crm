@@ -113,7 +113,7 @@ const VENDOR_CATEGORIES = [
   // Vehicle / Auto Maintenance
   {
     patterns: [/o'?reilly\s*auto/i, /autozone/i, /\bnapa\s*auto/i, /advance\s*auto/i,
-      /pep\s*boys/i],
+      /pep\s*boys/i, /samy.s\s*auto/i],
     account: 'Repairs & Maintenance',
     personal: false
   },
@@ -346,8 +346,10 @@ async function syncChaseToQBO(env, opts = {}) {
   for (const txn of txns) {
     const vendor = txn.merchant_name || txn.name || '';
 
-    // Skip transfers — credit card payments, ACH, ATM, mortgage, Zelle
-    if (isTransfer(vendor)) {
+    const cat = categorizeVendor(vendor);
+
+    // Only skip as transfer when vendor is unrecognized — known business vendors override
+    if (cat.account === 'Uncategorized - Review' && isTransfer(vendor)) {
       results.push({
         transaction_id: txn.transaction_id,
         date: txn.date,
@@ -359,8 +361,6 @@ async function syncChaseToQBO(env, opts = {}) {
       stats.skipped++;
       continue;
     }
-
-    const cat = categorizeVendor(vendor);
     const row = {
       transaction_id: txn.transaction_id,
       date: txn.date,

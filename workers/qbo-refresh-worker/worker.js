@@ -705,6 +705,10 @@ export default {
         return await handleDeleteUncategorized(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/recategorize-je') {
+        return await handleRecategorizeJE(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1036,6 +1040,99 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
     customer: updated.Invoice?.CustomerRef?.name,
     item_matches: itemMatches
   };
+}
+
+// ---------------------------------------------------------------------------
+// Recategorize JournalEntries by matching vendor name + account, changing debit line account
+async function handleRecategorizeJE(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const vendor = params.get('vendor');       // e.g. "Best Egg" or "Intuit"
+  const fromAcct = params.get('from');       // current account name substring
+  const toAcct = params.get('to');           // target account name (must match QBO exactly)
+  const minAmt = parseFloat(params.get('min') || '0');
+  const maxAmt = parseFloat(params.get('max') || '999999999');
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+
+  if (!vendor || !fromAcct || !toAcct) {
+    return new Response(JSON.stringify({ error: 'vendor, from, and to params required' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+  const jes = await qboQueryAll('JournalEntry', dateWhere, env);
+
+  // Find the target account ID from QBO
+  const acctQ = `SELECT * FROM Account WHERE Name = '${toAcct}'`;
+  const acctR = await qboRequest(`query?query=${encodeURIComponent(acctQ)}`, env);
+  const targetAcct = acctR?.QueryResponse?.Account?.[0];
+  if (!targetAcct) {
+    return new Response(JSON.stringify({ error: `Account not found: ${toAcct}`, hint: 'Name must match QBO exactly' }),
+      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const toUpdate = [];
+  for (const je of jes) {
+    // Check if any line matches vendor desc + fromAcct
+    const hasMatch = (je.Line || []).some(l => {
+      const detail = l.JournalEntryLineDetail;
+      if (!detail || detail.PostingType !== 'Debit') return false;
+      const acctName = detail.AccountRef?.name || '';
+      const desc = (l.Description || '').toLowerCase();
+      return acctName.toLowerCase().includes(fromAcct.toLowerCase())
+        && desc.includes(vendor.toLowerCase())
+        && parseFloat(l.Amount) >= minAmt
+        && parseFloat(l.Amount) <= maxAmt;
+    });
+    if (hasMatch) toUpdate.push(je);
+  }
+
+  const results = { updated: 0, failed: 0, errors: [] };
+
+  for (const je of toUpdate) {
+    // Rebuild JE with updated debit line account
+    const updatedLines = (je.Line || []).map(l => {
+      const detail = l.JournalEntryLineDetail;
+      if (!detail || detail.PostingType !== 'Debit') return l;
+      const acctName = detail.AccountRef?.name || '';
+      const desc = (l.Description || '').toLowerCase();
+      const amt = parseFloat(l.Amount);
+      if (acctName.toLowerCase().includes(fromAcct.toLowerCase())
+          && desc.includes(vendor.toLowerCase())
+          && amt >= minAmt && amt <= maxAmt) {
+        return {
+          ...l,
+          JournalEntryLineDetail: {
+            ...detail,
+            AccountRef: { value: targetAcct.Id, name: targetAcct.Name }
+          }
+        };
+      }
+      return l;
+    });
+
+    try {
+      await qboRequest('journalentry', env, 'POST', {
+        Id: je.Id,
+        SyncToken: je.SyncToken,
+        TxnDate: je.TxnDate,
+        Line: updatedLines,
+      });
+      results.updated++;
+    } catch (err) {
+      results.failed++;
+      results.errors.push({ id: je.Id, date: je.TxnDate, error: err.message });
+    }
+  }
+
+  return new Response(JSON.stringify({
+    vendor, from: fromAcct, to: toAcct,
+    found: toUpdate.length,
+    updated: results.updated,
+    failed: results.failed,
+    errors: results.errors,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 // ---------------------------------------------------------------------------

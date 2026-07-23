@@ -696,7 +696,7 @@ async function dispatchMcp(req, env) {
 const TOOL_DEFINITIONS = [
   {
     name: 'qbo_query',
-    description: 'Run a QBO SQL-style SELECT against any entity. Examples: "SELECT * FROM Customer WHERE DisplayName LIKE \\'%JWT%\\'", "SELECT Id, DocNumber, TotalAmt FROM Invoice MAXRESULTS 1000".',
+    description: "Run a QBO SQL-style SELECT against any entity. Examples: \"SELECT * FROM Customer WHERE DisplayName LIKE '%JWT%'\", \"SELECT Id, DocNumber, TotalAmt FROM Invoice MAXRESULTS 1000\".",
     inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
   },
   {

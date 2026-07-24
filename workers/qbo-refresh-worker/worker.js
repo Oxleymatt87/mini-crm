@@ -208,6 +208,12 @@ async function getPlaidTransactions(env, accessToken, days) {
   };
 }
 
+// Static overrides for Plaid masks that don't appear in QBO account names
+// mask (last 4 of Plaid account) → { qboId, name, type }
+const PLAID_MASK_OVERRIDES = {
+  '2308': { qboId: '89', name: 'QuickBooks Checking Account', type: 'Bank' },
+};
+
 // Build a map from Plaid account_id to QBO account ID using last-4 digits (mask)
 async function buildPlaidToQBOAccountMap(plaidAccounts, env) {
   const q = "SELECT Id, Name, AccountType FROM Account MAXRESULTS 100";
@@ -219,6 +225,11 @@ async function buildPlaidToQBOAccountMap(plaidAccounts, env) {
   for (const pa of plaidAccounts) {
     const mask = pa.mask; // e.g. "5525"
     if (!mask) continue;
+    // Check static overrides first
+    if (PLAID_MASK_OVERRIDES[mask]) {
+      map[pa.account_id] = PLAID_MASK_OVERRIDES[mask];
+      continue;
+    }
     // Find QBO account whose name contains this mask
     const qboAcct = qboAccounts.find(a => a.Name.includes(mask));
     if (qboAcct) {

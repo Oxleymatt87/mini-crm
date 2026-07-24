@@ -115,6 +115,21 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'qbo_query',
+    description: 'Run a direct QBO SQL query against any entity. Example: "SELECT DocNumber, CustomerRef, TotalAmt, Balance, TxnDate FROM Invoice MAXRESULTS 50". Returns { entity, count, results }.',
+    path: '/query',
+    method: 'POST',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'QBO SQL query, e.g. "SELECT * FROM Customer MAXRESULTS 100".' },
+      },
+      required: ['q'],
+      additionalProperties: false,
+    },
+    query: (a) => ({ q: a.q }),
+  },
+  {
     name: 'qbo_token_status',
     description: 'Health of the stored QBO/Plaid OAuth tokens: which keys are present, their value lengths, and the QBO access-token expiry. Never returns the secret token values.',
     kv: true,
@@ -218,7 +233,7 @@ async function toolCall(id, params, env) {
     // Prefer the service binding (QBO) — a Worker cannot subrequest another
     // *.workers.dev URL on the same account (CF error 1042). Fall back to a
     // direct fetch (e.g. local dev / Node) when the binding isn't present.
-    const reqInit = { headers: { accept: 'application/json' } };
+    const reqInit = { method: tool.method || 'GET', headers: { accept: 'application/json' } };
     const upstream = env && env.QBO && typeof env.QBO.fetch === 'function'
       ? await env.QBO.fetch(target.toString(), reqInit)
       : await fetch(target.toString(), reqInit);

@@ -56,20 +56,25 @@ Gotcha: a Worker **cannot fetch another `*.workers.dev` URL on the same account*
 - **`qbo-refresh-worker`** (`qbo-refresh-worker.moxley.workers.dev`) — QBO + Plaid
   backend. Cron every ~50 min refreshes the QBO OAuth token. Reads/writes KV
   `QBO_TOKENS` (keys: `access_token`, `expires_at`, `refresh_token`,
-  `plaid_access_token`, `plaid_item_id`). **Deployed version (v17) is AHEAD of
-  the repo copy** — treat `workers/qbo-refresh-worker/worker.js` as possibly stale.
+  `plaid_access_token`, `plaid_item_id`). **Repo is the source of truth** — always
+  commit before deploying. Deploy with the REST API curl pattern above, binding:
+  `[{"type":"kv_namespace","name":"QBO_TOKENS","namespace_id":"9e61d4d0d02a476692cfa71c1002908b"}]`
+  and `"triggers":{"crons":["*/50 * * * *"]}`. Secrets on the worker (not in repo):
+  `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `MCP_AUTH_TOKEN`, `SHEETS_API_KEY`.
   Endpoints: `/dad`, `/dashboard-summary`, `/overdue-invoices`,
   `/chase-transactions?days=`, `/bank-transactions`, `/profit-loss`,
   `/top-customers?year=`, `/expenses-detail`, `/payments-by-customer`,
-  `/connect-chase`, `/new-prospect` (POST, Apify webhook → Firestore).
+  `/query` (POST, NL or `?q=` for direct QBO SQL), `/new-prospect` (POST),
+  `/mcp` (JSON-RPC 2.0, Bearer auth), `/token-status`, `/customers`, `/sales-data`.
 - **`claude-proxy`** (`claude-proxy.moxley.workers.dev`) — Anthropic Messages API
   proxy with Oxley sales-copilot prompt. Secret `ANTHROPIC_API_KEY` on the worker.
 - **`oxley-mcp-server`** (`oxley-mcp-server.moxley.workers.dev`) — MCP server
   (JSON-RPC 2.0 over HTTP). `GET /status`; `POST /` for `initialize`/`tools/list`/
   `tools/call`. Proxies `qbo-refresh-worker` via a **`QBO` service binding** and
-  reads `QBO_TOKENS` via a KV binding. 11 tools incl. `qbo_token_status`
-  (reports token presence/length/expiry — never secret values; the endpoint is
+  reads `QBO_TOKENS` via a KV binding. 12 tools incl. `qbo_query` (direct QBO SQL)
+  and `qbo_token_status` (token health — never raw secret values; endpoint is
   **public/unauthenticated**, so do not add tools that return raw secrets).
+  Deploy binding metadata: `[{"type":"kv_namespace","name":"QBO_TOKENS","namespace_id":"9e61d4d0d02a476692cfa71c1002908b"},{"type":"service","name":"QBO","service":"qbo-refresh-worker"},{"type":"plain_text","name":"UPSTREAM_BASE","text":"https://qbo-refresh-worker.moxley.workers.dev"}]`
   Source: `workers/oxley-mcp-server/`.
 
 ## Prospects pipeline (SETX lead database)

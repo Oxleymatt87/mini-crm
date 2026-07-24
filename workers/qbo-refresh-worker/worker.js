@@ -210,9 +210,9 @@ async function getPlaidTransactions(env, accessToken, days) {
 
 // Static overrides for Plaid masks that don't appear in QBO account names
 // mask (last 4 of Plaid account) → { qboId, name, type }
-const PLAID_MASK_OVERRIDES = {
-  '2308': { qboId: '89', name: 'QuickBooks Checking Account', type: 'Bank' },
-};
+// NOTE: 2308 (Freedom Unlimited personal CC) and 3718 (personal TOTAL CHECKING)
+// are personal accounts — intentionally excluded from QBO sync.
+const PLAID_MASK_OVERRIDES = {};
 
 // Build a map from Plaid account_id to QBO account ID using last-4 digits (mask)
 async function buildPlaidToQBOAccountMap(plaidAccounts, env) {

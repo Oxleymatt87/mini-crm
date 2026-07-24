@@ -248,12 +248,17 @@ export default {
         });
       }
 
-      if (url.pathname === '/query' && request.method === 'POST') {
+      if (url.pathname === '/query') {
         const qParam = url.searchParams.get('q');
         if (qParam) {
           return await handleDirectQboQuery(qParam, env, corsHeaders);
         }
-        return await handleQuery(request, env, corsHeaders);
+        if (request.method === 'POST') {
+          return await handleQuery(request, env, corsHeaders);
+        }
+        return new Response(JSON.stringify({ error: 'Pass ?q= with a QBO SQL query, e.g. ?q=SELECT * FROM Invoice MAXRESULTS 50' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
 
       if (url.pathname === '/customers') {

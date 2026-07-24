@@ -1031,9 +1031,27 @@ async function callTool(name, args, env) {
     case 'qbo_get':
       data = await qboRequest(`${args.entity.toLowerCase()}/${args.id}`, env);
       break;
-    case 'qbo_create':
-      data = await qboRequest(args.entity.toLowerCase(), env, 'POST', args.data);
+    case 'qbo_create': {
+      const entity = args.entity.toLowerCase();
+      if (entity === 'invoice' && args.data) {
+        const d = args.data;
+        const custId = d.CustomerRef && d.CustomerRef.value;
+        const txnDate = d.TxnDate;
+        const totalAmt = d.TotalAmt != null ? d.TotalAmt : null;
+        if (custId && txnDate && totalAmt != null) {
+          const safeDate = String(txnDate).replace(/'/g, "''");
+          const dupQ = `SELECT Id, DocNumber, SyncToken, TotalAmt FROM Invoice WHERE CustomerRef = '${custId}' AND TxnDate = '${safeDate}' AND TotalAmt = '${totalAmt}' MAXRESULTS 1`;
+          const dupRes = await qboRequest(`query?query=${encodeURIComponent(dupQ)}`, env);
+          const existing = dupRes?.QueryResponse?.Invoice;
+          if (existing && existing.length > 0) {
+            data = { Invoice: existing[0], _deduped: true };
+            break;
+          }
+        }
+      }
+      data = await qboRequest(entity, env, 'POST', args.data);
       break;
+    }
     case 'qbo_update':
       data = await qboRequest(`${args.entity.toLowerCase()}?operation=update`, env, 'POST', args.data);
       break;

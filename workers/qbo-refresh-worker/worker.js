@@ -249,6 +249,10 @@ export default {
       }
 
       if (url.pathname === '/query' && request.method === 'POST') {
+        const qParam = url.searchParams.get('q');
+        if (qParam) {
+          return await handleDirectQboQuery(qParam, env, corsHeaders);
+        }
         return await handleQuery(request, env, corsHeaders);
       }
 
@@ -390,7 +394,7 @@ async function dispatchMcp(req, env) {
 const TOOL_DEFINITIONS = [
   {
     name: 'qbo_query',
-    description: 'Run a QBO SQL-style SELECT against any entity. Examples: "SELECT * FROM Customer WHERE DisplayName LIKE \\'%JWT%\\'", "SELECT Id, DocNumber, TotalAmt FROM Invoice MAXRESULTS 1000".',
+    description: `Run a QBO SQL-style SELECT against any entity. Examples: "SELECT * FROM Customer WHERE DisplayName LIKE '%JWT%'", "SELECT Id, DocNumber, TotalAmt FROM Invoice MAXRESULTS 1000".`,
     inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
   },
   {
@@ -614,6 +618,21 @@ async function fetchCustomers(env, corsHeaders) {
 async function fetchSalesData(env, corsHeaders) {
   const invoices = await qboRequest('query?query=SELECT * FROM Invoice MAXRESULTS 1000', env);
   return new Response(JSON.stringify({ count: invoices.QueryResponse.Invoice?.length || 0, invoices: invoices.QueryResponse.Invoice || [] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+async function handleDirectQboQuery(sql, env, corsHeaders) {
+  const data = await qboRequest(`query?query=${encodeURIComponent(sql)}`, env);
+  const qr = data.QueryResponse || {};
+  const entityKey = Object.keys(qr).find(k => k !== 'startPosition' && k !== 'maxResults' && k !== 'totalCount');
+  const rows = entityKey ? (Array.isArray(qr[entityKey]) ? qr[entityKey] : [qr[entityKey]]) : [];
+  return new Response(JSON.stringify({
+    query: sql,
+    entity: entityKey || null,
+    count: rows.length,
+    results: rows
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
 }
 
 async function handleQuery(request, env, corsHeaders) {

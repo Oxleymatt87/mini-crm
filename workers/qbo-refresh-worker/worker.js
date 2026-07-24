@@ -685,6 +685,113 @@ export default {
         return await handleSyncChase(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/profit-loss') {
+        return await handleProfitLoss(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/expenses-detail') {
+        return await handleExpensesDetail(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/match-uncategorized') {
+        return await handleMatchUncategorized(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/bank-transactions') {
+        return await handleBankTransactions(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/delete-uncategorized') {
+        return await handleDeleteUncategorized(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/recategorize-je') {
+        return await handleRecategorizeJE(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/store-qbo-tokens') {
+        const access = url.searchParams.get('access');
+        const refresh = url.searchParams.get('refresh');
+        if (!access || !refresh) {
+          return new Response('Usage: /store-qbo-tokens?access=ACCESS_TOKEN&refresh=REFRESH_TOKEN', { status: 400 });
+        }
+        const now = Math.floor(Date.now() / 1000);
+        await env.QBO_TOKENS.put('access_token', access);
+        await env.QBO_TOKENS.put('refresh_token', refresh);
+        await env.QBO_TOKENS.put('expires_at', (now + 3600).toString());
+        return new Response('Tokens stored. QBO is reconnected.', { headers: { 'Content-Type': 'text/plain' } });
+      }
+
+      if (url.pathname === '/connect-qbo') {
+        const redirectUri = `https://${url.hostname}/callback`;
+        const authUrl = new URL('https://appcenter.intuit.com/connect/oauth2');
+        authUrl.searchParams.set('client_id', env.QBO_CLIENT_ID);
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('response_type', 'code');
+        authUrl.searchParams.set('scope', 'com.intuit.quickbooks.accounting');
+        authUrl.searchParams.set('state', 'oxley');
+        return Response.redirect(authUrl.toString(), 302);
+      }
+
+      if (url.pathname === '/callback') {
+        const code = url.searchParams.get('code');
+        const realmId = url.searchParams.get('realmId');
+        if (!code) return new Response('Missing code', { status: 400 });
+
+        const redirectUri = `https://${url.hostname}/callback`;
+        const creds = btoa(`${env.QBO_CLIENT_ID}:${env.QBO_CLIENT_SECRET}`);
+        const tokenRes = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${creds}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+          },
+          body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri }),
+        });
+        if (!tokenRes.ok) {
+          const err = await tokenRes.text();
+          return new Response(`Token exchange failed: ${err}`, { status: 500 });
+        }
+        const tokens = await tokenRes.json();
+        const now = Math.floor(Date.now() / 1000);
+        await env.QBO_TOKENS.put('access_token', tokens.access_token);
+        await env.QBO_TOKENS.put('refresh_token', tokens.refresh_token);
+        await env.QBO_TOKENS.put('expires_at', (now + tokens.expires_in).toString());
+        if (realmId) await env.QBO_TOKENS.put('realm_id', realmId);
+        return new Response(`QBO connected! Realm: ${realmId}. Tokens stored. You can close this tab.`, {
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      }
+
+      if (url.pathname === '/chase-transactions') {
+        return await handleChaseTransactions(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/overdue-invoices') {
+        return await handleOverdueInvoices(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/top-customers') {
+        return await handleTopCustomers(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/payments-by-customer') {
+        return await handlePaymentsByCustomer(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/dad') {
+        return await handleDadDashboard(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/chase-report') {
+        return await handleChaseReport(request, env, corsHeaders);
+      }
+
+      if (url.pathname === '/dedup-check') {
+        return await handleDedupCheck(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -928,9 +1035,41 @@ async function callTool(name, args, env) {
     case 'qbo_get':
       data = await qboRequest(`${args.entity.toLowerCase()}/${args.id}`, env);
       break;
-    case 'qbo_create':
-      data = await qboRequest(args.entity.toLowerCase(), env, 'POST', args.data);
+    case 'qbo_create': {
+      const entity = args.entity.toLowerCase();
+      if (entity === 'invoice' && args.data) {
+        try {
+          const d = args.data;
+          const custId = d.CustomerRef && d.CustomerRef.value;
+          // Match QBO's default: missing TxnDate → today
+          const today = new Date().toISOString().slice(0, 10);
+          const txnDate = d.TxnDate || today;
+          // TotalAmt may be absent when QBO computes it from Line items — derive it
+          let totalAmt = d.TotalAmt != null ? Number(d.TotalAmt) : null;
+          if (totalAmt == null && Array.isArray(d.Line)) {
+            totalAmt = Math.round(d.Line.reduce((s, l) => s + (Number(l.Amount) || 0), 0) * 100) / 100;
+          }
+          if (custId && totalAmt != null && totalAmt > 0) {
+            const safeDate = String(txnDate).replace(/'/g, "''");
+            const dupQ = `SELECT Id, DocNumber, SyncToken FROM Invoice WHERE CustomerRef = '${custId}' AND TxnDate = '${safeDate}' AND TotalAmt = '${totalAmt}' MAXRESULTS 1`;
+            const dupRes = await qboRequest(`query?query=${encodeURIComponent(dupQ)}`, env);
+            const existing = dupRes?.QueryResponse?.Invoice;
+            if (existing && existing.length > 0) {
+              // Fetch full invoice so caller gets complete data, not just the query projection
+              const full = await qboRequest(`invoice/${existing[0].Id}`, env);
+              console.log(`[dedup] Blocked duplicate Invoice cust=${custId} date=${txnDate} amt=${totalAmt} existing=${existing[0].Id}`);
+              data = { ...(full || { Invoice: existing[0] }), _deduped: true };
+              break;
+            }
+          }
+        } catch (dedupErr) {
+          // Fail open: a connectivity blip during the check must not block billing
+          console.error(`[dedup] Guard check failed, proceeding with create: ${dedupErr.message}`);
+        }
+      }
+      data = await qboRequest(entity, env, 'POST', args.data);
       break;
+    }
     case 'qbo_update':
       data = await qboRequest(`${args.entity.toLowerCase()}?operation=update`, env, 'POST', args.data);
       break;
@@ -1019,8 +1158,480 @@ async function appendInvoiceLines(invoiceId, newLines, env) {
 }
 
 // ---------------------------------------------------------------------------
+// Recategorize JournalEntries by matching vendor name + account, changing debit line account
+async function handleRecategorizeJE(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const vendor = params.get('vendor');       // e.g. "Best Egg" or "Intuit"
+  const fromAcct = params.get('from');       // current account name substring
+  const toAcct = params.get('to');           // target account name (must match QBO exactly)
+  const minAmt = parseFloat(params.get('min') || '0');
+  const maxAmt = parseFloat(params.get('max') || '999999999');
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+
+  if (!vendor || !fromAcct || !toAcct) {
+    return new Response(JSON.stringify({ error: 'vendor, from, and to params required' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+  const jes = await qboQueryAll('JournalEntry', dateWhere, env);
+
+  // Find the target account ID from QBO
+  const acctQ = `SELECT * FROM Account WHERE Name = '${toAcct}'`;
+  const acctR = await qboRequest(`query?query=${encodeURIComponent(acctQ)}`, env);
+  const targetAcct = acctR?.QueryResponse?.Account?.[0];
+  if (!targetAcct) {
+    return new Response(JSON.stringify({ error: `Account not found: ${toAcct}`, hint: 'Name must match QBO exactly' }),
+      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const toUpdate = [];
+  for (const je of jes) {
+    // Check if any line matches vendor desc + fromAcct
+    const hasMatch = (je.Line || []).some(l => {
+      const detail = l.JournalEntryLineDetail;
+      if (!detail || detail.PostingType !== 'Debit') return false;
+      const acctName = detail.AccountRef?.name || '';
+      const desc = (l.Description || '').toLowerCase();
+      return acctName.toLowerCase().includes(fromAcct.toLowerCase())
+        && desc.includes(vendor.toLowerCase())
+        && parseFloat(l.Amount) >= minAmt
+        && parseFloat(l.Amount) <= maxAmt;
+    });
+    if (hasMatch) toUpdate.push(je);
+  }
+
+  const results = { updated: 0, failed: 0, errors: [] };
+
+  for (const je of toUpdate) {
+    // Rebuild JE with updated debit line account
+    const updatedLines = (je.Line || []).map(l => {
+      const detail = l.JournalEntryLineDetail;
+      if (!detail || detail.PostingType !== 'Debit') return l;
+      const acctName = detail.AccountRef?.name || '';
+      const desc = (l.Description || '').toLowerCase();
+      const amt = parseFloat(l.Amount);
+      if (acctName.toLowerCase().includes(fromAcct.toLowerCase())
+          && desc.includes(vendor.toLowerCase())
+          && amt >= minAmt && amt <= maxAmt) {
+        return {
+          ...l,
+          JournalEntryLineDetail: {
+            ...detail,
+            AccountRef: { value: targetAcct.Id, name: targetAcct.Name }
+          }
+        };
+      }
+      return l;
+    });
+
+    try {
+      await qboRequest('journalentry', env, 'POST', {
+        Id: je.Id,
+        SyncToken: je.SyncToken,
+        TxnDate: je.TxnDate,
+        Line: updatedLines,
+      });
+      results.updated++;
+    } catch (err) {
+      results.failed++;
+      results.errors.push({ id: je.Id, date: je.TxnDate, error: err.message });
+    }
+  }
+
+  return new Response(JSON.stringify({
+    vendor, from: fromAcct, to: toAcct,
+    found: toUpdate.length,
+    updated: results.updated,
+    failed: results.failed,
+    errors: results.errors,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+async function handleDeleteUncategorized(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const startDate = `${year}-01-01`;
+  const endDate = year === now.getFullYear() ? now.toISOString().slice(0, 10) : `${year}-12-31`;
+
+  // Fetch all Purchase entries that have at least one "Uncategorized Expense" line
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+  const purchases = await qboQueryAll('Purchase', dateWhere, env);
+
+  const toDelete = [];
+  for (const p of purchases) {
+    const hasUncategorized = (p.Line || []).some(line => {
+      const detail = line.AccountBasedExpenseLineDetail;
+      return detail?.AccountRef?.name === 'Uncategorized Expense' && parseFloat(line.Amount || 0) > 0;
+    });
+    if (hasUncategorized) {
+      toDelete.push({ id: p.Id, syncToken: p.SyncToken, date: p.TxnDate, amount: p.TotalAmt });
+    }
+  }
+
+  if (toDelete.length === 0) {
+    return new Response(JSON.stringify({ deleted: 0, message: 'No uncategorized purchases found' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const results = { deleted: 0, failed: 0, errors: [] };
+
+  for (const entry of toDelete) {
+    try {
+      await qboRequest('purchase?operation=delete', env, 'POST', {
+        Id: entry.id,
+        SyncToken: entry.syncToken,
+      });
+      results.deleted++;
+    } catch (err) {
+      results.failed++;
+      results.errors.push({ id: entry.id, date: entry.date, amount: entry.amount, error: err.message });
+    }
+  }
+
+  return new Response(JSON.stringify({
+    period: { start: startDate, end: endDate },
+    found: toDelete.length,
+    deleted: results.deleted,
+    failed: results.failed,
+    errors: results.errors,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+async function handleBankTransactions(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const days = parseInt(params.get('days') || '90', 10);
+  const accessToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!accessToken) throw new Error('No Plaid access token');
+
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  const fmt = d => d.toISOString().split('T')[0];
+
+  const res = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: accessToken,
+      start_date: fmt(start),
+      end_date: fmt(end),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  const data = await res.json();
+  if (data.error_code) throw new Error(`Plaid: ${data.error_code} — ${data.error_message}`);
+
+  return new Response(JSON.stringify({
+    period: { start: fmt(start), end: fmt(end) },
+    total: data.total_transactions,
+    transactions: data.transactions || []
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+async function handleMatchUncategorized(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const startDate = `${year}-01-01`;
+  const endDate = isCurrentYear ? now.toISOString().slice(0, 10) : `${year}-12-31`;
+
+  // Get QBO Uncategorized Expense purchases
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+  const purchases = await qboQueryAll('Purchase', dateWhere, env);
+
+  const uncategorized = [];
+  for (const p of purchases) {
+    for (const line of p.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (!detail) continue;
+      if (detail.AccountRef?.name !== 'Uncategorized Expense') continue;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      uncategorized.push({
+        qbo_id: p.Id,
+        date: p.TxnDate,
+        amount,
+        type: p.PaymentType === 'Check' ? 'Check' : 'Expense',
+        bank_desc: p.PrivateNote || '',
+      });
+    }
+  }
+
+  // Get ALL Plaid transactions (including credits = incoming transfers to Chase)
+  const accessToken = await env.QBO_TOKENS.get('plaid_access_token');
+  const days = Math.ceil((new Date() - new Date(startDate)) / 86400000) + 5;
+  const fmt = d => d.toISOString().split('T')[0];
+  const endD = new Date(); const startD = new Date(startDate);
+  const plaidRes = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: accessToken,
+      start_date: fmt(startD),
+      end_date: fmt(endD),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  const plaidData = await plaidRes.json();
+  if (plaidData.error_code) throw new Error(`Plaid: ${plaidData.error_code}`);
+  const plaidTxns = plaidData.transactions || [];
+
+  // Match each uncategorized QBO entry to a Plaid transaction
+  // Transfers QBO Checking → Chase appear as CREDITS in Plaid (negative amount)
+  // So qbo_amount ≈ abs(plaid_amount); also check positive match for double-imports
+  function dateDiffDays(a, b) {
+    return Math.abs(new Date(a) - new Date(b)) / 86400000;
+  }
+
+  const matched = [];
+  const unmatched = [];
+  const usedPlaidIds = new Set();
+
+  for (const q of uncategorized) {
+    let best = null;
+    let bestDiff = Infinity;
+
+    for (const p of plaidTxns) {
+      if (usedPlaidIds.has(p.transaction_id)) continue;
+      const plaidAmt = Math.abs(p.amount);
+      if (Math.abs(plaidAmt - q.amount) > 0.02) continue;  // amount must match exactly
+      const dd = dateDiffDays(q.date, p.date);
+      if (dd > 5) continue;
+      if (dd < bestDiff) { bestDiff = dd; best = p; }
+    }
+
+    if (best) {
+      usedPlaidIds.add(best.transaction_id);
+      const direction = best.amount < 0 ? 'incoming_to_chase' : 'outgoing_from_chase';
+      matched.push({
+        date: q.date,
+        amount: q.amount,
+        type: q.type,
+        plaid_date: best.date,
+        plaid_merchant: best.merchant_name || best.name || '',
+        plaid_direction: direction,
+        days_diff: Math.round(bestDiff * 10) / 10,
+        suggested_category: direction === 'incoming_to_chase'
+          ? 'Transfer (QBO Checking → Chase)'
+          : (best.merchant_name || best.name || 'Unknown Expense'),
+      });
+    } else {
+      unmatched.push({ date: q.date, amount: q.amount, type: q.type, bank_desc: q.bank_desc });
+    }
+  }
+
+  matched.sort((a, b) => b.amount - a.amount);
+  unmatched.sort((a, b) => b.amount - a.amount);
+
+  return new Response(JSON.stringify({
+    period: { start: startDate, end: endDate },
+    summary: {
+      total_uncategorized: uncategorized.length,
+      matched: matched.length,
+      unmatched: unmatched.length,
+    },
+    matched,
+    unmatched,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
 // QBO / token helpers
 // ---------------------------------------------------------------------------
+async function qboQueryAll(entity, where, env) {
+  const rows = [];
+  let pos = 1;
+  while (true) {
+    const q = `SELECT * FROM ${entity} WHERE ${where} ORDERBY TxnDate DESC STARTPOSITION ${pos} MAXRESULTS 200`;
+    const r = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+    const batch = r?.QueryResponse?.[entity] || [];
+    rows.push(...batch);
+    if (batch.length < 200) break;
+    pos += 200;
+  }
+  return rows;
+}
+
+async function handleExpensesDetail(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const startDate = `${year}-01-01`;
+  const endDate = isCurrentYear ? now.toISOString().slice(0, 10) : `${year}-12-31`;
+  const dateWhere = `TxnDate >= '${startDate}' AND TxnDate <= '${endDate}'`;
+
+  // Fetch Purchases (debit/check/card), Bills, and JournalEntries in parallel
+  const [purchases, bills, journalEntries] = await Promise.all([
+    qboQueryAll('Purchase', dateWhere, env),
+    qboQueryAll('Bill', dateWhere, env),
+    qboQueryAll('JournalEntry', dateWhere, env),
+  ]);
+
+  // txnsByAccount[accountName] = [{date, type, vendor, memo, amount}, ...]
+  const txnsByAccount = {};
+  function push(account, txn) {
+    if (!account) return;
+    if (!txnsByAccount[account]) txnsByAccount[account] = [];
+    txnsByAccount[account].push(txn);
+  }
+
+  // Purchases: EntityRef.name is the payee; lines have AccountBasedExpenseLineDetail
+  // For bank-imported transactions, EntityRef is null — fall back to PrivateNote (bank description)
+  for (const p of purchases) {
+    const date = p.TxnDate;
+    const type = p.PaymentType === 'Check' ? 'Check' : 'Expense';
+    const bankDesc = p.PrivateNote || '';
+    const qboVendor = p.EntityRef?.name || '';
+    for (const line of p.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (!detail) continue;
+      const account = detail.AccountRef?.name;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      const memo = line.Description || bankDesc;
+      const vendor = qboVendor || memo || '(no vendor)';
+      push(account, { date, type, vendor, memo, amount });
+    }
+  }
+
+  // Bills: VendorRef.name is the payee; lines have AccountBasedExpenseLineDetail
+  for (const b of bills) {
+    const vendor = b.VendorRef?.name || '(no vendor)';
+    const date = b.TxnDate;
+    for (const line of b.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (!detail) continue;
+      const account = detail.AccountRef?.name;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      push(account, { date, type: 'Bill', vendor, memo: line.Description || '', amount });
+    }
+  }
+
+  // JournalEntries: debit lines are expenses; vendor encoded in Description as "Vendor — DATE"
+  for (const je of journalEntries) {
+    const date = je.TxnDate;
+    const note = je.PrivateNote || '';
+    for (const line of je.Line || []) {
+      const detail = line.JournalEntryLineDetail;
+      if (!detail || detail.PostingType !== 'Debit') continue;
+      const account = detail.AccountRef?.name;
+      const amount = parseFloat(line.Amount || 0);
+      if (!amount) continue;
+      const rawDesc = line.Description || '';
+      const vendor = rawDesc.replace(/ — \d{4}-\d{2}-\d{2}$/, '').trim() || note.slice(0, 60) || '(journal entry)';
+      push(account, { date, type: 'JournalEntry', vendor, memo: rawDesc, amount });
+    }
+  }
+
+  // Build sorted result
+  const result = Object.entries(txnsByAccount)
+    .map(([account, txns]) => ({
+      account,
+      total: parseFloat(txns.reduce((s, t) => s + t.amount, 0).toFixed(2)),
+      transactions: txns.sort((a, b) => b.amount - a.amount),
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const grandTotal = parseFloat(result.reduce((s, a) => s + a.total, 0).toFixed(2));
+
+  return new Response(JSON.stringify({
+    period: { start: startDate, end: endDate },
+    total: grandTotal,
+    accounts: result,
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+// ---------------------------------------------------------------------------
+async function handleProfitLoss(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const startDate = `${year}-01-01`;
+  const endDate = isCurrentYear
+    ? now.toISOString().slice(0, 10)
+    : `${year}-12-31`;
+
+  const report = await qboRequest(
+    `reports/ProfitAndLoss?start_date=${startDate}&end_date=${endDate}&accounting_method=Accrual`,
+    env
+  );
+
+  const rows = report?.Rows?.Row || [];
+
+  function num(colData, idx = 1) {
+    const v = colData?.[idx]?.value;
+    return v ? parseFloat(v) || 0 : 0;
+  }
+
+  // Recursively extract individual Data rows; Section rows are traversed, not summarized
+  function extractLines(section) {
+    const lines = [];
+    for (const row of section?.Rows?.Row || []) {
+      if (row.type === 'Data') {
+        const name = row.ColData?.[0]?.value || '';
+        const amount = num(row.ColData);
+        if (name && amount !== 0) lines.push({ account: name, amount });
+      } else if (row.type === 'Section') {
+        lines.push(...extractLines(row));
+      }
+    }
+    return lines;
+  }
+
+  const out = {
+    period: { start: startDate, end: endDate },
+    income: { total: 0, lines: [] },
+    cogs: 0,
+    gross_profit: 0,
+    expenses: { total: 0, by_category: [] },
+    net_income: 0,
+  };
+
+  for (const section of rows) {
+    const g = section.group;
+    const cd = section.Summary?.ColData;
+    if (g === 'Income') {
+      out.income.total = num(cd);
+      out.income.lines = extractLines(section);
+    } else if (g === 'COGS') {
+      out.cogs = num(cd);
+    } else if (g === 'GrossProfit') {
+      out.gross_profit = num(cd);
+    } else if (g === 'Expenses') {
+      out.expenses.total = num(cd);
+      out.expenses.by_category = extractLines(section);
+    } else if (g === 'NetIncome') {
+      out.net_income = num(cd);
+    }
+  }
+
+  // Fall back to calculated gross profit if QBO didn't include it
+  if (!out.gross_profit) out.gross_profit = out.income.total - out.cogs;
+  // Fall back to calculated net income
+  if (!out.net_income) out.net_income = out.gross_profit - out.expenses.total;
+
+  return new Response(JSON.stringify(out), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
 async function qboRequest(path, env, method = 'GET', body = null) {
   let tokens = await getTokens(env);
   if (!tokens.expires_in || tokens.expires_in < 300) {
@@ -1093,7 +1704,7 @@ async function handleQuery(request, env, corsHeaders) {
     case 'top_gp_customers': results = await getTopGPCustomers(env, queryType.percentile || 30); break;
     default: results = await genericQuery(query, env);
   }
-  await writeToSheets(env, query, results);
+  try { await writeToSheets(env, query, results); } catch (_) { /* sheets optional */ }
   return new Response(JSON.stringify({ query, type: queryType.type, resultCount: results.length, results, sheetUrl: `https://docs.google.com/spreadsheets/d/${SHEET_ID}` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
@@ -1206,8 +1817,14 @@ async function getTopGPCustomers(env, percentile = 30) {
 }
 
 async function genericQuery(query, env) {
-  const invoices = await qboRequest('query?query=SELECT * FROM Invoice MAXRESULTS 100', env);
-  return invoices.QueryResponse.Invoice || [];
+  const res = await qboRequest(`query?query=${encodeURIComponent(query)}`, env);
+  const qr = res.QueryResponse || {};
+  // Return whichever entity type came back
+  const entities = ['Invoice','Customer','Payment','JournalEntry','Purchase','Bill','Vendor','Item','Account'];
+  for (const e of entities) {
+    if (qr[e]) return qr[e];
+  }
+  return [];
 }
 
 async function writeToSheets(env, query, results) {
@@ -1259,4 +1876,283 @@ function base64UrlEncode(data) {
   if (typeof data === 'string') str = btoa(unescape(encodeURIComponent(data)));
   else str = btoa(String.fromCharCode(...new Uint8Array(data)));
   return str.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// ---------------------------------------------------------------------------
+// /chase-transactions
+// ---------------------------------------------------------------------------
+async function handleChaseTransactions(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const days = Math.min(parseInt(params.get('days') || '90', 10), 730);
+  const plaidToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!plaidToken) throw new Error('No plaid_access_token in KV');
+
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  const fmt = d => d.toISOString().split('T')[0];
+
+  const res = await fetch(`${PLAID_BASE_URL}/transactions/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      access_token: plaidToken,
+      start_date: fmt(start),
+      end_date: fmt(end),
+      options: { count: 500, offset: 0 }
+    })
+  });
+  const data = await res.json();
+  if (data.error_code) throw new Error(`Plaid: ${data.error_code} — ${data.error_message}`);
+
+  const txns = (data.transactions || [])
+    .filter(t => t.amount > 0)
+    .map(t => {
+      const cat = categorizeVendor(t.merchant_name || t.name || '');
+      return {
+        date: t.date,
+        amount: t.amount,
+        vendor: t.merchant_name || t.name || '',
+        account_id: t.account_id,
+        category: cat.account,
+        personal: cat.personal,
+        plaid_category: (t.personal_finance_category || {}).primary || null,
+        transaction_id: t.transaction_id,
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const byAccount = {};
+  for (const t of txns) {
+    if (!byAccount[t.account_id]) byAccount[t.account_id] = [];
+    byAccount[t.account_id].push(t);
+  }
+
+  return new Response(JSON.stringify({
+    period: { start: fmt(start), end: fmt(end), days },
+    total_transactions: txns.length,
+    total_amount: txns.reduce((s, t) => s + t.amount, 0),
+    by_account: byAccount,
+    transactions: txns,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /overdue-invoices
+// ---------------------------------------------------------------------------
+async function handleOverdueInvoices(request, env, corsHeaders) {
+  const today = new Date().toISOString().split('T')[0];
+  const q = `SELECT Id, DocNumber, TxnDate, DueDate, Balance, TotalAmt, CustomerRef FROM Invoice WHERE Balance > '0' AND DueDate < '${today}' MAXRESULTS 200`;
+  const data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const invoices = (data.QueryResponse?.Invoice || []).map(inv => ({
+    id: inv.Id,
+    doc_number: inv.DocNumber,
+    customer: inv.CustomerRef?.name || '',
+    txn_date: inv.TxnDate,
+    due_date: inv.DueDate,
+    total: parseFloat(inv.TotalAmt || 0),
+    balance: parseFloat(inv.Balance || 0),
+    days_overdue: Math.floor((new Date(today) - new Date(inv.DueDate)) / 86400000),
+  })).sort((a, b) => b.balance - a.balance);
+
+  return new Response(JSON.stringify({
+    as_of: today,
+    count: invoices.length,
+    total_overdue: invoices.reduce((s, i) => s + i.balance, 0),
+    invoices,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /top-customers?year=
+// ---------------------------------------------------------------------------
+async function handleTopCustomers(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const year = parseInt(params.get('year') || new Date().getFullYear(), 10);
+  const start = `${year}-01-01`;
+  const end = year === new Date().getFullYear() ? new Date().toISOString().split('T')[0] : `${year}-12-31`;
+
+  const q = `SELECT CustomerRef, TotalAmt, TxnDate FROM Invoice WHERE TxnDate >= '${start}' AND TxnDate <= '${end}' MAXRESULTS 1000`;
+  const data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const invoices = data.QueryResponse?.Invoice || [];
+
+  const byCustomer = {};
+  for (const inv of invoices) {
+    const name = inv.CustomerRef?.name || 'Unknown';
+    if (!byCustomer[name]) byCustomer[name] = { customer: name, invoice_count: 0, total: 0 };
+    byCustomer[name].invoice_count++;
+    byCustomer[name].total += parseFloat(inv.TotalAmt || 0);
+  }
+
+  const customers = Object.values(byCustomer)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 25);
+
+  return new Response(JSON.stringify({
+    year,
+    period: { start, end },
+    top_customers: customers,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /payments-by-customer
+// ---------------------------------------------------------------------------
+async function handlePaymentsByCustomer(request, env, corsHeaders) {
+  const year = new Date().getFullYear();
+  const start = `${year}-01-01`;
+  const end = new Date().toISOString().split('T')[0];
+
+  const q = `SELECT CustomerRef, TotalAmt, TxnDate, PaymentMethodRef, UnappliedAmt FROM Payment WHERE TxnDate >= '${start}' AND TxnDate <= '${end}' MAXRESULTS 1000`;
+  const data = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const payments = data.QueryResponse?.Payment || [];
+
+  const byCustomer = {};
+  for (const p of payments) {
+    const name = p.CustomerRef?.name || 'Unknown';
+    const method = p.PaymentMethodRef?.name || 'Other';
+    if (!byCustomer[name]) byCustomer[name] = { customer: name, total: 0, count: 0, methods: {} };
+    byCustomer[name].total += parseFloat(p.TotalAmt || 0);
+    byCustomer[name].count++;
+    byCustomer[name].methods[method] = (byCustomer[name].methods[method] || 0) + parseFloat(p.TotalAmt || 0);
+  }
+
+  const result = Object.values(byCustomer).sort((a, b) => b.total - a.total);
+  return new Response(JSON.stringify({
+    period: { start, end },
+    total_collected: result.reduce((s, c) => s + c.total, 0),
+    by_customer: result,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// /dad  — combined HTML dashboard
+// ---------------------------------------------------------------------------
+async function handleDadDashboard(request, env, corsHeaders) {
+  const [overdueRes, plRes, chaseRes] = await Promise.allSettled([
+    handleOverdueInvoices(request, env, {}),
+    handleProfitLoss(request, env, {}),
+    handleChaseTransactions(request, env, {}),
+  ]);
+
+  const overdue = overdueRes.status === 'fulfilled' ? await overdueRes.value.json() : { invoices: [], total_overdue: 0 };
+  const pl = plRes.status === 'fulfilled' ? await plRes.value.json() : null;
+  const chase = chaseRes.status === 'fulfilled' ? await chaseRes.value.json() : { transactions: [] };
+
+  const recentTxns = (chase.transactions || []).slice(0, 20);
+  const overdueRows = (overdue.invoices || []).slice(0, 15).map(i =>
+    `<tr><td>${i.customer}</td><td>$${i.balance.toFixed(2)}</td><td>${i.days_overdue}d</td><td>${i.due_date}</td></tr>`
+  ).join('');
+
+  const chaseRows = recentTxns.map(t =>
+    `<tr><td>${t.date}</td><td>${t.vendor}</td><td>$${t.amount.toFixed(2)}</td><td>${t.category}</td></tr>`
+  ).join('');
+
+  const netIncome = pl ? `$${pl.net_income.toLocaleString()}` : 'N/A';
+  const grossProfit = pl ? `$${pl.gross_profit.toLocaleString()}` : 'N/A';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Oxley Dashboard</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;margin:0}
+h1{color:#f8fafc;font-size:28px;margin-bottom:4px}
+.subtitle{color:#94a3b8;margin-bottom:24px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
+.card{background:#1e293b;border-radius:12px;padding:20px;border:1px solid #334155}
+.card-label{color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+.card-value{font-size:28px;font-weight:700;color:#f1f5f9;margin-top:4px}
+.card-value.warn{color:#f59e0b}
+.card-value.good{color:#10b981}
+.section{background:#1e293b;border-radius:12px;padding:20px;margin-bottom:24px;border:1px solid #334155}
+.section h2{font-size:16px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:0 0 16px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:#64748b;font-weight:600;padding:6px 8px;border-bottom:1px solid #334155}
+td{padding:8px;border-bottom:1px solid #1e293b;color:#cbd5e1}
+tr:hover td{background:#263347}
+</style></head><body>
+<h1>Oxley Tire</h1>
+<div class="subtitle">Live Dashboard — ${new Date().toLocaleDateString()}</div>
+<div class="cards">
+  <div class="card"><div class="card-label">Net Income YTD</div><div class="card-value good">${netIncome}</div></div>
+  <div class="card"><div class="card-label">Gross Profit YTD</div><div class="card-value">${grossProfit}</div></div>
+  <div class="card"><div class="card-label">Overdue AR</div><div class="card-value warn">$${(overdue.total_overdue||0).toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Overdue Invoices</div><div class="card-value warn">${overdue.count||0}</div></div>
+</div>
+<div class="section"><h2>Overdue Invoices</h2>
+<table><tr><th>Customer</th><th>Balance</th><th>Days Late</th><th>Due Date</th></tr>${overdueRows}</table></div>
+<div class="section"><h2>Recent Chase Activity (90 days)</h2>
+<table><tr><th>Date</th><th>Vendor</th><th>Amount</th><th>Category</th></tr>${chaseRows}</table></div>
+</body></html>`;
+
+  return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
+}
+
+// ---------------------------------------------------------------------------
+// /chase-report  — HTML spending report with account breakdown
+// ---------------------------------------------------------------------------
+async function handleChaseReport(request, env, corsHeaders) {
+  const params = new URL(request.url).searchParams;
+  const days = parseInt(params.get('days') || '90', 10);
+  const chaseReq = new Request(`${new URL(request.url).origin}/chase-transactions?days=${days}`);
+  const chaseData = await handleChaseTransactions(chaseReq, env, {}).then(r => r.json());
+
+  const txns = chaseData.transactions || [];
+  const byCategory = {};
+  for (const t of txns) {
+    if (!byCategory[t.category]) byCategory[t.category] = { total: 0, count: 0, transactions: [] };
+    byCategory[t.category].total += t.amount;
+    byCategory[t.category].count++;
+    byCategory[t.category].transactions.push(t);
+  }
+
+  const catRows = Object.entries(byCategory)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([cat, d]) => `<tr><td>${cat}</td><td>${d.count}</td><td>$${d.total.toFixed(2)}</td></tr>`)
+    .join('');
+
+  const txnRows = txns.map(t =>
+    `<tr><td>${t.date}</td><td>${t.vendor}</td><td>$${t.amount.toFixed(2)}</td><td>${t.category}</td><td>${t.personal ? 'Personal' : 'Business'}</td></tr>`
+  ).join('');
+
+  const totalAmt = txns.reduce((s, t) => s + t.amount, 0);
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Chase Spending Report</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;margin:0}
+h1{color:#f8fafc;font-size:24px}h2{color:#94a3b8;font-size:14px;text-transform:uppercase;letter-spacing:.05em}
+.stat{display:inline-block;background:#1e293b;border-radius:8px;padding:16px 24px;margin:0 12px 20px 0;border:1px solid #334155}
+.stat-val{font-size:24px;font-weight:700;color:#10b981}.stat-label{color:#64748b;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:32px}
+th{text-align:left;color:#64748b;padding:6px 8px;border-bottom:1px solid #334155}
+td{padding:7px 8px;border-bottom:1px solid #1a2540;color:#cbd5e1}tr:hover td{background:#1e293b}
+</style></head><body>
+<h1>Chase Spending Report — Last ${days} Days</h1>
+<div class="stat"><div class="stat-val">${txns.length}</div><div class="stat-label">Transactions</div></div>
+<div class="stat"><div class="stat-val">$${totalAmt.toFixed(2)}</div><div class="stat-label">Total Spent</div></div>
+<div class="stat"><div class="stat-val">${Object.keys(chaseData.by_account||{}).length}</div><div class="stat-label">Accounts</div></div>
+<h2>By Category</h2>
+<table><tr><th>Category</th><th>Count</th><th>Total</th></tr>${catRows}</table>
+<h2>All Transactions</h2>
+<table><tr><th>Date</th><th>Vendor</th><th>Amount</th><th>Category</th><th>Type</th></tr>${txnRows}</table>
+</body></html>`;
+
+  return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
+}
+
+// Read-only endpoint to verify the invoice dedup guard without creating anything.
+// GET /dedup-check?customer_id=425&txn_date=2026-07-15&total_amt=500.00
+async function handleDedupCheck(request, env, corsHeaders) {
+  const url = new URL(request.url);
+  const custId = url.searchParams.get('customer_id');
+  const txnDate = url.searchParams.get('txn_date');
+  const totalAmt = url.searchParams.get('total_amt');
+  if (!custId || !txnDate || !totalAmt) {
+    return new Response(JSON.stringify({ error: 'Required: customer_id, txn_date, total_amt' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+  const safeDate = txnDate.replace(/'/g, "''");
+  const safeCust = custId.replace(/'/g, "''");
+  const q = `SELECT Id, DocNumber, TxnDate, TotalAmt, CustomerRef FROM Invoice WHERE CustomerRef = '${safeCust}' AND TxnDate = '${safeDate}' AND TotalAmt = '${totalAmt}' MAXRESULTS 5`;
+  const res = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const found = res?.QueryResponse?.Invoice || [];
+  return new Response(JSON.stringify({ would_dedup: found.length > 0, matches: found, query: q }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }

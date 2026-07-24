@@ -788,6 +788,10 @@ export default {
         return await handleChaseReport(request, env, corsHeaders);
       }
 
+      if (url.pathname === '/dedup-check') {
+        return await handleDedupCheck(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -1034,19 +1038,33 @@ async function callTool(name, args, env) {
     case 'qbo_create': {
       const entity = args.entity.toLowerCase();
       if (entity === 'invoice' && args.data) {
-        const d = args.data;
-        const custId = d.CustomerRef && d.CustomerRef.value;
-        const txnDate = d.TxnDate;
-        const totalAmt = d.TotalAmt != null ? d.TotalAmt : null;
-        if (custId && txnDate && totalAmt != null) {
-          const safeDate = String(txnDate).replace(/'/g, "''");
-          const dupQ = `SELECT Id, DocNumber, SyncToken, TotalAmt FROM Invoice WHERE CustomerRef = '${custId}' AND TxnDate = '${safeDate}' AND TotalAmt = '${totalAmt}' MAXRESULTS 1`;
-          const dupRes = await qboRequest(`query?query=${encodeURIComponent(dupQ)}`, env);
-          const existing = dupRes?.QueryResponse?.Invoice;
-          if (existing && existing.length > 0) {
-            data = { Invoice: existing[0], _deduped: true };
-            break;
+        try {
+          const d = args.data;
+          const custId = d.CustomerRef && d.CustomerRef.value;
+          // Match QBO's default: missing TxnDate → today
+          const today = new Date().toISOString().slice(0, 10);
+          const txnDate = d.TxnDate || today;
+          // TotalAmt may be absent when QBO computes it from Line items — derive it
+          let totalAmt = d.TotalAmt != null ? Number(d.TotalAmt) : null;
+          if (totalAmt == null && Array.isArray(d.Line)) {
+            totalAmt = Math.round(d.Line.reduce((s, l) => s + (Number(l.Amount) || 0), 0) * 100) / 100;
           }
+          if (custId && totalAmt != null && totalAmt > 0) {
+            const safeDate = String(txnDate).replace(/'/g, "''");
+            const dupQ = `SELECT Id, DocNumber, SyncToken FROM Invoice WHERE CustomerRef = '${custId}' AND TxnDate = '${safeDate}' AND TotalAmt = '${totalAmt}' MAXRESULTS 1`;
+            const dupRes = await qboRequest(`query?query=${encodeURIComponent(dupQ)}`, env);
+            const existing = dupRes?.QueryResponse?.Invoice;
+            if (existing && existing.length > 0) {
+              // Fetch full invoice so caller gets complete data, not just the query projection
+              const full = await qboRequest(`invoice/${existing[0].Id}`, env);
+              console.log(`[dedup] Blocked duplicate Invoice cust=${custId} date=${txnDate} amt=${totalAmt} existing=${existing[0].Id}`);
+              data = { ...(full || { Invoice: existing[0] }), _deduped: true };
+              break;
+            }
+          }
+        } catch (dedupErr) {
+          // Fail open: a connectivity blip during the check must not block billing
+          console.error(`[dedup] Guard check failed, proceeding with create: ${dedupErr.message}`);
         }
       }
       data = await qboRequest(entity, env, 'POST', args.data);
@@ -1686,7 +1704,7 @@ async function handleQuery(request, env, corsHeaders) {
     case 'top_gp_customers': results = await getTopGPCustomers(env, queryType.percentile || 30); break;
     default: results = await genericQuery(query, env);
   }
-  await writeToSheets(env, query, results);
+  try { await writeToSheets(env, query, results); } catch (_) { /* sheets optional */ }
   return new Response(JSON.stringify({ query, type: queryType.type, resultCount: results.length, results, sheetUrl: `https://docs.google.com/spreadsheets/d/${SHEET_ID}` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
@@ -2113,4 +2131,22 @@ td{padding:7px 8px;border-bottom:1px solid #1a2540;color:#cbd5e1}tr:hover td{bac
 </body></html>`;
 
   return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
+}
+
+// Read-only endpoint to verify the invoice dedup guard without creating anything.
+// GET /dedup-check?customer_id=425&txn_date=2026-07-15&total_amt=500.00
+async function handleDedupCheck(request, env, corsHeaders) {
+  const url = new URL(request.url);
+  const custId = url.searchParams.get('customer_id');
+  const txnDate = url.searchParams.get('txn_date');
+  const totalAmt = url.searchParams.get('total_amt');
+  if (!custId || !txnDate || !totalAmt) {
+    return new Response(JSON.stringify({ error: 'Required: customer_id, txn_date, total_amt' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+  const safeDate = txnDate.replace(/'/g, "''");
+  const safeCust = custId.replace(/'/g, "''");
+  const q = `SELECT Id, DocNumber, TxnDate, TotalAmt, CustomerRef FROM Invoice WHERE CustomerRef = '${safeCust}' AND TxnDate = '${safeDate}' AND TotalAmt = '${totalAmt}' MAXRESULTS 5`;
+  const res = await qboRequest(`query?query=${encodeURIComponent(q)}`, env);
+  const found = res?.QueryResponse?.Invoice || [];
+  return new Response(JSON.stringify({ would_dedup: found.length > 0, matches: found, query: q }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }

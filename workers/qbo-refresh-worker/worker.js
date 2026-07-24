@@ -669,6 +669,10 @@ export default {
         });
       }
 
+      if (url.pathname === '/delete-invoice') {
+        return await handleDeleteInvoice(request, url, env, corsHeaders);
+      }
+
       if (url.pathname === '/query') {
         const qParam = url.searchParams.get('q');
         if (qParam) {
@@ -1367,6 +1371,33 @@ async function handleDirectQboQuery(sql, env, corsHeaders) {
   }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
+}
+
+async function handleDeleteInvoice(request, url, env, corsHeaders) {
+  // Support DELETE /delete-invoice?id=XXX or POST /delete-invoice with JSON body {id}
+  let id = url.searchParams.get('id');
+  if (!id && request.method === 'POST') {
+    try { const body = await request.json(); id = body.id; } catch {}
+  }
+  if (!id) {
+    return new Response(JSON.stringify({ error: 'Pass ?id=<invoiceId> or POST {id}' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+  // Fetch invoice to get current SyncToken
+  const invoice = await qboRequest(`invoice/${id}`, env);
+  const inv = invoice.Invoice;
+  if (!inv) {
+    return new Response(JSON.stringify({ error: `Invoice ${id} not found`, raw: invoice }), {
+      status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+  const { SyncToken, DocNumber, CustomerRef, TotalAmt } = inv;
+  // QBO delete requires POST with operation=delete
+  await qboRequest(`invoice?operation=delete`, env, 'POST', { Id: id, SyncToken });
+  return new Response(JSON.stringify({
+    deleted: true, id, DocNumber, customer: CustomerRef?.name, amount: TotalAmt
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 async function handleQuery(request, env, corsHeaders) {

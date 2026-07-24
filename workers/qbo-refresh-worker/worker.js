@@ -264,6 +264,50 @@ export default {
         return await fetchSalesData(env, corsHeaders);
       }
 
+      if (url.pathname === '/dashboard-summary') {
+        return await handleDashboardSummary(env, corsHeaders);
+      }
+
+      if (url.pathname === '/overdue-invoices') {
+        return await handleOverdueInvoices(env, corsHeaders);
+      }
+
+      if (url.pathname === '/bank-transactions') {
+        return await handleBankTransactions(env, corsHeaders);
+      }
+
+      if (url.pathname === '/profit-loss') {
+        return await handleProfitLoss(url, env, corsHeaders);
+      }
+
+      if (url.pathname === '/top-customers') {
+        return await handleTopCustomers(url, env, corsHeaders);
+      }
+
+      if (url.pathname === '/expenses-detail') {
+        return await handleExpensesDetail(url, env, corsHeaders);
+      }
+
+      if (url.pathname === '/payments-by-customer') {
+        return await handlePaymentsByCustomer(env, corsHeaders);
+      }
+
+      if (url.pathname === '/chase-transactions') {
+        return await handleChaseTransactions(url, env, corsHeaders);
+      }
+
+      if (url.pathname === '/chase-report') {
+        return await handleChaseReport(url, env, corsHeaders);
+      }
+
+      if (url.pathname === '/dad') {
+        return await handleDad(url, env, corsHeaders);
+      }
+
+      if (url.pathname === '/new-prospect' && request.method === 'POST') {
+        return await handleNewProspect(request, env, corsHeaders);
+      }
+
       return new Response('Not Found', { status: 404 });
 
     } catch (error) {
@@ -608,6 +652,226 @@ async function refreshAccessToken(env) {
   await env.QBO_TOKENS.put('refresh_token', data.refresh_token);
   await env.QBO_TOKENS.put('expires_at', (now + data.expires_in).toString());
   return { access_token: data.access_token, refresh_token: data.refresh_token, expires_in: data.expires_in };
+}
+
+async function handleDashboardSummary(env, corsHeaders) {
+  const [invoicesRes, customersRes] = await Promise.all([
+    qboRequest('query?query=SELECT Id, TotalAmt, Balance, DueDate, TxnDate, CustomerRef FROM Invoice MAXRESULTS 1000', env),
+    qboRequest('query?query=SELECT Id, DisplayName, Balance FROM Customer MAXRESULTS 1000', env),
+  ]);
+  const invoices = invoicesRes.QueryResponse?.Invoice || [];
+  const customers = customersRes.QueryResponse?.Customer || [];
+  const today = new Date().toISOString().slice(0, 10);
+  let totalAR = 0, overdueAR = 0, overdueCount = 0;
+  for (const inv of invoices) {
+    const bal = parseFloat(inv.Balance || 0);
+    if (bal > 0) {
+      totalAR += bal;
+      if (inv.DueDate && inv.DueDate < today) { overdueAR += bal; overdueCount++; }
+    }
+  }
+  const totalCustomers = customers.length;
+  const activeCustomers = customers.filter(c => parseFloat(c.Balance || 0) > 0).length;
+  return new Response(JSON.stringify({
+    totalAR: totalAR.toFixed(2),
+    overdueAR: overdueAR.toFixed(2),
+    overdueCount,
+    totalCustomers,
+    activeCustomers,
+    openInvoices: invoices.filter(i => parseFloat(i.Balance || 0) > 0).length,
+    asOf: today,
+  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+async function handleOverdueInvoices(env, corsHeaders) {
+  const res = await qboRequest('query?query=SELECT Id, DocNumber, TxnDate, DueDate, TotalAmt, Balance, CustomerRef FROM Invoice MAXRESULTS 1000', env);
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = (res.QueryResponse?.Invoice || [])
+    .filter(inv => parseFloat(inv.Balance || 0) > 0 && inv.DueDate && inv.DueDate < today)
+    .sort((a, b) => a.DueDate.localeCompare(b.DueDate));
+  return new Response(JSON.stringify({ count: overdue.length, invoices: overdue }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleBankTransactions(env, corsHeaders) {
+  const [purchasesRes, depositsRes] = await Promise.all([
+    qboRequest('query?query=SELECT Id, TxnDate, TotalAmt, PaymentType, EntityRef, PrivateNote FROM Purchase ORDERBY TxnDate DESC MAXRESULTS 500', env),
+    qboRequest('query?query=SELECT Id, TxnDate, TotalAmt, PrivateNote FROM Deposit ORDERBY TxnDate DESC MAXRESULTS 500', env),
+  ]);
+  const purchases = (purchasesRes.QueryResponse?.Purchase || []).map(t => ({
+    id: t.Id, date: t.TxnDate, type: 'Purchase', amount: -Math.abs(parseFloat(t.TotalAmt || 0)),
+    payee: t.EntityRef?.name || '', memo: t.PrivateNote || '', paymentType: t.PaymentType || '',
+  }));
+  const deposits = (depositsRes.QueryResponse?.Deposit || []).map(t => ({
+    id: t.Id, date: t.TxnDate, type: 'Deposit', amount: parseFloat(t.TotalAmt || 0),
+    payee: '', memo: t.PrivateNote || '', paymentType: '',
+  }));
+  const all = [...purchases, ...deposits].sort((a, b) => b.date.localeCompare(a.date));
+  return new Response(JSON.stringify({ count: all.length, transactions: all }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleProfitLoss(url, env, corsHeaders) {
+  const start = url.searchParams.get('start_date') || `${new Date().getFullYear()}-01-01`;
+  const end = url.searchParams.get('end_date') || new Date().toISOString().slice(0, 10);
+  const data = await qboRequest(`reports/ProfitAndLoss?start_date=${start}&end_date=${end}`, env);
+  return new Response(JSON.stringify(data), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+async function handleTopCustomers(url, env, corsHeaders) {
+  const year = url.searchParams.get('year') || new Date().getFullYear();
+  const start = `${year}-01-01`;
+  const end = `${year}-12-31`;
+  const res = await qboRequest(`query?query=SELECT Id, DocNumber, TxnDate, TotalAmt, CustomerRef FROM Invoice MAXRESULTS 1000`, env);
+  const invoices = res.QueryResponse?.Invoice || [];
+  const byCustomer = {};
+  for (const inv of invoices) {
+    if (!inv.TxnDate || inv.TxnDate < start || inv.TxnDate > end) continue;
+    const id = inv.CustomerRef?.value;
+    if (!id) continue;
+    if (!byCustomer[id]) byCustomer[id] = { id, name: inv.CustomerRef.name, total: 0, invoiceCount: 0 };
+    byCustomer[id].total += parseFloat(inv.TotalAmt || 0);
+    byCustomer[id].invoiceCount++;
+  }
+  const sorted = Object.values(byCustomer).sort((a, b) => b.total - a.total);
+  return new Response(JSON.stringify({ year, count: sorted.length, customers: sorted }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleExpensesDetail(url, env, corsHeaders) {
+  const start = url.searchParams.get('start_date') || `${new Date().getFullYear()}-01-01`;
+  const end = url.searchParams.get('end_date') || new Date().toISOString().slice(0, 10);
+  const [purchasesRes, billsRes] = await Promise.all([
+    qboRequest('query?query=SELECT Id, TxnDate, TotalAmt, EntityRef, PrivateNote, PaymentType FROM Purchase ORDERBY TxnDate DESC MAXRESULTS 1000', env),
+    qboRequest('query?query=SELECT Id, TxnDate, TotalAmt, VendorRef, PrivateNote, DueDate FROM Bill ORDERBY TxnDate DESC MAXRESULTS 1000', env),
+  ]);
+  const purchases = (purchasesRes.QueryResponse?.Purchase || [])
+    .filter(t => t.TxnDate >= start && t.TxnDate <= end)
+    .map(t => ({ id: t.Id, date: t.TxnDate, type: 'Purchase', amount: parseFloat(t.TotalAmt || 0), vendor: t.EntityRef?.name || '', memo: t.PrivateNote || '' }));
+  const bills = (billsRes.QueryResponse?.Bill || [])
+    .filter(t => t.TxnDate >= start && t.TxnDate <= end)
+    .map(t => ({ id: t.Id, date: t.TxnDate, type: 'Bill', amount: parseFloat(t.TotalAmt || 0), vendor: t.VendorRef?.name || '', memo: t.PrivateNote || '', dueDate: t.DueDate || '' }));
+  const all = [...purchases, ...bills].sort((a, b) => b.date.localeCompare(a.date));
+  const total = all.reduce((s, t) => s + t.amount, 0);
+  return new Response(JSON.stringify({ start, end, count: all.length, total: total.toFixed(2), expenses: all }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function handlePaymentsByCustomer(env, corsHeaders) {
+  const res = await qboRequest('query?query=SELECT Id, TxnDate, TotalAmt, CustomerRef, PaymentMethodRef, PrivateNote FROM Payment ORDERBY TxnDate DESC MAXRESULTS 1000', env);
+  const payments = res.QueryResponse?.Payment || [];
+  const byCustomer = {};
+  for (const p of payments) {
+    const id = p.CustomerRef?.value || 'unknown';
+    if (!byCustomer[id]) byCustomer[id] = { id, name: p.CustomerRef?.name || 'Unknown', totalPaid: 0, payments: [] };
+    const amt = parseFloat(p.TotalAmt || 0);
+    byCustomer[id].totalPaid += amt;
+    byCustomer[id].payments.push({ id: p.Id, date: p.TxnDate, amount: amt, method: p.PaymentMethodRef?.name || '', memo: p.PrivateNote || '' });
+  }
+  const sorted = Object.values(byCustomer).sort((a, b) => b.totalPaid - a.totalPaid);
+  return new Response(JSON.stringify({ count: sorted.length, customers: sorted }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function plaidRequest(path, body, env) {
+  const plaidToken = await env.QBO_TOKENS.get('plaid_access_token');
+  if (!plaidToken) throw new Error('No Plaid access token in KV');
+  const resp = await fetch(`https://production.plaid.com${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'PLAID-CLIENT-ID': env.PLAID_CLIENT_ID, 'PLAID-SECRET': env.PLAID_SECRET },
+    body: JSON.stringify({ access_token: plaidToken, ...body }),
+  });
+  if (!resp.ok) throw new Error(`Plaid ${path} → ${resp.status}: ${await resp.text()}`);
+  return resp.json();
+}
+
+async function handleChaseTransactions(url, env, corsHeaders) {
+  const days = parseInt(url.searchParams.get('days') || '90');
+  const end = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const data = await plaidRequest('/transactions/get', { start_date: startDate, end_date: end, options: { count: 500 } }, env);
+  const txns = (data.transactions || []).map(t => ({
+    id: t.transaction_id, date: t.date,
+    amount: t.amount, name: t.name, merchantName: t.merchant_name || t.name,
+    category: (t.category || []).join(' > '),
+    pending: t.pending,
+  }));
+  return new Response(JSON.stringify({ days, count: txns.length, transactions: txns }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleChaseReport(url, env, corsHeaders) {
+  const days = parseInt(url.searchParams.get('days') || '30');
+  const end = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const data = await plaidRequest('/transactions/get', { start_date: startDate, end_date: end, options: { count: 500 } }, env);
+  const txns = data.transactions || [];
+  const byCategory = {};
+  for (const t of txns) {
+    const cat = (t.category || ['Uncategorized'])[0];
+    if (!byCategory[cat]) byCategory[cat] = { category: cat, total: 0, count: 0 };
+    byCategory[cat].total += Math.abs(t.amount);
+    byCategory[cat].count++;
+  }
+  const cats = Object.values(byCategory).sort((a, b) => b.total - a.total);
+  const grandTotal = cats.reduce((s, c) => s + c.total, 0);
+  const rows = txns.sort((a, b) => b.date.localeCompare(a.date))
+    .map(t => `<tr><td>${t.date}</td><td>${t.merchant_name || t.name}</td><td>${(t.category||[]).join(' > ')}</td><td style="text-align:right">$${Math.abs(t.amount).toFixed(2)}</td></tr>`)
+    .join('');
+  const catRows = cats.map(c => `<tr><td>${c.category}</td><td style="text-align:right">${c.count}</td><td style="text-align:right">$${c.total.toFixed(2)}</td><td style="text-align:right">${(c.total/grandTotal*100).toFixed(1)}%</td></tr>`).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Chase Report</title>
+<style>body{font-family:sans-serif;padding:20px;max-width:1100px;margin:0 auto}h1,h2{color:#333}table{width:100%;border-collapse:collapse;margin-bottom:30px}th{background:#333;color:#fff;padding:10px;text-align:left}td{padding:8px;border-bottom:1px solid #eee}tr:hover{background:#f9f9f9}.total{font-weight:bold;font-size:1.2em;margin-bottom:10px}</style></head>
+<body><h1>Chase Spending Report</h1><p>${startDate} → ${end}</p>
+<div class="total">Total: $${grandTotal.toFixed(2)} across ${txns.length} transactions</div>
+<h2>By Category</h2><table><thead><tr><th>Category</th><th>Count</th><th>Total</th><th>%</th></tr></thead><tbody>${catRows}</tbody></table>
+<h2>Transactions</h2><table><thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table>
+</body></html>`;
+  return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
+}
+
+async function handleDad(url, env, corsHeaders) {
+  const [summary, overdueRes, chaseRes] = await Promise.all([
+    handleDashboardSummary(env, { 'Content-Type': 'application/json' }).then(r => r.json()),
+    handleOverdueInvoices(env, { 'Content-Type': 'application/json' }).then(r => r.json()).catch(() => ({ invoices: [] })),
+    handleChaseTransactions(url, env, { 'Content-Type': 'application/json' }).then(r => r.json()).catch(() => ({ transactions: [] })),
+  ]);
+  const overdueRows = (overdueRes.invoices || []).slice(0, 20)
+    .map(inv => `<tr><td>${inv.DueDate}</td><td>${inv.CustomerRef?.name || ''}</td><td>#${inv.DocNumber}</td><td style="text-align:right;color:#c00">$${parseFloat(inv.Balance).toFixed(2)}</td></tr>`)
+    .join('');
+  const chaseRows = (chaseRes.transactions || []).slice(0, 30)
+    .map(t => `<tr><td>${t.date}</td><td>${t.merchantName || t.name}</td><td>${t.category}</td><td style="text-align:right">$${Math.abs(t.amount).toFixed(2)}</td></tr>`)
+    .join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Oxley Dashboard</title>
+<style>body{font-family:-apple-system,sans-serif;background:#f0f2f5;padding:20px;margin:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;margin-bottom:25px}.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08)}.stat-label{font-size:13px;color:#888;margin-bottom:6px}.stat-value{font-size:28px;font-weight:700;color:#1a1a2e}.stat-value.red{color:#dc2626}.section{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:20px}h1{color:#1a1a2e;margin-bottom:20px}h2{color:#333;margin-bottom:15px;font-size:18px}table{width:100%;border-collapse:collapse}th{background:#f8f9fa;padding:10px;text-align:left;font-size:13px;color:#555;border-bottom:2px solid #e5e7eb}td{padding:10px;font-size:14px;border-bottom:1px solid #f0f0f0}</style></head>
+<body><h1>🚛 Oxley Tire Dashboard</h1>
+<div class="grid">
+  <div class="card"><div class="stat-label">Total AR</div><div class="stat-value">$${Number(summary.totalAR).toLocaleString()}</div></div>
+  <div class="card"><div class="stat-label">Overdue AR</div><div class="stat-value red">$${Number(summary.overdueAR).toLocaleString()}</div></div>
+  <div class="card"><div class="stat-label">Overdue Invoices</div><div class="stat-value red">${summary.overdueCount}</div></div>
+  <div class="card"><div class="stat-label">Open Invoices</div><div class="stat-value">${summary.openInvoices}</div></div>
+  <div class="card"><div class="stat-label">Active Customers</div><div class="stat-value">${summary.activeCustomers}</div></div>
+</div>
+<div class="section"><h2>⚠️ Overdue Invoices</h2><table><thead><tr><th>Due Date</th><th>Customer</th><th>Invoice</th><th>Balance</th></tr></thead><tbody>${overdueRows || '<tr><td colspan="4" style="color:#888">No overdue invoices</td></tr>'}</tbody></table></div>
+<div class="section"><h2>🏦 Recent Chase Transactions</h2><table><thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th>Amount</th></tr></thead><tbody>${chaseRows || '<tr><td colspan="4" style="color:#888">No transactions or Plaid not connected</td></tr>'}</tbody></table></div>
+<p style="color:#aaa;font-size:12px;text-align:right">As of ${summary.asOf}</p></body></html>`;
+  return new Response(html, { headers: { ...corsHeaders, 'Content-Type': 'text/html' } });
+}
+
+async function handleNewProspect(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    return new Response(JSON.stringify({ ok: true, received: body }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
 }
 
 async function fetchCustomers(env, corsHeaders) {

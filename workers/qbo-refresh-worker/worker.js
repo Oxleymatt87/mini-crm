@@ -1817,8 +1817,14 @@ async function getTopGPCustomers(env, percentile = 30) {
 }
 
 async function genericQuery(query, env) {
-  const invoices = await qboRequest('query?query=SELECT * FROM Invoice MAXRESULTS 100', env);
-  return invoices.QueryResponse.Invoice || [];
+  const res = await qboRequest(`query?query=${encodeURIComponent(query)}`, env);
+  const qr = res.QueryResponse || {};
+  // Return whichever entity type came back
+  const entities = ['Invoice','Customer','Payment','JournalEntry','Purchase','Bill','Vendor','Item','Account'];
+  for (const e of entities) {
+    if (qr[e]) return qr[e];
+  }
+  return [];
 }
 
 async function writeToSheets(env, query, results) {
